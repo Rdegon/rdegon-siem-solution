@@ -8,17 +8,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_ROOT = ROOT / "services" / "web"
-for candidate in (str(APP_ROOT), str(ROOT)):
-    while candidate in sys.path:
-        sys.path.remove(candidate)
-for candidate in (str(APP_ROOT), str(ROOT)):
-    sys.path.insert(0, candidate)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-try:
-    from app import deps  # type: ignore[import-not-found]  # noqa: E402
-except ImportError:  # pragma: no cover - compatibility with flat local checkouts
-    import deps  # type: ignore[import-not-found,no-redef]  # noqa: E402
+from deploy.runtime_imports import import_app_module  # noqa: E402
+
+deps = import_app_module("deps")
 
 try:  # pragma: no cover - production web venv uses clickhouse_connect only.
     import clickhouse_driver  # noqa: F401

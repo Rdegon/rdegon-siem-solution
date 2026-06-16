@@ -6,15 +6,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_ROOT = ROOT / "services" / "web"
-for candidate in (str(APP_ROOT), str(ROOT)):
-    if candidate not in sys.path:
-        sys.path.insert(0, candidate)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-try:
-    from app import deps  # type: ignore[import-not-found]  # noqa: E402
-except ImportError:  # pragma: no cover - compatibility with flat local checkouts
-    import deps  # type: ignore[import-not-found,no-redef]  # noqa: E402
+from deploy.runtime_imports import import_app_module  # noqa: E402
+
+deps = import_app_module("deps")
 
 
 PACK_PATH = ROOT / "correlation_rule_packs" / "siem_detection_pack_v1.json"

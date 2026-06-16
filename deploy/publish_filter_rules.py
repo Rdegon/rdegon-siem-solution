@@ -5,12 +5,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_ROOT = ROOT / "services" / "web"
-for candidate in (str(APP_ROOT), str(ROOT)):
-    if candidate not in sys.path:
-        sys.path.insert(0, candidate)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from app import deps  # type: ignore[import-not-found]  # noqa: E402
+from deploy.runtime_imports import import_app_module  # noqa: E402
+
+deps = import_app_module("deps")
 
 
 FILTER_RULES_SQL = ROOT / "sql_12_filter_rule_seed.sql"

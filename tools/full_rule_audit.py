@@ -85,26 +85,50 @@ def load_pack_inventory() -> list[RuleInventoryItem]:
     return items
 
 
-def _clickhouse_client():
+def _clickhouse_execute(query: str) -> list[tuple[Any, ...]]:
+    host = os.getenv("SIEM_CH_HOST", "127.0.0.1")
+    port = int(os.getenv("SIEM_CH_PORT", "9000"))
+    user = os.getenv("SIEM_CH_USER", "siem_admin")
+    password = os.getenv("SIEM_CH_PASSWORD", "")
+    database = os.getenv("SIEM_CH_DB", "siem")
+    timeout = int(os.getenv("SIEM_CH_TIMEOUT_SECS", "20"))
+    if port == 8123:
+        try:
+            import clickhouse_connect
+        except ModuleNotFoundError:
+            return []
+        client = clickhouse_connect.get_client(
+            host=host,
+            port=port,
+            username=user,
+            password=password,
+            database=database,
+            connect_timeout=timeout,
+            send_receive_timeout=timeout,
+        )
+        try:
+            return [tuple(row) for row in client.query(query).result_rows]
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
     try:
         from clickhouse_driver import Client
     except ModuleNotFoundError:
-        return None
-    return Client(
-        host=os.getenv("SIEM_CH_HOST", "127.0.0.1"),
-        port=int(os.getenv("SIEM_CH_PORT", "9000")),
-        user=os.getenv("SIEM_CH_USER", "siem_admin"),
-        password=os.getenv("SIEM_CH_PASSWORD", ""),
-        database=os.getenv("SIEM_CH_DB", "siem"),
-        send_receive_timeout=int(os.getenv("SIEM_CH_TIMEOUT_SECS", "20")),
+        return []
+    client = Client(
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        database=database,
+        send_receive_timeout=timeout,
     )
+    return client.execute(query)
 
 
 def load_live_alert_metrics(days: int) -> dict[int, dict[str, Any]]:
-    client = _clickhouse_client()
-    if client is None:
-        return {}
-    rows = client.execute(
+    rows = _clickhouse_execute(
         f"""
         SELECT
             rule_id,

@@ -6,21 +6,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_ROOT = Path(__file__).resolve().parent
-APP_ROOT = ROOT / "services" / "web"
-for candidate in (str(DEPLOY_ROOT), str(APP_ROOT), str(ROOT)):
+for candidate in (str(DEPLOY_ROOT), str(ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
+from deploy.runtime_imports import import_app_module  # noqa: E402
 from env_file_runtime import maybe_load_runtime_env  # noqa: E402
 
 maybe_load_runtime_env()
 
-from app import deps  # type: ignore[import-not-found]  # noqa: E402
-from app import enterprise_control_plane as ecp  # type: ignore[import-not-found]  # noqa: E402
-from app.operational_filters import (  # type: ignore[import-not-found]  # noqa: E402
-    NON_OPERATIONAL_MARKERS,
-    is_non_operational_record,
-)
+deps = import_app_module("deps")
+ecp = import_app_module("enterprise_control_plane")
+operational_filters = import_app_module("operational_filters")
+
+NON_OPERATIONAL_MARKERS = operational_filters.NON_OPERATIONAL_MARKERS
+is_non_operational_record = operational_filters.is_non_operational_record
 
 
 MARKERS = NON_OPERATIONAL_MARKERS
