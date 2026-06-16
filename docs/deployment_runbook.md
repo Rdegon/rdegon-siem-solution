@@ -24,8 +24,8 @@ python -m pytest tests/test_transport_runtime.py tests/test_ingest_fabric.py tes
 4. EPS validation:
 
 ```powershell
-python deploy/eps_ladder_live.py --targets 500,750,1000,1250,1500
-python deploy/cleanup_eps_benchmark_events.py --execute
+python deploy/eps_ladder_live.py --stages 500,750,1000,1250,1500 --output runtime-control-plane/eps-ladder-live/eps_ladder.json
+python deploy/cleanup_eps_benchmark_events.py --report runtime-control-plane/eps-ladder-live/eps_ladder.json --execute
 ```
 
 5. Do not promote if:
