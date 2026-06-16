@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Rdegon.WindowsEventAgent.Setup</RootNamespace>
+    <AssemblyName>Rdegon.WindowsEventAgent.Setup</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PayloadZipPath Condition="'$(PayloadZipPath)' == ''">$(MSBuildProjectDirectory)\payload-placeholder.zip</PayloadZipPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(PayloadZipPath)" LogicalName="Rdegon.WindowsEventAgent.Setup.Payload.BundleZip" />
+    <EmbeddedResource Include="..\..\..\..\deploy\windows-agent\INSTALL.md" LogicalName="Rdegon.WindowsEventAgent.Setup.Payload.InstallGuide" />
+    <EmbeddedResource Include="..\..\..\..\ops\windows-agent-profile.local.example.json" LogicalName="Rdegon.WindowsEventAgent.Setup.Payload.ProfileTemplate" />
+  </ItemGroup>
+</Project>

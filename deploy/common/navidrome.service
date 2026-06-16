@@ -1,0 +1,16 @@
+[Unit]
+Description=Navidrome media service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=navidrome
+Group=navidrome
+WorkingDirectory=/var/lib/navidrome
+ExecStart=/opt/navidrome/navidrome --configfile /etc/navidrome/navidrome.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

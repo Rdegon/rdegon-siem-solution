@@ -1,0 +1,56 @@
+{
+  "pack_id": "pilot-services-v1",
+  "title": "Pilot services correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "This pack covers the Gitea, PostgreSQL, Valkey, and Navidrome service tier.",
+    "It is intentionally tuned around runtime instability and access-error bursts rather than every single application log line.",
+    "The pack relies on the pilot service units and forwarded application logs being present on the fleet nodes."
+  ],
+  "stream_rules": [
+    {
+      "id": 2501,
+      "title": "Pilot Service Runtime Instability",
+      "severity": "medium",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "status": "active",
+      "operator_action": "Inspect the affected service unit and recent rollout history. Validate whether the node is recovering automatically or needs intervention.",
+      "sigma_yaml": "title: Pilot Service Runtime Instability\nid: sigma-pilot-service-runtime-instability\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_service_flapping\n    host.name:\n      - pilot-web-01\n      - pilot-db-01\n      - pilot-cache-01\n      - navidrome-01\n  condition: selection\nlevel: medium\ntags:\n  - pilot\n  - services\n  - flapping\n"
+    },
+    {
+      "id": 2502,
+      "title": "Pilot Service Telemetry Missing",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "status": "active",
+      "operator_action": "Check host-runtime delivery, rsyslog forwarding, and whether the service node is reachable and intentionally online.",
+      "sigma_yaml": "title: Pilot Service Telemetry Missing\nid: sigma-pilot-service-telemetry-missing\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_telemetry_stale\n    host.name:\n      - pilot-web-01\n      - pilot-db-01\n      - pilot-cache-01\n      - navidrome-01\n  condition: selection\nlevel: high\ntags:\n  - pilot\n  - telemetry\n  - stale\n"
+    },
+    {
+      "id": 2503,
+      "title": "Pilot Service Auth Error Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 4,
+      "entity_field": "host.name",
+      "status": "active",
+      "operator_action": "Review the application access logs and verify whether the errors come from legitimate user retries or brute-force style access attempts.",
+      "sigma_yaml": "title: Pilot Service Auth Error Burst\nid: sigma-pilot-service-auth-error-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: app_logs\ndetection:\n  selection_host:\n    host.name:\n      - pilot-web-01\n      - navidrome-01\n  selection_message:\n    message|contains:\n      - login failed\n      - authentication failed\n      - invalid password\n      - bad credentials\n  condition: selection_host and selection_message\nlevel: medium\ntags:\n  - pilot\n  - auth\n  - access\n"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4501,
+      "title": "Pilot Service Error Trend Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review for repetitive access and error spikes across the pilot application tier."
+    }
+  ]
+}

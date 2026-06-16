@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}{{ t['page.events.title'] }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ t['page.events.title'] }}{% endblock %}
+{% block page_subtitle %}{{ t['page.events.subtitle'] }}{% endblock %}
+{% block extra_head %}
+<style>
+    .results-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+    }
+    .results-meta {
+        color: var(--text-soft);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    .pager {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .pager-status {
+        color: var(--text-soft);
+        font: 500 12px var(--font-mono);
+        letter-spacing: .06em;
+        text-transform: uppercase;
+    }
+    .drawer-summary {
+        margin-bottom: 14px;
+        color: var(--text-soft);
+        font-size: 13px;
+    }
+    .event-drawer-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 6, 23, 0.52);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity .18s ease;
+        z-index: 48;
+    }
+    .event-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .event-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100vh;
+        width: min(540px, 100vw);
+        background: var(--surface-solid);
+        border-left: 1px solid var(--border);
+        box-shadow: -22px 0 48px rgba(15, 23, 42, 0.20);
+        transform: translateX(100%);
+        transition: transform .18s ease;
+        z-index: 49;
+        display: grid;
+        grid-template-rows: auto 1fr;
+    }
+    .event-drawer.open { transform: translateX(0); }
+    .event-drawer-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 20px 22px 0;
+    }
+    .event-drawer-body { padding: 18px 22px 22px; overflow: auto; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="view-stack">
+<section class="panel">
+    <div class="panel-header"><div><h3 class="panel-title">Query console</h3><p class="panel-subtitle">Use either a read-only WHERE expression or a full read-only SELECT. Expanded event fields now expose action, outcome, host, identity and process context.</p></div><span class="badge sql">Read only SQL</span></div>
+    <div class="panel-body">
+        <div class="toolbar">
+            <div class="query-editor"><textarea id="queryInput" class="textarea mono" spellcheck="false" placeholder="Example: collector_profile = 'linux-audit' AND message ILIKE '%auditd:%'">{{ initial_query }}</textarea><div class="page-note" style="margin-top:10px;">Leave the field empty to load recent events, use the collector quick filters below, or run a full SELECT such as <span class="mono">SELECT ts, log_source, collector_profile, severity, user_name, process_command FROM events_view WHERE device_product = 'linux.auditd' ORDER BY ts DESC LIMIT 100</span>.</div></div>
+            <div><label class="hint" for="windowSelect">Time window</label><select id="windowSelect" class="select"><option value="15m" {% if initial_window == '15m' %}selected{% endif %}>Last 15m</option><option value="1h" {% if initial_window == '1h' %}selected{% endif %}>Last 1h</option><option value="6h" {% if initial_window == '6h' %}selected{% endif %}>Last 6h</option><option value="24h" {% if initial_window == '24h' %}selected{% endif %}>Last 24h</option><option value="7d" {% if initial_window == '7d' %}selected{% endif %}>Last 7d</option><option value="all" {% if initial_window == 'all' %}selected{% endif %}>All data</option></select></div>
+            <div><label class="hint" for="limitSelect">Row limit</label><select id="limitSelect" class="select">{% for value in [100, 250, 500, 1000] %}<option value="{{ value }}" {% if initial_limit == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label class="hint" for="refreshSelect">Auto refresh</label><select id="refreshSelect" class="select"><option value="off" {% if initial_auto_refresh == 'off' %}selected{% endif %}>Off</option><option value="10000" {% if initial_auto_refresh == '10000' %}selected{% endif %}>10s</option><option value="30000" {% if initial_auto_refresh == '30000' %}selected{% endif %}>30s</option><option value="60000" {% if initial_auto_refresh == '60000' %}selected{% endif %}>1m</option></select></div>
+            <div><label class="hint" for="storageSelect">Storage</label><select id="storageSelect" class="select"><option value="hot" {% if initial_storage == 'hot' %}selected{% endif %}>Hot</option><option value="cold" {% if initial_storage == 'cold' %}selected{% endif %}>Cold</option><option value="all" {% if initial_storage == 'all' %}selected{% endif %}>Hot + cold</option></select></div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;"><button class="btn primary" id="runQueryBtn" type="button">Run query</button><button class="btn ghost" id="resetQueryBtn" type="button">Reset</button><button class="btn ghost" id="exportBtn" type="button">Export TSV</button><button class="btn ghost" type="button" data-example="collector_profile = 'linux-audit'">linux audit</button><button class="btn ghost" type="button" data-example="collector_profile = 'linux-auth'">linux auth</button><button class="btn ghost" type="button" data-example="collector_profile IN ('vpn','vpn-http')">vpn</button><button class="btn ghost" type="button" data-example="collector_profile = 'app-json-http'">apps</button><button class="btn ghost" type="button" data-example="collector_profile = 'vulnscanner-http'">vuln reports</button><button class="btn ghost" type="button" data-example="collector_profile = 'windows-security-http'">windows security</button><button class="btn ghost" type="button" data-example="collector_profile = 'windows-sysmon-http'">windows sysmon</button><button class="btn ghost" type="button" data-example="message ILIKE '%auditd:%'">auditd events</button><button class="btn ghost" type="button" data-example="event_action = 'account_create'">identity changes</button><button class="btn ghost" type="button" data-example="asset_criticality IN ('high','critical')">critical assets</button><button class="btn ghost" type="button" data-example="ti_indicator != ''">TI hits</button><button class="btn ghost" type="button" data-example="process_command ILIKE '%curl%' OR process_command ILIKE '%wget%'">download tools</button></div>
+        <div id="queryError" class="error-box" style="display:none; margin-top:14px;"></div>
+        <details id="resolvedSqlWrap" style="margin-top:14px; display:none;">
+            <summary class="page-note" style="cursor:pointer;">Resolved SQL</summary>
+            <div id="querySql" class="sql-box mono"></div>
+        </details>
+    </div>
+</section>
+<div class="view-stack">
+    <section class="panel"><div class="panel-header"><div><h3 class="panel-title">Query results</h3><p class="panel-subtitle">Click any row to open the event drawer. Timestamps are rendered in your selected time zone.</p></div><span id="resultCount" class="badge live">0 rows</span></div><div class="panel-body table-wrap"><div class="results-toolbar"><div id="resultsMeta" class="results-meta">Run a query to load rows.</div><div class="pager"><button class="btn ghost" id="prevPageBtn" type="button">Previous</button><span id="pageStatus" class="pager-status">Page 1 / 1</span><button class="btn ghost" id="nextPageBtn" type="button">Next</button></div></div><div id="columnToggles" class="chip-row" style="margin-bottom:14px;"></div><table id="resultsTable"><thead><tr id="resultsHead"></tr></thead><tbody id="resultsBody"></tbody></table><div id="resultsEmpty" class="empty-box" style="display:none;">No rows matched the current query.</div></div></section>
+    <section class="panel"><div class="panel-header"><div><h3 class="panel-title">Result timeline</h3><p class="panel-subtitle">15-minute buckets based on the returned rows.</p></div></div><div class="panel-body"><div id="resultTimeline" class="chart-bars"></div></div></section>
+</div>
+</div>
+<div class="event-drawer-overlay" id="eventDrawerOverlay"></div>
+<aside class="event-drawer" id="eventDrawerPanel" aria-hidden="true">
+    <div class="event-drawer-header">
+        <div>
+            <h3 class="panel-title">Event details</h3>
+            <p class="panel-subtitle">Detailed event view, normalized fields and follow-up pivots.</p>
+        </div>
+        <button class="btn ghost" id="closeEventDrawerBtn" type="button">Close</button>
+    </div>
+    <div class="event-drawer-body" id="eventDrawer"><div class="drawer-empty">Click a row in Query results to inspect the event.</div></div>
+</aside>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const queryInput = document.getElementById('queryInput');
+const windowSelect = document.getElementById('windowSelect');
+const limitSelect = document.getElementById('limitSelect');
+const refreshSelect = document.getElementById('refreshSelect');
+const storageSelect = document.getElementById('storageSelect');
+const runQueryBtn = document.getElementById('runQueryBtn');
+const resetQueryBtn = document.getElementById('resetQueryBtn');
+const exportBtn = document.getElementById('exportBtn');
+const queryError = document.getElementById('queryError');
+const querySql = document.getElementById('querySql');
+const resolvedSqlWrap = document.getElementById('resolvedSqlWrap');
+const resultsHead = document.getElementById('resultsHead');
+const resultsBody = document.getElementById('resultsBody');
+const resultsEmpty = document.getElementById('resultsEmpty');
+const resultCount = document.getElementById('resultCount');
+const resultsMeta = document.getElementById('resultsMeta');
+const prevPageBtn = document.getElementById('prevPageBtn');
+const nextPageBtn = document.getElementById('nextPageBtn');
+const pageStatus = document.getElementById('pageStatus');
+const columnToggles = document.getElementById('columnToggles');
+const resultTimeline = document.getElementById('resultTimeline');
+const eventDrawer = document.getElementById('eventDrawer');
+const eventDrawerPanel = document.getElementById('eventDrawerPanel');
+const eventDrawerOverlay = document.getElementById('eventDrawerOverlay');
+const closeEventDrawerBtn = document.getElementById('closeEventDrawerBtn');
+let currentRows = [];
+let currentColumns = [];
+let visibleColumns = [];
+let selectedRowIndex = null;
+let refreshTimer = null;
+let currentHistogram = [];
+let currentOffset = 0;
+let currentTotalCount = 0;
+let currentPage = 1;
+let currentTotalPages = 1;
+
+function restoreColumns(columns) {
+    const saved = JSON.parse(localStorage.getItem('siem_events_columns_v2') || '[]');
+    const merged = saved.filter((item) => columns.includes(item));
+    columns.forEach((item) => { if (!merged.includes(item)) merged.push(item); });
+    return merged;
+}
+function persistState() {
+    localStorage.setItem('siem_events_columns_v2', JSON.stringify(visibleColumns));
+    localStorage.setItem('siem_events_refresh_v2', refreshSelect.value);
+    localStorage.setItem('siem_events_storage_v1', storageSelect.value);
+}
+function renderTimeline(rows) {
+    const max = Math.max(...rows.map((row) => Number(row.count || 0)), 1);
+    resultTimeline.innerHTML = rows.map((row) => {
+        const count = Number(row.count || 0);
+        const height = Math.max(10, Math.round((count / max) * 180));
+        const label = formatDisplayTimestamp(row.bucket || '').slice(5, 16);
+        return `<div class="chart-col"><div class="chart-value">${count}</div><div class="chart-bar" style="height:${height}px"></div><div class="chart-label">${escapeHtml(label)}</div></div>`;
+    }).join('') || '<div class="page-note">No timeline data</div>';
+}
+function renderPagination() {
+    pageStatus.textContent = `Page ${currentPage} / ${currentTotalPages}`;
+    prevPageBtn.disabled = currentPage <= 1;
+    nextPageBtn.disabled = currentPage >= currentTotalPages || currentTotalCount === 0;
+}
+function renderColumnToggles() {
+    columnToggles.innerHTML = currentColumns.map((column) => {
+        const active = visibleColumns.includes(column);
+        return `<button type="button" class="chip ${active ? 'active' : ''}" data-column="${escapeHtml(column)}">${escapeHtml(column)}</button>`;
+    }).join('');
+    columnToggles.querySelectorAll('[data-column]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const column = button.dataset.column;
+            if (visibleColumns.includes(column) && visibleColumns.length > 1) {
+                visibleColumns = visibleColumns.filter((item) => item !== column);
+            } else if (!visibleColumns.includes(column)) {
+                visibleColumns.push(column);
+            }
+            persistState();
+            renderTable();
+        });
+    });
+}
+function markActiveRow() {
+    resultsBody.querySelectorAll('tr').forEach((rowElement) => {
+        rowElement.classList.toggle('active', Number(rowElement.dataset.rowIndex) === selectedRowIndex);
+    });
+}
+function openDrawer() {
+    eventDrawerPanel.classList.add('open');
+    eventDrawerOverlay.classList.add('open');
+    eventDrawerPanel.setAttribute('aria-hidden', 'false');
+}
+function closeDrawer() {
+    eventDrawerPanel.classList.remove('open');
+    eventDrawerOverlay.classList.remove('open');
+    eventDrawerPanel.setAttribute('aria-hidden', 'true');
+}
+function renderDrawer(row) {
+    if (!row) {
+        eventDrawer.innerHTML = '<div class="drawer-empty">Click a row in Query results to inspect the event.</div>';
+        return;
+    }
+    const drillFields = ['log_source', 'observer_collector', 'collector_profile', 'event_dataset', 'src_ip', 'dst_ip', 'severity', 'category', 'subcategory', 'user_name', 'target_user', 'process_name'];
+    const chips = drillFields.filter((field) => row[field]).map((field) => {
+        const rawValue = String(row[field] ?? '');
+        const drillValue = rawValue.replace(/'/g, "''");
+        const drillExpr = `${field} = '${drillValue}'`;
+        return `<button type="button" class="chip" data-drill="${escapeHtml(drillExpr)}">${escapeHtml(field)}: ${escapeHtml(rawValue)}</button>`;
+    }).join('');
+    const details = Object.entries(row).map(([key, value]) => {
+        let formatted = value;
+        if (key === 'ts') formatted = formatDisplayTimestamp(value);
+        if (key === 'normalized_json' && value) {
+            try { formatted = JSON.stringify(JSON.parse(value), null, 2); } catch (error) {}
+        }
+        return `<div class="kv"><div class="kv-key">${escapeHtml(key)}</div><div class="kv-value">${escapeHtml(formatted)}</div></div>`;
+    }).join('');
+    eventDrawer.innerHTML = `${chips ? `<div class="chip-row" style="margin-bottom:14px;">${chips}</div>` : ''}<div class="drawer-summary">Visible row ${(selectedRowIndex ?? 0) + 1} on page ${currentPage}.</div><div class="kv-list">${details}</div>`;
+    eventDrawer.querySelectorAll('[data-drill]').forEach((button) => {
+        button.addEventListener('click', () => {
+            queryInput.value = button.dataset.drill;
+            closeDrawer();
+            runQuery(true);
+        });
+    });
+    openDrawer();
+}
+function renderCell(column, value) {
+    const safeValue = escapeHtml(value);
+    if (column === 'severity') return `<td><span class="severity ${severityClass(value)}">${safeValue}</span></td>`;
+    if (column === 'message' || column === 'normalized_json' || column === 'process_command') return `<td class="wrap-cell"><div class="message-preview">${safeValue}</div></td>`;
+    if (column === 'ts') return `<td class="ts-cell">${escapeHtml(formatDisplayTimestamp(value))}</td>`;
+    if (['log_source', 'observer_collector', 'collector_profile', 'event_dataset', 'collector_port', 'src_ip', 'dst_ip', 'event_id', 'user_name', 'target_user', 'process_name'].includes(column)) return `<td class="table-code">${safeValue}</td>`;
+    return `<td>${safeValue}</td>`;
+}
+function renderTable() {
+    const columns = currentColumns.filter((column) => visibleColumns.includes(column));
+    resultsHead.innerHTML = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+    resultsBody.innerHTML = currentRows.map((row, index) => {
+        const cells = columns.map((column) => renderCell(column, row[column])).join('');
+        return `<tr data-row-index="${index}" class="${selectedRowIndex === index ? 'active' : ''}">${cells}</tr>`;
+    }).join('');
+    resultsBody.querySelectorAll('tr').forEach((rowElement) => {
+        rowElement.addEventListener('click', () => {
+            selectedRowIndex = Number(rowElement.dataset.rowIndex);
+            markActiveRow();
+            renderDrawer(currentRows[selectedRowIndex]);
+        });
+    });
+    resultsEmpty.style.display = currentRows.length ? 'none' : 'block';
+}
+async function runQuery(resetPage = false) {
+    if (resetPage) currentOffset = 0;
+    queryError.style.display = 'none';
+    resolvedSqlWrap.style.display = 'none';
+    runQueryBtn.disabled = true;
+    try {
+        const response = await fetch('/api/events/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: queryInput.value.trim(), window: windowSelect.value, limit: Number(limitSelect.value || '100'), storage: storageSelect.value, offset: currentOffset }),
+        });
+        const raw = await response.text();
+        let payload;
+        try {
+            payload = JSON.parse(raw);
+        } catch (error) {
+            if (response.redirected || raw.includes('/auth/login')) {
+                window.location.href = '/auth/login';
+                return;
+            }
+            throw new Error(raw.slice(0, 600) || 'Query failed');
+        }
+        if (!response.ok) throw new Error(payload.error || 'Query failed');
+        currentRows = payload.rows || [];
+        currentColumns = payload.columns || [];
+        visibleColumns = restoreColumns(currentColumns);
+        persistState();
+        selectedRowIndex = null;
+        currentTotalCount = Number(payload.total_count || 0);
+        currentPage = Number(payload.page || 1);
+        currentTotalPages = Number(payload.total_pages || 1);
+        currentOffset = Number(payload.offset || 0);
+        resultCount.textContent = `${payload.row_count || 0} visible`;
+        resultsMeta.textContent = `${currentTotalCount} total rows, ${Number(payload.elapsed_ms || 0)} ms, storage: ${payload.storage}`;
+        renderPagination();
+        querySql.textContent = payload.sql || '';
+        resolvedSqlWrap.style.display = payload.sql ? 'block' : 'none';
+        resolvedSqlWrap.open = false;
+        renderColumnToggles();
+        renderTable();
+        renderDrawer(null);
+        currentHistogram = payload.histogram || [];
+        renderTimeline(currentHistogram);
+        closeDrawer();
+    } catch (error) {
+        queryError.textContent = error.message || String(error);
+        queryError.style.display = 'block';
+        currentRows = [];
+        currentColumns = [];
+        visibleColumns = [];
+        selectedRowIndex = null;
+        currentTotalCount = 0;
+        currentPage = 1;
+        currentTotalPages = 1;
+        resultCount.textContent = '0 rows';
+        resultsMeta.textContent = 'Query failed.';
+        renderPagination();
+        columnToggles.innerHTML = '';
+        resultsHead.innerHTML = '';
+        resultsBody.innerHTML = '';
+        resultsEmpty.style.display = 'block';
+        renderDrawer(null);
+        currentHistogram = [];
+        resultTimeline.innerHTML = '<div class="page-note">No timeline data</div>';
+        closeDrawer();
+    } finally {
+        runQueryBtn.disabled = false;
+    }
+}
+function resetQuery() {
+    queryInput.value = '';
+    windowSelect.value = '24h';
+    storageSelect.value = 'hot';
+    limitSelect.value = '100';
+    currentOffset = 0;
+    closeDrawer();
+    runQuery(true);
+}
+function setRefreshTimer() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    const value = Number(refreshSelect.value || '0');
+    if (value > 0) refreshTimer = setInterval(runQuery, value);
+    persistState();
+}
+document.querySelectorAll('[data-example]').forEach((button) => {
+    button.addEventListener('click', () => {
+        queryInput.value = button.dataset.example;
+        closeDrawer();
+        runQuery(true);
+    });
+});
+runQueryBtn.addEventListener('click', () => runQuery(true));
+resetQueryBtn.addEventListener('click', resetQuery);
+exportBtn.addEventListener('click', () => downloadTsv(`rdegon-siem-events-${Date.now()}.tsv`, currentColumns, currentRows));
+refreshSelect.addEventListener('change', setRefreshTimer);
+windowSelect.addEventListener('change', () => runQuery(true));
+storageSelect.addEventListener('change', () => runQuery(true));
+limitSelect.addEventListener('change', () => runQuery(true));
+prevPageBtn.addEventListener('click', () => {
+    if (currentPage <= 1) return;
+    currentOffset = Math.max(0, currentOffset - Number(limitSelect.value || '100'));
+    closeDrawer();
+    runQuery();
+});
+nextPageBtn.addEventListener('click', () => {
+    if (currentPage >= currentTotalPages) return;
+    currentOffset += Number(limitSelect.value || '100');
+    closeDrawer();
+    runQuery();
+});
+queryInput.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') runQuery(true); });
+closeEventDrawerBtn.addEventListener('click', closeDrawer);
+eventDrawerOverlay.addEventListener('click', closeDrawer);
+window.addEventListener('rdegon:timezone-changed', () => { renderTable(); renderTimeline(currentHistogram); if (selectedRowIndex !== null) renderDrawer(currentRows[selectedRowIndex]); });
+const savedRefresh = localStorage.getItem('siem_events_refresh_v2');
+if (savedRefresh && refreshSelect.value === 'off') refreshSelect.value = savedRefresh;
+const savedStorage = localStorage.getItem('siem_events_storage_v1');
+if (savedStorage && ['hot', 'cold', 'all'].includes(savedStorage)) storageSelect.value = savedStorage;
+setRefreshTimer();
+renderPagination();
+runQuery(true);
+</script>
+{% endblock %}

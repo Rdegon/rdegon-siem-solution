@@ -1,0 +1,14 @@
+[Unit]
+Description=SIEM host runtime stale telemetry monitor
+After=network-online.target clickhouse-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/siem/web.env
+EnvironmentFile=/etc/siem/host-runtime-monitor.env
+WorkingDirectory=/opt/siem/siem-solution
+ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/deploy/host_runtime_monitor.py
+
+[Install]
+WantedBy=multi-user.target

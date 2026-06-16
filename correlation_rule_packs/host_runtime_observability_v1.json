@@ -1,0 +1,148 @@
+{
+  "pack_id": "host-runtime-observability-v1",
+  "title": "Host runtime observability correlation pack",
+  "version": "1.1.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "This pack is live and driven by the host runtime agent plus stale telemetry monitor.",
+    "All pressure, stale telemetry, and service flapping conditions emit platform host metrics events that are correlated through the standard stream pipeline.",
+    "The remaining batch rules are retained as follow-up analytics ideas, but the operational incident path now runs through the stream rules below."
+  ],
+  "stream_rules": [
+    {
+      "id": 2101,
+      "title": "Host CPU Pressure Sustained",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host CPU Pressure Sustained\nid: sigma-host-cpu-pressure-sustained\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_cpu_pressure\n  condition: selection\nlevel: high\ntags:\n  - platform.host_health\n  - platform.capacity\n  - platform.cpu\n"
+    },
+    {
+      "id": 2102,
+      "title": "Host Memory Pressure Sustained",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Memory Pressure Sustained\nid: sigma-host-memory-pressure-sustained\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_memory_pressure\n  condition: selection\nlevel: high\ntags:\n  - platform.host_health\n  - platform.capacity\n  - platform.memory\n"
+    },
+    {
+      "id": 2103,
+      "title": "Host Disk Pressure Sustained",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Disk Pressure Sustained\nid: sigma-host-disk-pressure-sustained\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_disk_pressure\n  condition: selection\nlevel: high\ntags:\n  - platform.host_health\n  - platform.capacity\n  - platform.disk\n"
+    },
+    {
+      "id": 2104,
+      "title": "Host Load Pressure Sustained",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Load Pressure Sustained\nid: sigma-host-load-pressure-sustained\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_load_pressure\n  selection_role:\n    host.role:\n      - control-plane\n      - storage\n      - processing\n      - ingest\n      - transport\n  condition: selection and selection_role\nlevel: medium\ntags:\n  - platform.host_health\n  - platform.capacity\n  - platform.load\n"
+    },
+    {
+      "id": 2105,
+      "title": "Host Swap Thrash Burst",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Swap Thrash Burst\nid: sigma-host-swap-thrash-burst\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_swap_pressure\n  condition: selection\nlevel: high\ntags:\n  - platform.host_health\n  - platform.capacity\n  - platform.memory\n  - platform.swap\n"
+    },
+    {
+      "id": 2106,
+      "title": "Host Filesystem Inode Pressure",
+      "severity": "medium",
+      "window_s": 900,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Filesystem Inode Pressure\nid: sigma-host-filesystem-inode-pressure\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_inode_pressure\n  condition: selection\nlevel: medium\ntags:\n  - platform.host_health\n  - platform.capacity\n  - platform.disk\n  - platform.inodes\n"
+    },
+    {
+      "id": 2107,
+      "title": "Host Telemetry Missing",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Telemetry Missing\nid: sigma-host-telemetry-missing\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_telemetry_stale\n  condition: selection\nlevel: high\ntags:\n  - platform.host_health\n  - platform.telemetry\n  - platform.stale\n"
+    },
+    {
+      "id": 2108,
+      "title": "Host Service Flapping",
+      "severity": "medium",
+      "window_s": 1800,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Host Service Flapping\nid: sigma-host-service-flapping\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_service_flapping\n  condition: selection\nlevel: medium\ntags:\n  - platform.host_health\n  - platform.services\n  - platform.flapping\n"
+    },
+    {
+      "id": 2109,
+      "title": "Storage Node Runtime Pressure",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Storage Node Runtime Pressure\nid: sigma-storage-node-runtime-pressure\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_storage_pressure\n  condition: selection\nlevel: high\ntags:\n  - platform.host_health\n  - platform.storage\n  - platform.capacity\n"
+    },
+    {
+      "id": 2110,
+      "title": "Control Plane Runtime Pressure",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "status": "active",
+      "sigma_yaml": "title: Control Plane Runtime Pressure\nid: sigma-control-plane-runtime-pressure\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_control_plane_pressure\n  condition: selection\nlevel: medium\ntags:\n  - platform.host_health\n  - platform.control_plane\n  - platform.capacity\n"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4101,
+      "title": "Host Telemetry Missing Daily Review",
+      "severity": "high",
+      "status": "planned_followup",
+      "source_dataset": "host runtime heartbeat snapshots",
+      "description": "Daily batch review for long-lived telemetry gaps and hosts that never reported during the reporting window."
+    },
+    {
+      "id": 4102,
+      "title": "Host Service Flapping Trend Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "source_dataset": "service restart and health snapshots",
+      "description": "Batch review for hosts that repeatedly flap over longer windows even when the stream alerts were acknowledged."
+    },
+    {
+      "id": 4103,
+      "title": "Storage Node Pressure Trend Review",
+      "severity": "high",
+      "status": "planned_followup",
+      "source_dataset": "ClickHouse and storage heartbeat snapshots",
+      "description": "Batch review for capacity trend analysis on storage nodes and ClickHouse replica health."
+    },
+    {
+      "id": 4104,
+      "title": "Control Plane Runtime Trend Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "source_dataset": "platform health snapshots",
+      "description": "Batch review for persistent web/control-plane memory, CPU, and latency patterns beyond the real-time alerting thresholds."
+    }
+  ]
+}

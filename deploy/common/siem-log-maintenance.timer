@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SIEM log and journal maintenance
+
+[Timer]
+OnBootSec=7m
+OnUnitActiveSec=6h
+Unit=siem-log-maintenance.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

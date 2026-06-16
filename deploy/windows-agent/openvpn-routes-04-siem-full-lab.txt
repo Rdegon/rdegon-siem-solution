@@ -1,0 +1,14 @@
+# Full homelab split-tunnel access through the existing jump-host VPN entry point.
+route-nopull
+route 10.20.10.0 255.255.255.0 vpn_gateway
+route 10.20.20.0 255.255.255.0 vpn_gateway
+route 10.20.30.0 255.255.255.0 vpn_gateway
+route 192.168.1.28 255.255.255.255 vpn_gateway
+route 192.168.1.30 255.255.255.255 vpn_gateway
+route 192.168.1.102 255.255.255.255 vpn_gateway
+route 192.168.1.35 255.255.255.255 vpn_gateway
+route 192.168.1.37 255.255.255.255 vpn_gateway
+route 192.168.1.38 255.255.255.255 vpn_gateway
+route 192.168.1.39 255.255.255.255 vpn_gateway
+route 192.168.1.40 255.255.255.255 vpn_gateway
+route 192.168.1.101 255.255.255.255 vpn_gateway

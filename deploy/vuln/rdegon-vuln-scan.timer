@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rdegon SIEM supplemental Nmap exposure scan every 3 hours
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=3h
+Persistent=true
+Unit=rdegon-vuln-scan.service
+
+[Install]
+WantedBy=timers.target

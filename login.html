@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Rdegon SIEM Identity</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=20260327j" sizes="any">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260327j">
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=20260327j">
+    <link rel="apple-touch-icon" href="/favicon.ico?v=20260327j">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f3efe5;
+            --ink: #17202a;
+            --ink-soft: #44515f;
+            --card: rgba(255,255,255,.76);
+            --line: rgba(23,32,42,.12);
+            --accent: #1144aa;
+            --accent-soft: rgba(17,68,170,.12);
+            --guard: #7f1d1d;
+            --guard-soft: rgba(127,29,29,.08);
+            --healthy: #1c6c4d;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "IBM Plex Sans", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 15% 20%, rgba(17,68,170,.14), transparent 28%),
+                radial-gradient(circle at 82% 14%, rgba(255,190,92,.26), transparent 24%),
+                linear-gradient(180deg, #f7f2e7 0%, #ece6da 48%, #e4ddcf 100%);
+        }
+        .shell {
+            width: min(1180px, calc(100vw - 40px));
+            margin: 28px auto;
+            display: grid;
+            grid-template-columns: 1.05fr .95fr;
+            gap: 18px;
+        }
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 32px;
+            background: var(--card);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 24px 80px rgba(37, 43, 54, .14);
+            overflow: hidden;
+        }
+        .hero {
+            padding: 34px;
+            min-height: 620px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .hero::before {
+            content: "";
+            position: absolute;
+            inset: 18px;
+            border-radius: 24px;
+            background:
+                linear-gradient(135deg, rgba(17,68,170,.08), rgba(255,255,255,.02)),
+                linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,.12));
+            pointer-events: none;
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.65);
+            color: var(--ink-soft);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+        }
+        .hero-brand {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            margin-bottom: 18px;
+            background: rgba(255,255,255,.82);
+            border: 1px solid rgba(23,32,42,.08);
+            box-shadow: 0 12px 28px rgba(37, 43, 54, .12);
+        }
+        .hero-brand img {
+            width: 28px;
+            height: 28px;
+            display: block;
+        }
+        h1 {
+            margin: 18px 0 12px;
+            font: 700 clamp(40px, 5vw, 62px) "Fraunces", serif;
+            line-height: .95;
+            letter-spacing: -.04em;
+            max-width: 12ch;
+        }
+        .lede {
+            margin: 0;
+            max-width: 54ch;
+            color: var(--ink-soft);
+            font-size: 16px;
+            line-height: 1.65;
+        }
+        .stack {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 28px;
+        }
+        .signal {
+            padding: 16px 18px;
+            border-radius: 22px;
+            background: rgba(255,255,255,.82);
+            border: 1px solid rgba(23,32,42,.08);
+        }
+        .signal b {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--ink-soft);
+        }
+        .signal strong {
+            display: block;
+            font-size: 22px;
+            line-height: 1.1;
+        }
+        .signal span {
+            display: block;
+            margin-top: 6px;
+            color: var(--ink-soft);
+            font-size: 13px;
+        }
+        .cards {
+            padding: 18px;
+            display: grid;
+            gap: 16px;
+        }
+        .auth-card {
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            padding: 22px;
+            background: rgba(255,255,255,.78);
+        }
+        .auth-card header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+        .auth-card h2 {
+            margin: 0;
+            font: 700 28px "Fraunces", serif;
+            letter-spacing: -.03em;
+        }
+        .auth-card p {
+            margin: 8px 0 0;
+            color: var(--ink-soft);
+            line-height: 1.55;
+        }
+        .badge {
+            white-space: nowrap;
+            border-radius: 999px;
+            padding: 8px 11px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+        .badge.healthy { background: rgba(28,108,77,.12); color: var(--healthy); }
+        .badge.warning { background: rgba(127,29,29,.10); color: var(--guard); }
+        .action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            border-radius: 18px;
+            padding: 15px 16px;
+            text-decoration: none;
+            border: 1px solid rgba(17,68,170,.18);
+            background: linear-gradient(135deg, rgba(17,68,170,.9), rgba(34,94,204,.82));
+            color: #fff;
+            font-weight: 600;
+            font-size: 15px;
+            box-shadow: 0 14px 28px rgba(17,68,170,.18);
+        }
+        .guarded {
+            background: linear-gradient(180deg, var(--guard-soft), rgba(255,255,255,.9));
+            border-color: rgba(127,29,29,.18);
+        }
+        .error {
+            margin: 0 0 14px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(127,29,29,.08);
+            border: 1px solid rgba(127,29,29,.16);
+            color: var(--guard);
+        }
+        .grid {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--ink-soft);
+        }
+        input, textarea {
+            width: 100%;
+            margin-top: 7px;
+            padding: 13px 14px;
+            border: 1px solid rgba(23,32,42,.14);
+            border-radius: 16px;
+            background: rgba(255,255,255,.9);
+            color: var(--ink);
+            font: inherit;
+        }
+        textarea { resize: vertical; min-height: 86px; }
+        .footnote, .provider-list, .next-path {
+            color: var(--ink-soft);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .provider-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .provider-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(255,255,255,.6);
+            border: 1px solid rgba(23,32,42,.08);
+        }
+        .next-path {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: rgba(255,255,255,.72);
+            border: 1px solid rgba(23,32,42,.08);
+            word-break: break-word;
+        }
+        .break-glass-submit {
+            border: 1px solid rgba(127,29,29,.18);
+            background: linear-gradient(180deg, rgba(127,29,29,.96), rgba(102,28,28,.88));
+            color: #fff;
+            font-weight: 600;
+            border-radius: 18px;
+            padding: 14px 16px;
+            cursor: pointer;
+        }
+        @media (max-width: 980px) {
+            .shell { grid-template-columns: 1fr; }
+            .hero { min-height: auto; }
+            .stack { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <section class="panel hero">
+            <div>
+                <div class="hero-brand" aria-hidden="true">
+                    <img src="/mark.svg" alt="">
+                </div>
+                <div class="eyebrow">Identity & Governance</div>
+                <h1>Rdegon SIEM Control Plane</h1>
+                <p class="lede">Enterprise SSO is the primary operator path for the production shell. Local credentials remain available only as time-bounded break-glass access for recovery and incident control.</p>
+                <div class="stack">
+                    <div class="signal">
+                        <b>Primary provider</b>
+                        <strong>OIDC / Keycloak</strong>
+                        <span>{% if enterprise_issuer %}{{ enterprise_issuer }}{% else %}Configured through the VM4 identity plane{% endif %}</span>
+                    </div>
+                    <div class="signal">
+                        <b>Fallback path</b>
+                        <strong>Break-glass only</strong>
+                        <span>Reason, expiry and audit trail are required for local access.</span>
+                    </div>
+                    <div class="signal">
+                        <b>Session target</b>
+                        <strong>/app</strong>
+                        <span>Dashboards, response control, vulnerability and governance workspaces.</span>
+                    </div>
+                    <div class="signal">
+                        <b>Runtime base</b>
+                        <strong>{{ base_url }}</strong>
+                        <span>Post-auth session remains compatible with existing shell and API access.</span>
+                    </div>
+                </div>
+            </div>
+            <div class="provider-list">
+                {% for provider in providers %}
+                <div class="provider-row">
+                    <div>
+                        <strong>{{ provider.title }}</strong>
+                        <div class="footnote">{{ provider.kind|upper }}{% if provider.issuer %} • {{ provider.issuer }}{% endif %}</div>
+                    </div>
+                    <span class="badge {% if provider.healthy %}healthy{% else %}warning{% endif %}">{% if provider.healthy %}Healthy{% else %}Degraded{% endif %}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        <section class="panel cards">
+            {% if error %}<div class="error">{{ error }}</div>{% endif %}
+            <section class="auth-card">
+                <header>
+                    <div>
+                        <h2>Enterprise SSO</h2>
+                        <p>Use the primary operator path backed by the live identity provider and mapped role bundles.</p>
+                    </div>
+                    <span class="badge {% if oidc_primary %}healthy{% else %}warning{% endif %}">{% if oidc_primary %}Primary{% else %}Unavailable{% endif %}</span>
+                </header>
+                <a class="action" href="/auth/oidc/start{% if next_path %}?next={{ next_path }}{% endif %}">Continue with Enterprise SSO</a>
+                <div class="footnote" style="margin-top: 14px;">
+                    The SIEM shell issues its own session after the OIDC callback to preserve current API and cookie behavior.
+                </div>
+            </section>
+            <section class="auth-card guarded">
+                <header>
+                    <div>
+                        <h2>Break-glass local access</h2>
+                        <p>Use only for emergency recovery, identity-plane outage, or controlled incident response.</p>
+                    </div>
+                    <span class="badge warning">Guarded</span>
+                </header>
+                <form method="post" action="/auth/login" class="grid">
+                    <input type="hidden" name="next_path" value="{{ next_path }}">
+                    <input type="hidden" name="auth_flow" value="break_glass">
+                    <label for="username">Username
+                        <input id="username" name="username" type="text" autocomplete="username" required>
+                    </label>
+                    <label for="password">Password
+                        <input id="password" name="password" type="password" autocomplete="current-password" required>
+                    </label>
+                    <label for="break_glass_reason">Reason
+                        <textarea id="break_glass_reason" name="break_glass_reason" placeholder="Explain why enterprise SSO is not suitable for this session." required></textarea>
+                    </label>
+                    <label for="break_glass_minutes">Expiry minutes
+                        <input id="break_glass_minutes" name="break_glass_minutes" type="number" min="5" max="240" value="60" required>
+                    </label>
+                    <button type="submit" class="break-glass-submit">Open break-glass session</button>
+                </form>
+                <div class="footnote" style="margin-top: 14px;">
+                    This path is tracked in the governance plane with actor, expiry and revocation status.
+                </div>
+            </section>
+            {% if next_path %}
+            <div class="next-path">
+                <strong>Post-login redirect:</strong> {{ next_path }}
+            </div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

@@ -1,0 +1,60 @@
+{
+  "pack_id": "fleet-observability-v1",
+  "title": "Extended fleet observability correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "This pack extends host-runtime observability beyond the core SIEM nodes.",
+    "It focuses on Proxmox-backed monitored guests that are operational dependencies or business services.",
+    "Noise is controlled through the existing host-runtime suppression policy and the targeted host filter below.",
+    "Suppression key: host.name + service.name + rule family. Escalation requires the configured threshold inside the declared window."
+  ],
+  "stream_rules": [
+    {
+      "id": 2201,
+      "title": "Extended Fleet Telemetry Missing",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + fleet_observability_v1",
+      "status": "active",
+      "operator_action": "Validate the guest power state, host-runtime agent, rsyslog path, and ingest reachability.",
+      "sigma_yaml": "title: Extended Fleet Telemetry Missing\nid: sigma-extended-fleet-telemetry-missing\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_telemetry_stale\n    host.name:\n      - nextcloud-siem\n      - navidrome-01\n      - vuln-mgr-01\n      - pilot-web-01\n      - pilot-db-01\n      - pilot-cache-01\n      - openclaw-gateway\n  condition: selection\nlevel: high\ntags:\n  - platform.fleet\n  - platform.telemetry\n  - platform.stale\n"
+    },
+    {
+      "id": 2202,
+      "title": "Extended Fleet Service Flapping",
+      "severity": "medium",
+      "window_s": 1800,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + fleet_observability_v1",
+      "status": "active",
+      "operator_action": "Inspect the watched systemd services on the affected fleet node and confirm whether a rollout or scan window is active.",
+      "sigma_yaml": "title: Extended Fleet Service Flapping\nid: sigma-extended-fleet-service-flapping\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection:\n    event.provider: host.metrics\n    event.type: host_service_flapping\n    host.name:\n      - nextcloud-siem\n      - navidrome-01\n      - vuln-mgr-01\n      - pilot-web-01\n      - pilot-db-01\n      - pilot-cache-01\n      - openclaw-gateway\n  condition: selection\nlevel: medium\ntags:\n  - platform.fleet\n  - platform.services\n  - platform.flapping\n"
+    },
+    {
+      "id": 2203,
+      "title": "Extended Fleet Runtime Pressure",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + fleet_observability_v1",
+      "status": "active",
+      "operator_action": "Review real memory availability, swap growth, and the guest service footprint before treating the node as degraded.",
+      "sigma_yaml": "title: Extended Fleet Runtime Pressure\nid: sigma-extended-fleet-runtime-pressure\nstatus: experimental\nlogsource:\n  product: infrastructure\n  service: host_metrics\ndetection:\n  selection_memory:\n    event.provider: host.metrics\n    event.type: host_memory_pressure\n    host.name:\n      - nextcloud-siem\n      - navidrome-01\n      - vuln-mgr-01\n      - pilot-web-01\n      - pilot-db-01\n      - pilot-cache-01\n      - openclaw-gateway\n  selection_swap:\n    event.provider: host.metrics\n    event.type: host_swap_pressure\n    host.name:\n      - nextcloud-siem\n      - navidrome-01\n      - vuln-mgr-01\n      - pilot-web-01\n      - pilot-db-01\n      - pilot-cache-01\n      - openclaw-gateway\n  condition: selection_memory or selection_swap\nlevel: high\ntags:\n  - platform.fleet\n  - platform.capacity\n  - platform.memory\n"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4201,
+      "title": "Fleet Telemetry Coverage Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Daily batch review for monitored-only guests that remain inventory-visible but never turn into live telemetry sources."
+    }
+  ]
+}

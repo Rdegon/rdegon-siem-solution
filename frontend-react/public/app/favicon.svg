@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="rs-favicon-shell" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11263d" />
+      <stop offset="1" stop-color="#05101b" />
+    </linearGradient>
+    <linearGradient id="rs-favicon-signal" x1="18" y1="14" x2="46" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5de0ff" />
+      <stop offset="1" stop-color="#81ffd8" />
+    </linearGradient>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="16" fill="url(#rs-favicon-shell)" stroke="#5de0ff" stroke-opacity=".16" stroke-width="2" />
+  <path d="M32 15L44 22.5V40.5L32 48L20 40.5V22.5L32 15Z" stroke="url(#rs-favicon-signal)" stroke-width="3.4" stroke-linejoin="round" />
+  <path d="M32 22V32.5" stroke="#dcfdff" stroke-width="3.8" stroke-linecap="round" />
+  <circle cx="32" cy="38.5" r="5.6" fill="#81ffd8" />
+</svg>

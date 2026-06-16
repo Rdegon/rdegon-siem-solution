@@ -1,0 +1,383 @@
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import types
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = "test_normalizer_pkg"
+
+
+def _load_normalizer():
+    if PACKAGE not in sys.modules:
+        package = types.ModuleType(PACKAGE)
+        package.__path__ = [str(ROOT)]
+        sys.modules[PACKAGE] = package
+    config_name = f"{PACKAGE}.config"
+    if config_name not in sys.modules:
+        config_module = types.ModuleType(config_name)
+        class NormalizerSettings:  # noqa: D401 - test stub
+            pass
+        config_module.NormalizerSettings = NormalizerSettings
+        sys.modules[config_name] = config_module
+    full_name = f"{PACKAGE}.normalizer_core"
+    if full_name in sys.modules:
+        return sys.modules[full_name]
+    spec = importlib.util.spec_from_file_location(full_name, ROOT / "normalizer_core.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load normalizer_core.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[full_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+normalizer_module = _load_normalizer()
+apply_rules = normalizer_module.apply_rules
+
+
+class NormalizerCoreTests(unittest.TestCase):
+    def test_systemd_resolved_transaction_becomes_dns_query(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<6>Mar 28 01:00:44 openclaw-gateway systemd-resolved[103589]: Regular transaction 45792 for <openai.com IN A> on scope dns on eth0/* now complete with <success> from network (unsigned; non-confidential).",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("linux.systemd-resolved", normalized.get("event.provider"))
+        self.assertEqual("linux_dns_query", normalized.get("event.type"))
+        self.assertEqual("dns_query", normalized.get("event.action"))
+        self.assertEqual("network", normalized.get("event.category"))
+        self.assertEqual("success", normalized.get("event.outcome"))
+        self.assertEqual("openai.com", normalized.get("dns.question.name"))
+        self.assertEqual("A", normalized.get("dns.question.type"))
+        self.assertEqual("45792", normalized.get("event.id"))
+        self.assertEqual("openclaw-gateway", normalized.get("host.name"))
+        self.assertIn("allowlist:openclaw_expected_dns", normalized.get("tags") or [])
+
+    def test_systemd_resolved_cache_line_becomes_dns_cache_event(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<6>Mar 28 01:00:44 openclaw-gateway systemd-resolved[103589]: Added positive unauthenticated non-confidential cache entry for openai.com IN A 29s on eth0/INET/192.168.1.1",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("linux_dns_cache_entry", normalized.get("event.type"))
+        self.assertEqual("dns_cache", normalized.get("event.action"))
+        self.assertEqual("openai.com", normalized.get("dns.question.name"))
+        self.assertEqual("A", normalized.get("dns.question.type"))
+        self.assertEqual("29", normalized.get("dns.answers.ttl"))
+
+    def test_openclaw_proxy_probe_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<6>Mar 29 01:00:44 openclaw-gateway sudo: openclaw : PWD=/home/openclaw ; USER=root ; COMMAND=/usr/bin/ncat --proxy 127.0.0.1:10809 --proxy-type socks5 45.89.111.208 443",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("sudo_command", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_research_activity", normalized.get("tags") or [])
+
+    def test_openclaw_ip_neigh_probe_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<182>1 2026-03-29T07:37:54.426413+00:00 openclaw-gateway auditd - - - type=EXECVE msg=audit(1774769874.424:280833): argc=3 a0=\"ip\" a1=\"neigh\" a2=\"show\"",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("audit_execve", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_research_activity", normalized.get("tags") or [])
+
+    def test_openclaw_shell_wrapped_ip_neigh_probe_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<182>1 2026-03-29T07:37:54.426413+00:00 openclaw-gateway auditd - - - type=EXECVE msg=audit(1774769874.424:280833): argc=3 a0=\"/bin/sh\" a1=\"-c\" a2=\"ip neigh show\"",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("audit_execve", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_research_activity", normalized.get("tags") or [])
+
+    def test_openclaw_node_gateway_exec_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<182>1 2026-03-29T07:37:54.426413+00:00 openclaw-gateway auditd - - - type=EXECVE msg=audit(1774769874.424:280833): argc=5 a0=\"/usr/bin/node\" a1=\"/usr/lib/node_modules/openclaw/dist/index.js\" a2=\"gateway\" a3=\"--port\" a4=\"18789\"",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("audit_execve", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_research_activity", normalized.get("tags") or [])
+
+    def test_openclaw_env_research_command_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<182>1 2026-03-29T07:39:54.426413+00:00 openclaw-gateway auditd - - - type=EXECVE msg=audit(1774769994.424:280900): argc=6 a0=\"env\" a1=\"HOME=/home/openclaw\" a2=\"openclaw\" a3=\"agent\" a4=\"--agent\" a5=\"research\"",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("linux_system_recon", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_research_activity", normalized.get("tags") or [])
+
+    def test_openclaw_expected_aaaa_dns_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<6>Mar 29 01:00:44 openclaw-gateway systemd-resolved[103589]: Regular transaction 45793 for <api.telegram.org IN AAAA> on scope dns on eth0/* now complete with <success> from network (unsigned; non-confidential).",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("linux_dns_query", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_expected_dns", normalized.get("tags") or [])
+
+    def test_openclaw_proxy_runtime_error_without_provider_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<3>Mar 29 01:00:44 openclaw-gateway node[1042]: upstream timeout while proxy request to 45.89.111.208 via 127.0.0.1:10809",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertIn("allowlist:openclaw_proxy_runtime", normalized.get("tags") or [])
+
+    def test_openclaw_expected_proctitle_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<182>1 2026-03-29T09:59:22.572420+00:00 openclaw-gateway auditd - - - type=PROCTITLE msg=audit(1774778362.570:366621): proctitle=\"openclaw-agent\"",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("audit_proctitle", normalized.get("event.type"))
+        self.assertIn("allowlist:openclaw_expected_activity", normalized.get("tags") or [])
+
+    def test_openclaw_expected_dns_without_query_name_uses_message_fallback(self) -> None:
+        self.assertTrue(
+            normalizer_module._looks_like_openclaw_expected_dns(
+                "",
+                "systemd-resolved",
+                "linux.systemd-resolved",
+                "success",
+                "Regular transaction 45792 for <openrouter.ai IN A> on scope dns now complete with <success>",
+            )
+        )
+
+    def test_siem_operational_sudo_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "<6>Mar 29 01:00:44 siem-processing sudo: rdegon : PWD=/home/rdegon ; USER=root ; COMMAND=/usr/bin/systemctl is-active siem-normalizer siem-normalizer@2",
+            "source": "siem-processing",
+            "log_source": "siem-processing",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("sudo_command", normalized.get("event.type"))
+        self.assertIn("allowlist:siem_operational_sudo", normalized.get("tags") or [])
+
+    def test_windows_rdp_auth_success_is_normalized(self) -> None:
+        raw_event = {
+            "source_type": "json",
+            "message": json.dumps(
+                {
+                    "winlog": {
+                        "event_id": 1149,
+                        "channel": "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational",
+                        "provider_name": "Microsoft-Windows-TerminalServices-RemoteConnectionManager",
+                        "computer_name": "win-rdp-01",
+                        "event_data": {
+                            "User": "alice",
+                            "ClientAddress": "10.10.10.8",
+                        },
+                    },
+                    "event": {"code": "1149"},
+                    "host": {"name": "win-rdp-01"},
+                }
+            ),
+            "source": "win-rdp-01",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("windows.rdp", normalized.get("event.provider"))
+        self.assertEqual("windows_rdp_auth_success", normalized.get("event.type"))
+        self.assertEqual("rdp_authentication_success", normalized.get("event.action"))
+        self.assertEqual("10.10.10.8", normalized.get("source.ip"))
+        self.assertEqual("alice", normalized.get("user.name"))
+
+    def test_windows_defender_detection_is_normalized(self) -> None:
+        raw_event = {
+            "source_type": "json",
+            "message": json.dumps(
+                {
+                    "winlog": {
+                        "event_id": 1116,
+                        "channel": "Microsoft-Windows-Windows Defender/Operational",
+                        "provider_name": "Microsoft-Windows-Windows Defender",
+                        "computer_name": "win-edr-01",
+                        "event_data": {
+                            "ThreatName": "EICAR-Test-File",
+                        },
+                    },
+                    "event": {"code": "1116"},
+                    "host": {"name": "win-edr-01"},
+                }
+            ),
+            "source": "win-edr-01",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("windows.defender", normalized.get("event.provider"))
+        self.assertEqual("windows_defender_malware_detected", normalized.get("event.type"))
+        self.assertEqual("malware_detected", normalized.get("event.action"))
+        self.assertEqual("high", normalized.get("event.severity"))
+
+    def test_windows_collector_top_level_event_code_is_normalized(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "host": {"name": "DESKTOP-5JMJVBH"},
+            "computer_name": "DESKTOP-5JMJVBH",
+            "channel": "Security",
+            "provider": "Microsoft-Windows-Security-Auditing",
+            "event_id": 4625,
+            "event_code": "4625",
+            "message": "An account failed to log on.",
+            "windows": {
+                "event_data": {
+                    "TargetUserName": "Administrator",
+                    "IpAddress": "10.20.30.40",
+                    "LogonType": "10",
+                }
+            },
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("windows.security", normalized.get("event.provider"))
+        self.assertEqual("4625", normalized.get("event.code"))
+        self.assertEqual("windows_logon_failure", normalized.get("event.type"))
+        self.assertEqual("authentication_failed", normalized.get("event.action"))
+        self.assertEqual("Administrator", normalized.get("user.name"))
+        self.assertEqual("10.20.30.40", normalized.get("source.ip"))
+
+    def test_windows_powershell_encoding_word_is_not_encoded_command(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "computer_name": "DESKTOP-5JMJVBH",
+            "channel": "Microsoft-Windows-PowerShell/Operational",
+            "provider": "Microsoft-Windows-PowerShell",
+            "event_id": 4104,
+            "message": "Creating Scriptblock text: [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Content repo\\deps.py",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("windows.powershell", normalized.get("event.provider"))
+        self.assertNotEqual("windows_powershell_encoded_command", normalized.get("event.type"))
+
+    def test_windows_powershell_encoded_command_switch_is_detected(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "computer_name": "DESKTOP-5JMJVBH",
+            "channel": "Microsoft-Windows-PowerShell/Operational",
+            "provider": "Microsoft-Windows-PowerShell",
+            "event_id": 4104,
+            "message": "HostApplication=powershell.exe -NoProfile -EncodedCommand SQBFAFgA",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("windows_powershell_encoded_command", normalized.get("event.type"))
+        self.assertEqual("powershell_encoded_command", normalized.get("event.action"))
+
+    def test_windows_rendered_security_message_is_normalized_without_event_code(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "collector_profile": "windows-security-http",
+            "message": (
+                "An account was successfully logged on.\r\n\r\n"
+                "Subject:\r\n\tAccount Name:\t\tDESKTOP-5JMJVBH$\r\n\r\n"
+                "Logon Information:\r\n\tLogon Type:\t\t5\r\n\r\n"
+                "New Logon:\r\n\tAccount Name:\t\tSYSTEM\r\n\r\n"
+                "Process Information:\r\n\tProcess Name:\t\tC:\\Windows\\System32\\services.exe\r\n"
+            ),
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("windows.security", normalized.get("event.provider"))
+        self.assertEqual("4624", normalized.get("event.code"))
+        self.assertEqual("windows_logon_success", normalized.get("event.type"))
+        self.assertEqual("SYSTEM", normalized.get("user.name"))
+        self.assertEqual("5", normalized.get("auth.logon_type"))
+
+
+if __name__ == "__main__":
+    unittest.main()

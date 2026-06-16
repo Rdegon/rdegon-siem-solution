@@ -1,0 +1,18 @@
+[Unit]
+Description=SIEM Kafka KRaft broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=siem
+Group=siem
+EnvironmentFile=/etc/siem/kafka/kafka.env
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /etc/siem/kafka/server.properties
+ExecStop=/opt/kafka/bin/kafka-server-stop.sh
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

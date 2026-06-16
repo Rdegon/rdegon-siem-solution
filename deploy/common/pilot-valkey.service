@@ -1,0 +1,18 @@
+[Unit]
+Description=Pilot Valkey service
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/docker rm -f pilot-valkey
+ExecStartPre=/usr/bin/mkdir -p /opt/pilot/valkey
+ExecStart=/usr/bin/docker run --name pilot-valkey --log-driver=journald --log-opt tag=pilot-valkey -p 6379:6379 -v /opt/pilot/valkey:/data valkey/valkey:latest valkey-server --save 60 1 --appendonly yes
+ExecStop=/usr/bin/docker stop -t 20 pilot-valkey
+ExecStopPost=-/usr/bin/docker rm -f pilot-valkey
+
+[Install]
+WantedBy=multi-user.target

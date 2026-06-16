@@ -1,0 +1,4 @@
+# Remote Windows log shipping plus operator access to the SIEM web plane.
+route-nopull
+route 192.168.1.35 255.255.255.255 vpn_gateway
+route 192.168.1.39 255.255.255.255 vpn_gateway

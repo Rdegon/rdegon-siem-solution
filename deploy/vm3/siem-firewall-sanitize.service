@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove retired Redis firewall rules from active UFW state
+After=ufw.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/siem/siem-solution/deploy/vm3_firewall_sanitize.py
+
+[Install]
+WantedBy=multi-user.target

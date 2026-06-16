@@ -1,0 +1,756 @@
+
+<!DOCTYPE html>
+<html lang="{{ ui_lang or 'en' }}">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Rdegon SIEM{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-store, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <style>
+        :root {
+            --sidebar-width: 280px;
+            --sidebar-collapsed-width: 88px;
+            --app-max: 1800px;
+            --radius-lg: 24px;
+            --radius-md: 18px;
+            --radius-sm: 14px;
+            --shadow-strong: 0 28px 50px rgba(17, 24, 39, 0.12);
+            --shadow-soft: 0 16px 28px rgba(15, 23, 42, 0.08);
+            --font-ui: "Segoe UI", "Trebuchet MS", sans-serif;
+            --font-display: "Segoe UI Semibold", "Segoe UI", "Trebuchet MS", sans-serif;
+            --font-mono: "Cascadia Mono", "Consolas", monospace;
+        }
+        body[data-theme="light"] {
+            --bg: #eef3f8;
+            --bg-accent: radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 26%), radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 24%), linear-gradient(180deg, #eef3f8 0%, #e4ebf3 100%);
+            --surface: rgba(255, 255, 255, 0.86);
+            --surface-solid: #ffffff;
+            --surface-alt: #f5f8fc;
+            --surface-soft: rgba(255, 255, 255, 0.65);
+            --border: rgba(148, 163, 184, 0.26);
+            --border-strong: rgba(100, 116, 139, 0.26);
+            --text: #142033;
+            --text-soft: #516175;
+            --text-mute: #708198;
+            --sidebar-bg: linear-gradient(180deg, #0f172a 0%, #172033 100%);
+            --sidebar-surface: rgba(255, 255, 255, 0.06);
+            --sidebar-border: rgba(255, 255, 255, 0.08);
+            --sidebar-text: #f8fbff;
+            --sidebar-soft: #9db0c8;
+            --accent: #1d72d9;
+            --accent-strong: #0f4ca5;
+            --accent-soft: rgba(29, 114, 217, 0.12);
+            --success: #12946a;
+            --success-soft: rgba(16, 185, 129, 0.12);
+            --danger: #d83e5d;
+            --danger-soft: rgba(216, 62, 93, 0.12);
+            --warning: #cf8c19;
+            --warning-soft: rgba(245, 158, 11, 0.15);
+            --critical: #d83e5d;
+            --high: #f08b37;
+            --medium: #c88f00;
+            --low: #1f9d74;
+            --info: #4078d6;
+        }
+        body[data-theme="dark"] {
+            --bg: #08111f;
+            --bg-accent: radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%), radial-gradient(circle at top right, rgba(20, 184, 166, 0.10), transparent 24%), linear-gradient(180deg, #08111f 0%, #050c15 100%);
+            --surface: rgba(9, 18, 32, 0.84);
+            --surface-solid: #0d1727;
+            --surface-alt: #111f34;
+            --surface-soft: rgba(9, 18, 32, 0.62);
+            --border: rgba(125, 146, 179, 0.18);
+            --border-strong: rgba(125, 146, 179, 0.28);
+            --text: #e6eff8;
+            --text-soft: #b6c4d6;
+            --text-mute: #88a0bb;
+            --sidebar-bg: linear-gradient(180deg, #040a14 0%, #0a1322 100%);
+            --sidebar-surface: rgba(255, 255, 255, 0.04);
+            --sidebar-border: rgba(255, 255, 255, 0.08);
+            --sidebar-text: #f5f7fb;
+            --sidebar-soft: #8fa4bb;
+            --accent: #4b93ff;
+            --accent-strong: #8bb7ff;
+            --accent-soft: rgba(75, 147, 255, 0.14);
+            --success: #26c08a;
+            --success-soft: rgba(38, 192, 138, 0.14);
+            --danger: #ff718b;
+            --danger-soft: rgba(255, 113, 139, 0.14);
+            --warning: #ffb347;
+            --warning-soft: rgba(255, 179, 71, 0.14);
+            --critical: #ff8fa3;
+            --high: #ffb357;
+            --medium: #ffd166;
+            --low: #35d39d;
+            --info: #74aaff;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-height: 100%; }
+        body {
+            font-family: var(--font-ui);
+            color: var(--text);
+            background: var(--bg-accent);
+            transition: background .22s ease, color .22s ease;
+        }
+        a { color: inherit; text-decoration: none; }
+        button, input, select, textarea { font: inherit; }
+        .app-shell { min-height: 100vh; }
+        .sidebar-overlay {
+            position: fixed; inset: 0; background: rgba(2, 6, 23, 0.44); backdrop-filter: blur(3px);
+            opacity: 0; pointer-events: none; transition: opacity .22s ease; z-index: 29;
+        }
+        .app-sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar-width); z-index: 30;
+            background: var(--sidebar-bg); color: var(--sidebar-text); border-right: 1px solid var(--sidebar-border);
+            padding: 22px 18px 22px; display: flex; flex-direction: column; gap: 18px;
+            transition: width .22s ease, transform .22s ease, padding .22s ease;
+            box-shadow: 24px 0 40px rgba(15, 23, 42, 0.18);
+        }
+        body[data-sidebar="collapsed"] .app-sidebar { width: var(--sidebar-collapsed-width); padding-inline: 12px; }
+        .sidebar-brand {
+            padding: 14px; border-radius: 24px; background: linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+            border: 1px solid rgba(255,255,255,.08); display: grid; gap: 12px;
+        }
+        .brand-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .brand-mark {
+            width: 54px; height: 54px; border-radius: 18px; display: grid; place-items: center; color: white;
+            background: linear-gradient(145deg, #1f7ae0, #1ed7a4); font: 700 22px var(--font-display);
+            box-shadow: 0 16px 32px rgba(31, 122, 224, 0.24);
+        }
+        .brand-toggle, .topbar-icon, .theme-toggle, .timezone-toggle {
+            border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-soft); color: var(--text);
+            min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease;
+        }
+        .brand-toggle { color: var(--sidebar-text); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.10); }
+        .brand-toggle:hover, .topbar-icon:hover, .theme-toggle:hover, .timezone-toggle:hover { transform: translateY(-1px); }
+        .btn-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+        .sidebar-brand h1 { margin: 0; font: 700 26px/1 var(--font-display); letter-spacing: -.04em; }
+        .sidebar-brand p { margin: 0; color: var(--sidebar-soft); font-size: 13px; line-height: 1.5; }
+        body[data-sidebar="collapsed"] .sidebar-brand h1,
+        body[data-sidebar="collapsed"] .sidebar-brand p,
+        body[data-sidebar="collapsed"] .nav-header,
+        body[data-sidebar="collapsed"] .nav-label,
+        body[data-sidebar="collapsed"] .nav-meta,
+        body[data-sidebar="collapsed"] .nav-suffix,
+        body[data-sidebar="collapsed"] .sidebar-context { display: none; }
+        body[data-sidebar="collapsed"] .sidebar-brand { padding: 12px 8px; justify-items: center; }
+        body[data-sidebar="collapsed"] .brand-top { justify-content: center; }
+        body[data-sidebar="collapsed"] .brand-toggle { position: absolute; left: 50%; transform: translateX(-50%); bottom: -16px; min-width: 36px; min-height: 36px; }
+        .nav-section { display: grid; gap: 10px; }
+        .nav-header, .meta-title { color: var(--sidebar-soft); font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .16em; padding: 0 8px; }
+        .nav-list { display: grid; gap: 6px; }
+        .nav-link {
+            display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 12px;
+            padding: 13px 14px; border-radius: 16px; border: 1px solid transparent; color: var(--sidebar-text);
+            background: transparent; transition: background .16s ease, border-color .16s ease, transform .16s ease;
+        }
+        .nav-link:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.08); transform: translateX(1px); }
+        .nav-link.active { background: linear-gradient(135deg, rgba(75,147,255,.22), rgba(30,215,164,.12)); border-color: rgba(255,255,255,.10); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+        .nav-icon {
+            width: 30px; min-width: 30px; height: 30px; border-radius: 10px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.06);
+            color: var(--sidebar-text); font: 700 11px var(--font-mono); letter-spacing: .08em; text-align: center;
+        }
+        .nav-label { font-size: 14px; font-weight: 600; }
+        .nav-suffix { color: var(--sidebar-soft); font-size: 11px; }
+        body[data-sidebar="collapsed"] .nav-link { grid-template-columns: 1fr; justify-items: center; padding-inline: 10px; }
+        body[data-sidebar="collapsed"] .nav-icon { width: 40px; min-width: 40px; height: 40px; font-size: 12px; }
+        .sidebar-footer { margin-top: auto; display: grid; gap: 12px; }
+        .sidebar-context {
+            padding: 14px; border-radius: 18px; background: var(--sidebar-surface); border: 1px solid rgba(255,255,255,.08);
+            display: grid; gap: 10px;
+        }
+        .context-row { display: flex; justify-content: space-between; gap: 12px; color: var(--sidebar-soft); font-size: 13px; }
+        .context-row strong { color: var(--sidebar-text); }
+        .app-main {
+            min-height: 100vh; margin-left: var(--sidebar-width); transition: margin-left .22s ease;
+        }
+        body[data-sidebar="collapsed"] .app-main { margin-left: var(--sidebar-collapsed-width); }
+        .main-inner { max-width: var(--app-max); margin: 0 auto; padding: 24px 24px 40px; }
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: start;
+            gap: 16px;
+            padding: 18px 0 22px;
+            backdrop-filter: blur(16px);
+        }
+        .topbar::after {
+            content: ''; position: absolute; inset: 0 -24px auto; height: calc(100% + 12px); z-index: -1;
+            background: linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,0)); opacity: .74; pointer-events: none;
+        }
+        body[data-theme="dark"] .topbar::after { background: linear-gradient(180deg, rgba(4, 10, 20, .82), rgba(4, 10, 20, 0)); }
+        .topbar-left {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            min-width: 0;
+        }
+        .page-heading {
+            display: grid;
+            gap: 8px;
+            min-width: 0;
+        }
+        .page-heading h2 { margin: 0; font: 700 36px/1 var(--font-display); letter-spacing: -.05em; }
+        .page-heading p { margin: 0; color: var(--text-soft); font-size: 15px; line-height: 1.55; max-width: 940px; }
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: nowrap;
+            justify-content: flex-end;
+            overflow-x: auto;
+            padding-bottom: 2px;
+            min-width: 0;
+            max-width: 100%;
+        }
+        .topbar-control {
+            min-height: 44px;
+            padding: 0 14px;
+            gap: 10px;
+            white-space: nowrap;
+            justify-content: space-between;
+            min-width: 108px;
+            flex: 0 0 auto;
+        }
+        .topbar-control .btn-label { opacity: .84; }
+        .topbar-control.compact-control { min-width: 94px; }
+        .control-value {
+            font-size: 13px;
+            font-weight: 700;
+            max-width: 168px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .view-stack { display: grid; gap: 18px; }
+        .badge {
+            display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 7px 12px;
+            font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+            background: var(--surface-soft); border: 1px solid var(--border); color: var(--text-soft);
+        }
+        .badge.with-value {
+            min-height: 44px;
+            padding-inline: 14px;
+            justify-content: space-between;
+            min-width: 168px;
+            flex: 0 0 auto;
+        }
+        .badge.live { background: var(--success-soft); color: var(--success); border-color: rgba(16, 185, 129, 0.18); }
+        .badge.dead { background: var(--danger-soft); color: var(--danger); border-color: rgba(216, 62, 93, 0.18); }
+        .badge.sql { background: var(--accent-soft); color: var(--accent); border-color: rgba(29, 114, 217, 0.18); }
+        .status-pill {
+            display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: var(--surface-soft);
+            border: 1px solid var(--border); color: var(--text-soft); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+        }
+        .topbar-user {
+            min-height: 44px;
+            min-width: 156px;
+            justify-content: center;
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+        @media (min-width: 961px) {
+            .topbar-actions::-webkit-scrollbar {
+                height: 6px;
+            }
+            .topbar-actions::-webkit-scrollbar-thumb {
+                background: rgba(148, 163, 184, .24);
+                border-radius: 999px;
+            }
+        }
+        .btn, .field, .select, .textarea {
+            border-radius: 16px; border: 1px solid var(--border); background: var(--surface-solid); color: var(--text);
+            transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, color .16s ease;
+        }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 16px;
+            font-weight: 700; cursor: pointer; box-shadow: none;
+        }
+        .btn.primary { background: linear-gradient(135deg, var(--accent), #2ab9f4); border-color: transparent; color: white; box-shadow: 0 18px 30px rgba(29, 114, 217, 0.22); }
+        .btn.ghost { background: var(--surface-soft); }
+        .btn:hover, .field:focus, .select:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(29, 114, 217, 0.10); outline: 0; }
+        .field, .select { min-height: 44px; width: 100%; padding: 10px 14px; }
+        .textarea { width: 100%; min-height: 140px; padding: 14px 16px; resize: vertical; line-height: 1.6; }
+        .hint { display: block; margin: 0 0 8px; color: var(--text-mute); font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .12em; }
+        .panel {
+            position: relative; background: var(--surface); backdrop-filter: blur(18px); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); overflow: hidden;
+        }
+        .panel::before {
+            content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,.24), transparent 24%); opacity: .35; pointer-events: none;
+        }
+        body[data-theme="dark"] .panel::before { background: linear-gradient(180deg, rgba(255,255,255,.07), transparent 22%); }
+        .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 22px 0; }
+        .panel-title { margin: 0; font-size: 18px; font-weight: 700; }
+        .panel-subtitle { margin: 6px 0 0; color: var(--text-soft); font-size: 13px; line-height: 1.5; }
+        .panel-body { padding: 20px 22px 22px; }
+        .grid-2, .grid-3, .grid-4 { display: grid; gap: 18px; }
+        .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .kpi {
+            padding: 20px; background: linear-gradient(180deg, var(--surface-solid), var(--surface-alt)); border: 1px solid var(--border);
+            border-radius: 22px; box-shadow: var(--shadow-soft);
+        }
+        .kpi-label { margin: 0; color: var(--text-mute); font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .18em; }
+        .kpi-value { margin: 12px 0 8px; font: 700 34px/1 var(--font-display); }
+        .kpi-meta { color: var(--text-soft); font-size: 13px; line-height: 1.45; }
+        .toolbar { display: grid; gap: 12px; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; }
+        .query-editor { grid-column: 1 / -1; }
+        .split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, .95fr); gap: 18px; align-items: start; }
+        .results-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(360px, .95fr); gap: 18px; align-items: start; }
+        .stack-rail { display: grid; gap: 18px; }
+        .stats-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .table-wrap { overflow: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 13px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { color: var(--text-mute); font: 600 11px var(--font-mono); letter-spacing: .16em; text-transform: uppercase; white-space: nowrap; }
+        tbody tr { cursor: pointer; transition: background .16s ease; }
+        tbody tr:hover td, tbody tr.active td { background: var(--surface-alt); }
+        td { line-height: 1.55; }
+        .mono, code, pre { font-family: var(--font-mono); }
+        .ts-cell, .table-code { font-family: var(--font-mono); color: var(--text-soft); white-space: nowrap; }
+        .wrap-cell { min-width: 280px; max-width: 760px; white-space: normal; word-break: break-word; }
+        .message-preview {
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+            overflow: hidden; white-space: normal; word-break: break-word;
+        }
+        .severity { display: inline-flex; align-items: center; gap: 8px; text-transform: uppercase; font: 700 11px var(--font-mono); letter-spacing: .08em; }
+        .severity::before { content: ''; width: 10px; height: 10px; border-radius: 999px; background: currentColor; }
+        .sev-critical { color: var(--critical); }
+        .sev-high { color: var(--high); }
+        .sev-medium { color: var(--medium); }
+        .sev-low { color: var(--low); }
+        .sev-info, .sev-unknown { color: var(--info); }
+        .chart-bars { display: flex; align-items: end; gap: 10px; min-height: 220px; overflow-x: auto; padding-bottom: 6px; }
+        .chart-bars.compact { gap: 8px; }
+        .chart-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: end; gap: 8px; }
+        .chart-col.compact { flex: 0 0 28px; }
+        .chart-bar { border-radius: 12px 12px 5px 5px; background: linear-gradient(180deg, rgba(29, 114, 217, .95), rgba(42, 185, 244, .46)); min-height: 10px; }
+        .chart-label, .chart-value { font-size: 11px; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+        .chart-value { color: var(--text); font-weight: 600; }
+        .timeline-surface {
+            position: relative;
+            min-height: 250px;
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(11, 24, 43, .42), rgba(11, 24, 43, .18));
+            border: 1px solid var(--border);
+            padding: 10px 12px 0;
+        }
+        .timeline-svg {
+            width: 100%;
+            height: 230px;
+            display: block;
+            overflow: visible;
+        }
+        .timeline-axis {
+            stroke: rgba(148, 163, 184, .26);
+            stroke-width: 1;
+        }
+        .timeline-axis-label {
+            fill: var(--text-mute);
+            font: 500 11px var(--font-mono);
+            letter-spacing: .06em;
+        }
+        .timeline-area {
+            fill: url(#timelineFill);
+        }
+        .timeline-line {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 3;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+        .timeline-point {
+            fill: var(--surface-solid);
+            stroke: var(--accent);
+            stroke-width: 2;
+            transition: r .14s ease, fill .14s ease;
+        }
+        .timeline-point.is-active {
+            fill: var(--accent);
+        }
+        .timeline-tooltip {
+            position: absolute;
+            transform: translate(-50%, calc(-100% - 12px));
+            pointer-events: none;
+            min-width: 168px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: rgba(6, 14, 28, .94);
+            box-shadow: 0 18px 34px rgba(2, 6, 23, .28);
+            color: #e5eefc;
+            opacity: 0;
+            transition: opacity .12s ease;
+            z-index: 2;
+        }
+        .timeline-tooltip.open {
+            opacity: 1;
+        }
+        .timeline-tooltip strong {
+            display: block;
+            font-size: 22px;
+            line-height: 1.1;
+            margin-bottom: 4px;
+        }
+        .timeline-tooltip .page-note {
+            color: rgba(226, 232, 240, .82);
+        }
+        .mini-list { display: grid; gap: 10px; }
+        .mini-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+        .mini-bar-track { height: 10px; border-radius: 999px; background: rgba(148, 163, 184, .16); overflow: hidden; }
+        .mini-bar { height: 100%; background: linear-gradient(90deg, rgba(29, 114, 217, .86), rgba(42, 185, 244, .92)); }
+        .drawer-card { position: sticky; top: 104px; max-height: calc(100vh - 132px); overflow: hidden; }
+        .drawer-card .panel-body { overflow: auto; max-height: calc(100vh - 190px); }
+        .drawer-empty { padding: 26px; color: var(--text-soft); text-align: center; line-height: 1.6; }
+        .kv-list { display: grid; gap: 10px; }
+        .kv { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .kv:last-child { border-bottom: 0; padding-bottom: 0; }
+        .kv-key { color: var(--text-mute); }
+        .kv-value { white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+        .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-alt); color: var(--text); padding: 8px 12px; font-size: 12px; cursor: pointer; }
+        .chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+        .error-box { padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(216, 62, 93, .22); background: var(--danger-soft); color: var(--danger); }
+        .empty-box { padding: 24px; color: var(--text-soft); text-align: center; }
+        .donut-wrap { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; align-items: center; }
+        .donut { width: 170px; height: 170px; border-radius: 50%; border: 18px solid rgba(148, 163, 184, .16); position: relative; }
+        .donut::after { content: ''; position: absolute; inset: 36px; background: var(--surface-solid); border-radius: 50%; }
+        .donut-center { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font: 700 28px/1 var(--font-display); }
+        .legend { display: grid; gap: 10px; }
+        .legend-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+        .legend-swatch { width: 12px; height: 12px; border-radius: 4px; }
+        .stacked-bar { display: flex; width: 100%; min-height: 16px; border-radius: 999px; overflow: hidden; background: rgba(148, 163, 184, .16); margin-bottom: 16px; }
+        .stacked-segment { min-height: 16px; }
+        .sql-box { margin-top: 14px; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(94, 234, 212, .18); background: #071120; color: #d8ecff; font-size: 12px; overflow: auto; }
+        .page-note { color: var(--text-soft); font-size: 13px; line-height: 1.6; }
+        .message-cell { max-width: 760px; }
+        .message-cell span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; line-height: 1.5; }
+        .topbar-chip { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 16px; background: var(--surface-soft); border: 1px solid var(--border); color: var(--text-soft); }
+        .theme-toggle, .timezone-toggle, .topbar-icon { padding-inline: 12px; gap: 10px; }
+        .theme-toggle span:last-child, .timezone-toggle span:last-child, .topbar-icon span:last-child, .brand-toggle span:last-child { font-size: 12px; font-weight: 700; }
+        @media (max-width: 1280px) {
+            .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .split, .results-layout { grid-template-columns: 1fr; }
+            .drawer-card { position: static; max-height: none; }
+            .drawer-card .panel-body { max-height: none; }
+            .toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 960px) {
+            .app-sidebar { transform: translateX(-100%); }
+            body[data-sidebar-mobile="open"] .app-sidebar { transform: translateX(0); }
+            body[data-sidebar-mobile="open"] .sidebar-overlay { opacity: 1; pointer-events: auto; }
+            .app-main, body[data-sidebar="collapsed"] .app-main { margin-left: 0; }
+            .main-inner { padding: 18px 18px 34px; }
+            .grid-2, .grid-3, .grid-4, .toolbar, .stats-grid { grid-template-columns: 1fr; }
+            .topbar { grid-template-columns: 1fr; }
+            .topbar-left, .topbar-actions { width: 100%; }
+            .topbar-actions { justify-content: flex-start; flex-wrap: wrap; overflow-x: visible; }
+            .page-heading h2 { font-size: 30px; }
+            .donut-wrap { grid-template-columns: 1fr; justify-items: center; }
+            body[data-sidebar="collapsed"] .app-sidebar { width: var(--sidebar-width); }
+            body[data-sidebar="collapsed"] .sidebar-brand h1,
+            body[data-sidebar="collapsed"] .sidebar-brand p,
+            body[data-sidebar="collapsed"] .nav-header,
+            body[data-sidebar="collapsed"] .nav-label,
+            body[data-sidebar="collapsed"] .nav-meta,
+            body[data-sidebar="collapsed"] .nav-suffix,
+            body[data-sidebar="collapsed"] .sidebar-context { display: revert; }
+            body[data-sidebar="collapsed"] .nav-link { grid-template-columns: 16px minmax(0, 1fr) auto; justify-items: stretch; }
+            body[data-sidebar="collapsed"] .brand-toggle { position: static; transform: none; }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body data-theme="light" data-sidebar="expanded" data-sidebar-mobile="closed">
+    <div class="app-shell">
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        <aside class="app-sidebar" id="appSidebar">
+            <div class="sidebar-brand">
+                <div class="brand-top">
+                    <div class="brand-mark">R</div>
+                    <button class="brand-toggle" id="sidebarToggle" type="button" aria-label="Toggle sidebar"><span class="btn-label" id="sidebarToggleLabel">{{ t['shell.hide'] }}</span></button>
+                </div>
+                <div>
+                    <h1>{{ t['brand.title'] }}</h1>
+                    <p>{{ t['brand.subtitle'] }}</p>
+                </div>
+            </div>
+            <section class="nav-section">
+                <div class="nav-header">{{ t['nav.monitor'] }}</div>
+                <nav class="nav-list">
+                    <a class="nav-link {% if active_page == 'dashboards' %}active{% endif %}" href="/dashboards"><span class="nav-icon">DB</span><span class="nav-label">{{ t['nav.dashboards'] }}</span><span class="nav-suffix">{{ t['nav.dashboards.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'alerts' %}active{% endif %}" href="/alerts"><span class="nav-icon">IR</span><span class="nav-label">{{ t['nav.incidents'] }}</span><span class="nav-suffix">{{ t['nav.incidents.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'events' %}active{% endif %}" href="/events"><span class="nav-icon">EV</span><span class="nav-label">{{ t['nav.events'] }}</span><span class="nav-suffix">{{ t['nav.events.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'sources' %}active{% endif %}" href="/sources"><span class="nav-icon">SO</span><span class="nav-label">{{ t['nav.sources'] }}</span><span class="nav-suffix">{{ t['nav.sources.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'collectors' %}active{% endif %}" href="/collectors"><span class="nav-icon">CL</span><span class="nav-label">{{ t['nav.collectors'] }}</span><span class="nav-suffix">{{ t['nav.collectors.meta'] }}</span></a>
+                </nav>
+            </section>
+            <section class="nav-section">
+                <div class="nav-header">{{ t['nav.content'] }}</div>
+                <nav class="nav-list">
+                    <a class="nav-link {% if active_page == 'assets' %}active{% endif %}" href="/assets"><span class="nav-icon">AS</span><span class="nav-label">{{ t['nav.assets'] }}</span><span class="nav-suffix">{{ t['nav.assets.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'reports' %}active{% endif %}" href="/reports"><span class="nav-icon">RP</span><span class="nav-label">{{ t['nav.reports'] }}</span><span class="nav-suffix">{{ t['nav.reports.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'documentation' %}active{% endif %}" href="/documentation"><span class="nav-icon">DC</span><span class="nav-label">{{ t['nav.documentation'] }}</span><span class="nav-suffix">{{ t['nav.documentation.meta'] }}</span></a>
+                    <a class="nav-link {% if active_page == 'resources' %}active{% endif %}" href="/resources"><span class="nav-icon">RS</span><span class="nav-label">{{ t['nav.resources'] }}</span><span class="nav-suffix">{{ t['nav.resources.meta'] }}</span></a>
+                </nav>
+            </section>
+            <div class="sidebar-footer">
+                <div class="sidebar-context">
+                    <div class="meta-title">{{ t['shell.session'] }}</div>
+                    <div class="context-row"><span>{{ t['shell.instance'] }}</span><strong>{{ request.app.state.instance_name }}</strong></div>
+                    <div class="context-row"><span>{{ t['shell.environment'] }}</span><strong>{{ request.app.state.env }}</strong></div>
+                    <div class="context-row"><span>{{ t['shell.user'] }}</span><strong>{{ user.username if user is defined else 'guest' }}</strong></div>
+                    <div class="context-row"><span>{{ t['shell.role'] }}</span><strong>{{ user.role if user is defined else 'guest' }}</strong></div>
+                    <div class="context-row"><span>{{ t['shell.base_url'] }}</span><strong>{{ request.app.state.base_url }}</strong></div>
+                </div>
+            </div>
+        </aside>
+        <main class="app-main">
+            <div class="main-inner">
+                <div class="topbar">
+                    <div class="topbar-left">
+                        <button class="topbar-icon" id="sidebarMobileToggle" type="button" aria-label="Open sidebar"><span class="btn-label">{{ t['shell.menu'] }}</span></button>
+                        <div class="page-heading">
+                            <h2>{% block page_title %}Rdegon SIEM{% endblock %}</h2>
+                            <p>{% block page_subtitle %}Operational monitoring and investigation console{% endblock %}</p>
+                        </div>
+                    </div>
+                    <div class="topbar-actions">
+                        <span class="badge sql with-value" id="platformStatusBadge"><span class="btn-label" id="platformStatusLabel">{{ t['shell.live'] }}</span><span class="control-value" id="platformStatusValue">{{ t['shell.live.ok'] }}</span></span>
+                        <button class="timezone-toggle topbar-control compact-control" id="timezoneToggle" type="button" aria-label="Set time zone"><span class="btn-label">TZ</span><span class="control-value" id="timezoneToggleLabel">Local</span></button>
+                        <button class="topbar-icon topbar-control compact-control" id="languageToggle" type="button" aria-label="Toggle language"><span class="btn-label">LG</span><span class="control-value" id="languageToggleLabel">{{ ui_lang|upper }}</span></button>
+                        <button class="theme-toggle topbar-control compact-control" id="themeToggle" type="button" aria-label="Toggle theme"><span class="btn-label" id="themeToggleIcon">{{ t['shell.theme.icon.dark'] }}</span><span class="control-value" id="themeToggleLabel">{{ t['shell.theme.dark'] }}</span></button>
+                        <span class="status-pill topbar-user">{{ user.username if user is defined else 'guest' }} / {{ user.role if user is defined else 'guest' }}</span>
+                        <a class="btn ghost" href="/auth/logout">{{ t['shell.sign_out'] }}</a>
+                    </div>
+                </div>
+                {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+    <script>
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, function(char) {
+                return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char];
+            });
+        }
+        function isValidTimeZone(value) {
+            try {
+                Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+                return true;
+            } catch (error) {
+                return false;
+            }
+        }
+        function resolveUserTimeZone() {
+            const stored = localStorage.getItem('rdegon_timezone');
+            if (stored && isValidTimeZone(stored)) return stored;
+            const browser = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+            return isValidTimeZone(browser) ? browser : 'UTC';
+        }
+        function formatDisplayTimestamp(value) {
+            const text = String(value || '').trim();
+            if (!text) return '';
+            const normalized = text.includes('T') ? text : text.replace(' ', 'T');
+            const iso = /Z$|[+-]\d{2}:\d{2}$/.test(normalized) ? normalized : `${normalized}Z`;
+            const dt = new Date(iso);
+            if (Number.isNaN(dt.getTime())) return text;
+            return new Intl.DateTimeFormat('sv-SE', {
+                timeZone: resolveUserTimeZone(),
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            }).format(dt).replace(',', '');
+        }
+        function applyTimestampFormatting(root = document) {
+            root.querySelectorAll('[data-ts]').forEach((node) => {
+                const raw = node.dataset.ts || '';
+                node.textContent = formatDisplayTimestamp(raw);
+                node.title = `UTC: ${raw}`;
+            });
+        }
+        window.resolveUserTimeZone = resolveUserTimeZone;
+        window.formatDisplayTimestamp = formatDisplayTimestamp;
+        window.applyTimestampFormatting = applyTimestampFormatting;
+        function severityClass(value) {
+            const sev = String(value || 'info').toLowerCase();
+            return ['critical', 'high', 'medium', 'low', 'info'].includes(sev) ? 'sev-' + sev : 'sev-info';
+        }
+        function downloadTsv(filename, headers, rows) {
+            const lines = [headers.join('\t')].concat(rows.map((row) => headers.map((key) => String(row[key] ?? '')).join('\t')));
+            const blob = new Blob([lines.join('\n')], { type: 'text/tab-separated-values;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+        function renderDonut(elementId, totalElementId, rows) {
+            const container = document.getElementById(elementId);
+            const total = rows.reduce((sum, row) => sum + Number(row.count || row.cnt || 0), 0);
+            const totalNode = document.getElementById(totalElementId);
+            if (totalNode) totalNode.textContent = total;
+            if (!container || total === 0) {
+                if (container) container.style.background = 'rgba(148, 163, 184, .16)';
+                return;
+            }
+            let offset = 0;
+            const colors = ['#4b93ff', '#1ed7a4', '#ffb357', '#ff8fa3', '#7c95b4', '#8e63d3'];
+            const segments = rows.map((row, index) => {
+                const value = Number(row.count || row.cnt || 0);
+                const percent = total ? (value / total) * 100 : 0;
+                const color = colors[index % colors.length];
+                const start = offset;
+                offset += percent;
+                row.__color = color;
+                return `${color} ${start}% ${offset}%`;
+            });
+            container.style.background = `conic-gradient(${segments.join(', ')})`;
+        }
+        const UI_I18N = {{ t | tojson }};
+        (function initShell() {
+            const body = document.body;
+            const themeToggle = document.getElementById('themeToggle');
+            const themeToggleIcon = document.getElementById('themeToggleIcon');
+            const themeToggleLabel = document.getElementById('themeToggleLabel');
+            const timezoneToggle = document.getElementById('timezoneToggle');
+            const timezoneToggleLabel = document.getElementById('timezoneToggleLabel');
+            const languageToggle = document.getElementById('languageToggle');
+            const languageToggleLabel = document.getElementById('languageToggleLabel');
+            const platformStatusBadge = document.getElementById('platformStatusBadge');
+            const platformStatusValue = document.getElementById('platformStatusValue');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebarToggleLabel = document.getElementById('sidebarToggleLabel');
+            const sidebarMobileToggle = document.getElementById('sidebarMobileToggle');
+            const sidebarOverlay = document.getElementById('sidebarOverlay');
+            const desktopMq = window.matchMedia('(min-width: 961px)');
+            const storedTheme = localStorage.getItem('rdegon_theme') || 'light';
+            const storedSidebar = localStorage.getItem('rdegon_sidebar') || 'expanded';
+            let platformStatusTimer = null;
+            body.dataset.theme = storedTheme;
+            body.dataset.sidebar = storedSidebar;
+            function syncThemeLabel() {
+                const dark = body.dataset.theme === 'dark';
+                themeToggleIcon.textContent = dark ? UI_I18N['shell.theme.icon.light'] : UI_I18N['shell.theme.icon.dark'];
+                themeToggleLabel.textContent = dark ? UI_I18N['shell.theme.light'] : UI_I18N['shell.theme.dark'];
+            }
+            function syncSidebarLabel() {
+                const collapsed = body.dataset.sidebar === 'collapsed';
+                if (sidebarToggleLabel) sidebarToggleLabel.textContent = collapsed ? UI_I18N['shell.show'] : UI_I18N['shell.hide'];
+            }
+            function syncTimeZoneLabel() {
+                const timezone = resolveUserTimeZone();
+                timezoneToggleLabel.textContent = timezone.length > 24 ? timezone.slice(0, 21) + '...' : timezone;
+                timezoneToggle.title = `${UI_I18N['shell.timezone']}: ${timezone}`;
+            }
+            function syncLanguageLabel() {
+                const current = document.documentElement.lang || '{{ ui_lang or "en" }}';
+                languageToggleLabel.textContent = current.toUpperCase();
+                languageToggle.title = `${UI_I18N['shell.language']}: ${current.toUpperCase()}`;
+            }
+            async function refreshPlatformStatus() {
+                if (!platformStatusBadge || !platformStatusValue) return;
+                try {
+                    const response = await fetch('/api/platform/status', { headers: { 'Accept': 'application/json' } });
+                    const payload = await response.json();
+                    if (!response.ok) throw new Error(payload.error || 'status failed');
+                    const clickhouseOk = typeof payload?.clickhouse_runtime?.healthy === 'boolean'
+                        ? !!payload.clickhouse_runtime.healthy
+                        : !!payload.clickhouse_ok;
+                    platformStatusBadge.classList.toggle('live', clickhouseOk);
+                    platformStatusBadge.classList.toggle('dead', !clickhouseOk);
+                    platformStatusBadge.classList.toggle('sql', clickhouseOk);
+                    platformStatusValue.textContent = clickhouseOk ? UI_I18N['shell.live.ok'] : UI_I18N['shell.live.down'];
+                    if (payload.last_event_ts) {
+                        platformStatusBadge.title = `${UI_I18N['shell.live']}: ${platformStatusValue.textContent}. Last event ${formatDisplayTimestamp(payload.last_event_ts)}`;
+                    } else {
+                        platformStatusBadge.title = `${UI_I18N['shell.live']}: ${platformStatusValue.textContent}`;
+                    }
+                    window.dispatchEvent(new CustomEvent('rdegon:platform-status', { detail: payload }));
+                } catch (error) {
+                    platformStatusBadge.classList.remove('live', 'sql');
+                    platformStatusBadge.classList.add('dead');
+                    platformStatusValue.textContent = UI_I18N['shell.live.down'];
+                    platformStatusBadge.title = `${UI_I18N['shell.live']}: ${UI_I18N['shell.live.down']}`;
+                }
+            }
+            function closeMobileSidebar() { body.dataset.sidebarMobile = 'closed'; }
+            function openMobileSidebar() { body.dataset.sidebarMobile = 'open'; }
+            themeToggle.addEventListener('click', function() {
+                body.dataset.theme = body.dataset.theme === 'dark' ? 'light' : 'dark';
+                localStorage.setItem('rdegon_theme', body.dataset.theme);
+                syncThemeLabel();
+            });
+            timezoneToggle.addEventListener('click', function() {
+                const current = localStorage.getItem('rdegon_timezone') || '';
+                const entered = window.prompt(UI_I18N['shell.timezone.prompt'], current || resolveUserTimeZone());
+                if (entered === null) return;
+                const next = entered.trim();
+                if (!next) {
+                    localStorage.removeItem('rdegon_timezone');
+                } else if (isValidTimeZone(next)) {
+                    localStorage.setItem('rdegon_timezone', next);
+                } else {
+                    window.alert(UI_I18N['shell.timezone.invalid']);
+                    return;
+                }
+                syncTimeZoneLabel();
+                applyTimestampFormatting(document);
+                window.dispatchEvent(new CustomEvent('rdegon:timezone-changed'));
+            });
+            languageToggle.addEventListener('click', function() {
+                const current = (document.documentElement.lang || '{{ ui_lang or "en" }}').toLowerCase();
+                const next = current === 'ru' ? 'en' : 'ru';
+                document.cookie = `ui_lang=${next}; path=/; max-age=31536000; SameSite=Lax`;
+                window.location.reload();
+            });
+            sidebarToggle.addEventListener('click', function() {
+                if (!desktopMq.matches) { openMobileSidebar(); return; }
+                body.dataset.sidebar = body.dataset.sidebar === 'collapsed' ? 'expanded' : 'collapsed';
+                localStorage.setItem('rdegon_sidebar', body.dataset.sidebar);
+                syncSidebarLabel();
+            });
+            sidebarMobileToggle.addEventListener('click', function() {
+                if (desktopMq.matches) {
+                    body.dataset.sidebar = body.dataset.sidebar === 'collapsed' ? 'expanded' : 'collapsed';
+                    localStorage.setItem('rdegon_sidebar', body.dataset.sidebar);
+                    syncSidebarLabel();
+                } else {
+                    openMobileSidebar();
+                }
+            });
+            sidebarOverlay.addEventListener('click', closeMobileSidebar);
+            window.addEventListener('resize', function() {
+                if (desktopMq.matches) closeMobileSidebar();
+            });
+            syncThemeLabel();
+            syncSidebarLabel();
+            syncTimeZoneLabel();
+            syncLanguageLabel();
+            applyTimestampFormatting(document);
+            refreshPlatformStatus();
+            platformStatusTimer = window.setInterval(refreshPlatformStatus, 15000);
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) refreshPlatformStatus();
+            });
+        })();
+    </script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

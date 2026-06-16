@@ -1,0 +1,31 @@
+---
+- name: Refresh OpenVAS scanner context
+  hosts: vulnerability
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Check Greenbone service state
+      ansible.builtin.command: systemctl --no-pager --failed
+      register: failed_units
+      changed_when: false
+      failed_when: false
+
+    - name: Check gvmd version
+      ansible.builtin.command: gvmd --version
+      register: gvmd_version
+      changed_when: false
+      failed_when: false
+
+    - name: Check OpenVAS version
+      ansible.builtin.command: openvas --version
+      register: openvas_version
+      changed_when: false
+      failed_when: false
+
+    - name: Emit scanner evidence
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          failed_units: "{{ failed_units.stdout_lines | default([]) }}"
+          gvmd: "{{ gvmd_version.stdout_lines | default([]) }}"
+          openvas: "{{ openvas_version.stdout_lines | default([]) }}"

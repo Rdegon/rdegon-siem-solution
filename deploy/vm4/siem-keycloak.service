@@ -1,0 +1,19 @@
+[Unit]
+Description=SIEM Keycloak
+After=network-online.target postgresql.service siem-vault.service
+Requires=siem-vault.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/siem/keycloak/current
+EnvironmentFile=/etc/siem/keycloak.env
+ExecStart=/opt/siem/keycloak/current/bin/kc.sh start --http-enabled=true --http-port=8081 --hostname-strict=false --proxy-headers=xforwarded
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+---
+- name: Collect host triage evidence
+  hosts: all
+  gather_facts: false
+  vars:
+    journal_units: "{{ service_name | default('') }}"
+  tasks:
+    - name: Collect uptime
+      ansible.builtin.command: uptime
+      register: uptime_result
+      changed_when: false
+
+    - name: Collect disk usage
+      ansible.builtin.command: df -hT
+      register: disk_result
+      changed_when: false
+
+    - name: Collect memory usage
+      ansible.builtin.command: free -m
+      register: memory_result
+      changed_when: false
+
+    - name: Collect failed systemd units
+      ansible.builtin.command: systemctl --failed --no-pager
+      register: failed_units_result
+      changed_when: false
+      failed_when: false
+
+    - name: Collect listening sockets
+      ansible.builtin.command: ss -tulpen
+      register: sockets_result
+      changed_when: false
+      failed_when: false
+
+    - name: Collect recent journal for selected service
+      ansible.builtin.command: "journalctl -u {{ journal_units }} -n 80 --no-pager"
+      register: journal_result
+      changed_when: false
+      failed_when: false
+      when: journal_units | length > 0
+
+    - name: Emit triage evidence
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          role: "{{ host_role | default('unknown') }}"
+          uptime: "{{ uptime_result.stdout_lines | default([]) }}"
+          disk: "{{ disk_result.stdout_lines | default([]) }}"
+          memory: "{{ memory_result.stdout_lines | default([]) }}"
+          failed_units: "{{ failed_units_result.stdout_lines | default([]) }}"
+          sockets: "{{ sockets_result.stdout_lines | default([]) }}"
+          journal: "{{ journal_result.stdout_lines | default([]) }}"

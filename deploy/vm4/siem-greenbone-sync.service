@@ -1,0 +1,11 @@
+[Unit]
+Description=Rdegon SIEM Greenbone synchronization
+After=network-online.target siem-web.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=rdegon
+WorkingDirectory=/opt/siem/siem-solution/services/web
+EnvironmentFile=/etc/siem/web.env
+ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/deploy/vuln/rdegon_greenbone_sync.py --sync-limit 500 --import-limit 20

@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw VLESS tunnel service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+WorkingDirectory=/home/openclaw
+ExecStart=/home/openclaw/bin/xray run -config /home/openclaw/.config/xray/openclaw-vless-client.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

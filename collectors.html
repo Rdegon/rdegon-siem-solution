@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ t['page.collectors.title'] }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ t['page.collectors.title'] }}{% endblock %}
+{% block page_subtitle %}{{ t['page.collectors.subtitle'] }}{% endblock %}
+{% block extra_head %}
+<style>
+    .collector-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+    }
+    .collector-card {
+        padding: 22px;
+        border-radius: 24px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--surface-solid), var(--surface-alt));
+        box-shadow: var(--shadow-soft);
+        display: grid;
+        gap: 14px;
+    }
+    .collector-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: start;
+    }
+    .collector-title {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+    }
+    .collector-meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+    .collector-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 7px 11px;
+        font: 600 11px var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .collector-badge.active { color: var(--success); border-color: rgba(18, 148, 106, .24); background: var(--success-soft); }
+    .collector-badge.delayed { color: var(--warning); border-color: rgba(207, 140, 25, .24); background: var(--warning-soft); }
+    .collector-badge.stale { color: var(--danger); border-color: rgba(216, 62, 93, .24); background: var(--danger-soft); }
+    .collector-badge.ready, .collector-badge.planned, .collector-badge.unknown { color: var(--info); }
+    .collector-source-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-content: flex-start;
+        min-height: 44px;
+    }
+    @media (max-width: 1280px) {
+        .collector-grid { grid-template-columns: 1fr; }
+        .collector-meta { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% set is_ru = ui_lang == 'ru' %}
+<div class="view-stack">
+    <div class="grid-4">
+        <section class="kpi"><p class="kpi-label">{{ 'Коллекторы' if is_ru else 'Collectors' }}</p><div class="kpi-value">{{ collectors|length }}</div><div class="kpi-meta">{{ 'Коллекторные роли, которые сейчас описаны в продукте.' if is_ru else 'Collector roles currently modeled in the product shell.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Активные пайплайны' if is_ru else 'Active pipelines' }}</p><div class="kpi-value">{{ collectors | selectattr('status', 'equalto', 'active') | list | length }}</div><div class="kpi-meta">{{ 'Коллекторные пути, где недавно были события от источников.' if is_ru else 'Collector paths with recent source activity.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Готовые пути' if is_ru else 'Ready paths' }}</p><div class="kpi-value">{{ collectors | selectattr('status', 'equalto', 'ready') | list | length }}</div><div class="kpi-meta">{{ 'Подготовленные коллекторы, которые ждут onboarding новых источников.' if is_ru else 'Collector classes prepared for onboarding but not yet active.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Покрытые источники' if is_ru else 'Covered sources' }}</p><div class="kpi-value">{{ collectors | sum(attribute='sources_count') }}</div><div class="kpi-meta">{{ 'Общее число источников, привязанных к collector classes.' if is_ru else 'Total sources currently assigned to collector classes.' }}</div></section>
+    </div>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3 class="panel-title">{{ 'Топология коллекторов' if is_ru else 'Collector topology' }}</h3>
+                <p class="panel-subtitle">{{ 'Отдельные роли для edge-ingest, Windows, сетевого syslog, приложений и core storage/correlation.' if is_ru else 'Separate roles for edge ingest, Windows events, network syslog, application telemetry, and core storage/correlation.' }}</p>
+            </div>
+        </div>
+        <div class="panel-body collector-grid">
+            {% for collector in collectors %}
+            <article class="collector-card">
+                <div class="collector-header">
+                    <div class="collector-title">
+                        <div class="hint">{{ collector.collector_id }}</div>
+                        <h3 class="panel-title" style="margin-top:4px;">{{ collector.name }}</h3>
+                        <div class="page-note" style="margin-top:6px;">{{ collector.role }}</div>
+                    </div>
+                    <span class="collector-badge {{ collector.status }}">{{ collector.status }}</span>
+                </div>
+                <div class="collector-meta">
+                    <div class="kv-list">
+                        <div class="kv"><div class="kv-key">{{ 'Узел' if is_ru else 'Node' }}</div><div class="kv-value">{{ collector.node }}</div></div>
+                        <div class="kv"><div class="kv-key">{{ 'Классы источников' if is_ru else 'Source classes' }}</div><div class="kv-value">{{ collector.source_types | join(', ') }}</div></div>
+                        <div class="kv"><div class="kv-key">{{ 'Протоколы' if is_ru else 'Protocols' }}</div><div class="kv-value">{{ collector.protocols | join(', ') }}</div></div>
+                    </div>
+                    <div class="kv-list">
+                        <div class="kv"><div class="kv-key">{{ 'Источники' if is_ru else 'Sources' }}</div><div class="kv-value">{{ collector.sources_count }}</div></div>
+                        <div class="kv"><div class="kv-key">{{ 'События 24ч' if is_ru else 'Events 24h' }}</div><div class="kv-value">{{ collector.events }}</div></div>
+                        <div class="kv"><div class="kv-key">{{ 'Последняя активность' if is_ru else 'Last seen' }}</div><div class="kv-value" {% if collector.last_seen %}data-ts="{{ collector.last_seen }}"{% endif %}>{{ collector.last_seen or 'n/a' }}</div></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="hint">{{ 'Покрытые источники' if is_ru else 'Covered sources' }}</div>
+                    <div class="collector-source-list">
+                        {% for item in collector.covered_sources %}
+                        <span class="chip">{{ item }}</span>
+                        {% endfor %}
+                        {% if not collector.covered_sources %}
+                        <span class="page-note">{{ 'Пока нет живых источников, привязанных к этому коллектору.' if is_ru else 'No live sources mapped yet.' }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </article>
+            {% endfor %}
+            {% if not collectors %}
+            <div class="empty-box">{{ 'Инвентарь коллекторов пока пуст.' if is_ru else 'No collector inventory is available yet.' }}</div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+applyTimestampFormatting(document);
+</script>
+{% endblock %}

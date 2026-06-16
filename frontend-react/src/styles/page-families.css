@@ -1,0 +1,2134 @@
+.react-page > .react-hero-card,
+.react-page > .react-workspace-header {
+  margin-bottom: 20px;
+}
+
+.react-page-dashboard .react-hero-card,
+.react-page-events .react-hero-card,
+.react-page-incidents .react-hero-card,
+.react-page-sources .react-hero-card,
+.react-page-vuln .react-hero-card,
+.react-page-access .react-hero-card,
+.react-page-builders .react-hero-card {
+  min-height: 132px;
+}
+
+.react-page-access .react-workspace-section,
+.react-page-sources .react-workspace-section,
+.react-page-vuln .react-workspace-section {
+  min-height: 100%;
+}
+
+.react-page-access > .react-hero-card {
+  min-height: auto;
+}
+
+.react-page-access .react-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.react-page-dashboard .react-overview-hero-shell {
+  min-height: 0;
+}
+
+.react-page-dashboard .react-overview-heading-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+}
+
+.react-page-dashboard .react-overview-heading-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: start;
+}
+
+.react-page-dashboard .react-overview-heading-controls .react-time-inline-select,
+.react-page-dashboard .react-overview-heading-controls .react-time-scope-picker {
+  min-width: 0;
+}
+
+.react-page-dashboard .react-overview-heading-controls .react-time-inline-select > span,
+.react-page-dashboard .react-overview-heading-controls .react-time-scope-item > span {
+  display: none;
+}
+
+.react-page-dashboard .react-time-inline-select {
+  display: grid;
+  gap: 6px;
+}
+
+.react-page-dashboard .react-overview-heading-controls .react-select {
+  min-height: 42px;
+}
+
+.react-page-dashboard .react-overview-heading-controls .react-time-inline-select {
+  min-width: 156px;
+}
+
+.react-page-dashboard .react-overview-heading-controls .react-time-scope-picker {
+  min-width: min(470px, 100%);
+}
+
+.react-page-dashboard .react-overview-heading-copy {
+  min-width: 0;
+}
+
+.react-page-dashboard .react-overview-heading-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.react-page-dashboard .react-overview-heading-note {
+  margin-top: 12px;
+}
+
+.react-time-focus-button-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.react-time-focus-button-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(105, 216, 255, 0.24);
+  background: linear-gradient(180deg, rgba(63, 205, 246, 0.14), rgba(63, 205, 246, 0.04));
+  color: var(--color-text-primary);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.react-time-focus-button-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-time-scope-picker-footer {
+  display: grid;
+  gap: 12px;
+}
+
+.react-time-focus-footer {
+  display: grid;
+  gap: 12px;
+}
+
+.react-time-focus-footer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.react-time-focus-footer .react-time-inline-select {
+  min-width: 150px;
+}
+
+.react-time-focus-footer .react-time-inline-select > span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.react-time-scope-bar {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.react-time-scope-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.react-time-scope-item {
+  min-width: 168px;
+  display: grid;
+  gap: 6px;
+  position: relative;
+}
+
+.react-time-scope-item > span,
+.react-time-scope-extra .react-time-scope-item > span {
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.react-time-scope-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.react-time-scope-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.react-time-scope-summary {
+  margin-top: 0;
+}
+
+.react-time-scope-picker {
+  min-width: min(420px, 100%);
+}
+
+.react-time-scope-picker-trigger {
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  min-height: 42px;
+  display: inline-flex;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.react-time-scope-picker-trigger.active {
+  border-color: rgba(105, 216, 255, 0.34);
+  box-shadow: 0 0 0 1px rgba(105, 216, 255, 0.14);
+}
+
+.react-time-scope-picker-trigger-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-time-scope-picker-trigger-icon {
+  color: var(--color-text-secondary);
+  flex: 0 0 auto;
+}
+
+.react-time-scope-picker-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: calc(var(--z-topbar) + 2);
+  width: min(640px, calc(100vw - 64px));
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(105, 216, 255, 0.16);
+  background:
+    linear-gradient(180deg, rgba(8, 14, 23, 0.98), rgba(5, 11, 18, 0.98)),
+    radial-gradient(circle at 14% 0%, rgba(63, 205, 246, 0.1), transparent 42%);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+}
+
+.react-time-scope-picker-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.react-time-scope-picker-presets {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.react-time-scope-preset {
+  border-radius: 12px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  background: rgba(11, 19, 30, 0.82);
+  color: var(--color-text-secondary);
+  padding: 10px 12px;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.react-time-scope-preset:hover,
+.react-time-scope-preset:focus-visible {
+  border-color: rgba(105, 216, 255, 0.2);
+  color: var(--color-text-primary);
+  transform: translateY(-1px);
+}
+
+.react-time-scope-preset.active {
+  border-color: rgba(105, 216, 255, 0.28);
+  background:
+    linear-gradient(180deg, rgba(63, 205, 246, 0.12), rgba(63, 205, 246, 0.04)),
+    linear-gradient(90deg, rgba(129, 255, 218, 0.08), transparent 56%);
+  color: var(--color-text-primary);
+}
+
+.react-time-scope-picker-custom {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.react-time-scope-picker-custom-title {
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.react-page-dashboard .react-overview-hero-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 900px) {
+  .react-time-scope-picker {
+    min-width: 100%;
+  }
+
+  .react-time-scope-picker-popover {
+    width: min(100vw - 48px, 540px);
+  }
+
+  .react-time-scope-picker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .react-page-dashboard .react-overview-heading-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .react-page-dashboard .react-overview-hero-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+
+.react-page-dashboard .react-overview-kpi-grid {
+  gap: 14px;
+}
+
+.react-page-dashboard .react-overview-pressure-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.react-page-dashboard .react-overview-pressure-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+}
+
+.react-page-dashboard .react-overview-pressure-item strong {
+  color: var(--color-text-primary);
+  font-size: 18px;
+}
+
+.react-page-dashboard .react-overview-pressure-item span {
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+.react-page-dashboard .react-overview-pressure-item.tone-critical {
+  border-color: rgba(255, 108, 130, 0.22);
+  background: linear-gradient(180deg, rgba(255, 108, 130, 0.12), rgba(255, 108, 130, 0.03));
+}
+
+.react-page-dashboard .react-overview-pressure-item.tone-warning {
+  border-color: rgba(244, 187, 98, 0.2);
+  background: linear-gradient(180deg, rgba(244, 187, 98, 0.1), rgba(244, 187, 98, 0.025));
+}
+
+.react-page-dashboard .react-overview-pressure-item.tone-info {
+  border-color: rgba(63, 205, 246, 0.2);
+  background: linear-gradient(180deg, rgba(63, 205, 246, 0.1), rgba(63, 205, 246, 0.03));
+}
+
+.react-page-dashboard .react-overview-lane-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.react-page-dashboard .react-overview-lane-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+    linear-gradient(90deg, rgba(63, 205, 246, 0.08), transparent 70%);
+  color: inherit;
+  text-decoration: none;
+}
+
+.react-page-dashboard .react-overview-lane-card strong {
+  color: var(--color-text-primary);
+}
+
+.react-page-dashboard .react-overview-lane-card span {
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+.react-page-dashboard .react-overview-lane-card:hover,
+.react-page-dashboard .react-overview-lane-card:focus-visible {
+  border-color: rgba(105, 216, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.react-page-topology .react-hero-card {
+  min-height: 132px;
+}
+
+.react-page-topology .react-grid-5 {
+  gap: 12px;
+}
+
+.react-topology-shell {
+  margin: 16px 0;
+  border: 1px solid rgba(141, 167, 198, 0.14);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(8, 17, 28, 0.94), rgba(4, 10, 17, 0.96)),
+    linear-gradient(90deg, rgba(63, 205, 246, 0.08), rgba(129, 255, 218, 0.04) 48%, rgba(255, 108, 130, 0.05));
+  overflow: hidden;
+}
+
+.react-topology-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
+}
+
+.react-topology-controls {
+  display: flex;
+  flex: 1 1 520px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 760px;
+}
+
+.react-topology-layer-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.react-topology-layer-strip-inline {
+  justify-content: flex-start;
+  padding: 10px 16px 0;
+}
+
+.react-topology-source-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 16px 2px;
+  scrollbar-width: thin;
+}
+
+.react-topology-source-strip > span {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: rgba(174, 190, 211, 0.72);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.react-topology-source-pill {
+  display: grid;
+  min-width: 150px;
+  max-width: 220px;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(129, 255, 218, 0.2);
+  border-radius: 14px;
+  background: rgba(7, 24, 27, 0.72);
+  color: #dffcf5;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.react-topology-source-pill strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-topology-source-pill small {
+  overflow: hidden;
+  color: rgba(185, 255, 235, 0.7);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-topology-source-pill:hover,
+.react-topology-source-pill:focus-visible,
+.react-topology-source-pill.active {
+  border-color: rgba(129, 255, 218, 0.78);
+  background: rgba(13, 48, 52, 0.9);
+  transform: translateY(-1px);
+}
+
+.react-topology-source-pill.kind-proxmox_host,
+.react-topology-source-pill.kind-proxmox_guest {
+  border-color: rgba(244, 187, 98, 0.32);
+  background: rgba(44, 31, 12, 0.68);
+  color: #fff1d8;
+}
+
+.react-topology-source-pill.kind-proxmox_host small,
+.react-topology-source-pill.kind-proxmox_guest small {
+  color: rgba(255, 232, 184, 0.72);
+}
+
+.react-topology-source-pill.kind-virtual_router,
+.react-topology-source-pill.kind-network_device {
+  border-color: rgba(129, 255, 218, 0.36);
+  background: rgba(4, 38, 33, 0.72);
+  color: #e4fff8;
+}
+
+.react-topology-source-pill.kind-vpn_host,
+.react-topology-source-pill.kind-vpn_gateway {
+  border-color: rgba(255, 108, 130, 0.36);
+  background: rgba(43, 13, 24, 0.72);
+  color: #fff1f4;
+}
+
+.react-topology-source-pill.kind-vpn_host small,
+.react-topology-source-pill.kind-vpn_gateway small {
+  color: rgba(255, 199, 209, 0.74);
+}
+
+.react-topology-source-pill.kind-siem_core {
+  border-color: rgba(105, 216, 255, 0.36);
+  background: rgba(6, 31, 45, 0.76);
+  color: #e6f8ff;
+}
+
+.react-topology-canvas-stage {
+  position: relative;
+  margin: 12px 16px 16px;
+  border: 1px solid rgba(105, 216, 255, 0.12);
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255, 108, 130, 0.11), transparent 30%),
+    radial-gradient(circle at 78% 18%, rgba(105, 216, 255, 0.13), transparent 34%),
+    radial-gradient(circle at 54% 92%, rgba(129, 255, 218, 0.08), transparent 34%),
+    rgba(3, 9, 16, 0.8);
+}
+
+.react-topology-widget {
+  position: relative;
+  min-height: 680px;
+  background:
+    linear-gradient(rgba(141, 167, 198, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(141, 167, 198, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 72% 22%, rgba(105, 216, 255, 0.12), transparent 32%),
+    radial-gradient(circle at 22% 42%, rgba(255, 108, 130, 0.09), transparent 36%);
+  background-size: 52px 52px, 52px 52px, auto, auto;
+}
+
+.react-topology-cytoscape {
+  position: absolute;
+  inset: 0;
+  min-height: 680px;
+}
+
+.react-topology-widget-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 2;
+  max-width: min(720px, calc(100% - 32px));
+  padding: 8px 11px;
+  border: 1px solid rgba(105, 216, 255, 0.15);
+  border-radius: 999px;
+  background: rgba(3, 9, 16, 0.72);
+  color: rgba(205, 219, 237, 0.74);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.react-topology-contour-legend {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-width: min(860px, calc(100% - 410px));
+  pointer-events: none;
+}
+
+.react-topology-contour-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid rgba(141, 167, 198, 0.2);
+  border-radius: 999px;
+  background: rgba(3, 9, 16, 0.74);
+  color: rgba(205, 219, 237, 0.82);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.react-topology-contour-legend span::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(141, 167, 198, 0.72);
+  content: "";
+}
+
+.react-topology-contour-legend .contour-external::before,
+.react-topology-contour-legend .contour-edge::before {
+  background: rgba(255, 108, 130, 0.9);
+}
+
+.react-topology-contour-legend .contour-source::before {
+  background: rgba(129, 255, 218, 0.9);
+}
+
+.react-topology-contour-legend .contour-collector::before,
+.react-topology-contour-legend .contour-core::before {
+  background: rgba(105, 216, 255, 0.9);
+}
+
+.react-topology-floating-card {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  z-index: 4;
+  display: grid;
+  width: min(360px, calc(100% - 36px));
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(105, 216, 255, 0.24);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(9, 22, 35, 0.96), rgba(3, 9, 16, 0.9)),
+    rgba(3, 9, 16, 0.92);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+}
+
+.react-topology-floating-card.type-source {
+  border-color: rgba(129, 255, 218, 0.36);
+  box-shadow: 0 18px 44px rgba(40, 190, 157, 0.12);
+}
+
+.react-topology-floating-card.kind-proxmox_host,
+.react-topology-floating-card.kind-proxmox_guest {
+  border-color: rgba(244, 187, 98, 0.42);
+  box-shadow: 0 18px 44px rgba(244, 187, 98, 0.12);
+}
+
+.react-topology-floating-card.kind-virtual_router {
+  border-color: rgba(129, 255, 218, 0.42);
+  box-shadow: 0 18px 44px rgba(129, 255, 218, 0.12);
+}
+
+.react-topology-floating-card.kind-vpn_host,
+.react-topology-floating-card.kind-vpn_gateway {
+  border-color: rgba(255, 108, 130, 0.44);
+  box-shadow: 0 18px 44px rgba(255, 108, 130, 0.14);
+}
+
+.react-topology-floating-card.type-external_ip,
+.react-topology-floating-card.type-protected_public_ip {
+  border-color: rgba(255, 108, 130, 0.36);
+  box-shadow: 0 18px 44px rgba(255, 108, 130, 0.12);
+}
+
+.react-topology-floating-card > strong {
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.react-topology-floating-card > span {
+  color: var(--color-text-secondary);
+}
+
+.react-topology-floating-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.react-topology-floating-grid span {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(174, 190, 211, 0.72);
+  font-size: 11px;
+}
+
+.react-topology-floating-grid b {
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.react-topology-map {
+  display: block;
+  width: 100%;
+  min-height: 500px;
+  background:
+    linear-gradient(rgba(141, 167, 198, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(141, 167, 198, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.react-olympus-map-shell {
+  overflow: hidden;
+  min-height: 820px;
+  border: 1px solid rgba(154, 194, 225, 0.16);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(231, 240, 248, 0.06), rgba(3, 9, 16, 0.78)),
+    rgba(4, 10, 16, 0.98);
+}
+
+.react-olympus-map-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(154, 194, 225, 0.12);
+  background: rgba(5, 14, 22, 0.82);
+}
+
+.react-olympus-map-header > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.react-olympus-map-header span {
+  color: rgba(132, 226, 255, 0.74);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.react-olympus-map-header strong {
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.react-olympus-map-header small {
+  display: block;
+  max-width: 920px;
+  margin-top: 4px;
+  color: rgba(205, 219, 237, 0.68);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-olympus-map-tabs {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.react-olympus-map-tabs span {
+  padding: 6px 9px;
+  border-bottom: 2px solid transparent;
+  color: rgba(205, 219, 237, 0.58);
+}
+
+.react-olympus-map-tabs span.active {
+  border-color: rgba(129, 255, 218, 0.86);
+  color: rgba(230, 255, 248, 0.96);
+}
+
+.react-olympus-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(154, 194, 225, 0.1);
+  background: rgba(2, 8, 14, 0.55);
+}
+
+.react-olympus-legend span {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(154, 194, 225, 0.14);
+  border-radius: 999px;
+  color: rgba(205, 219, 237, 0.78);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.react-olympus-legend i {
+  width: 24px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(159, 194, 232, 0.72);
+}
+
+.react-olympus-legend .tone-telemetry i {
+  background: rgba(129, 179, 255, 0.88);
+}
+
+.react-olympus-legend .tone-lan i {
+  background: rgba(129, 255, 218, 0.86);
+}
+
+.react-olympus-legend .tone-management i {
+  background: rgba(197, 140, 255, 0.86);
+}
+
+.react-olympus-legend .tone-attack i {
+  background: rgba(255, 108, 130, 0.9);
+}
+
+.react-olympus-legend .tone-response i {
+  background: rgba(244, 187, 98, 0.86);
+}
+
+.react-olympus-legend .tone-metrics i {
+  background: rgba(148, 163, 184, 0.86);
+}
+
+.react-olympus-map-body {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-rows: auto 126px;
+  gap: 18px;
+  align-items: start;
+  overflow: auto;
+  min-height: 860px;
+  padding: 16px;
+  background:
+    radial-gradient(circle at 70% 18%, rgba(105, 216, 255, 0.12), transparent 30%),
+    radial-gradient(circle at 18% 30%, rgba(129, 255, 218, 0.08), transparent 28%),
+    rgba(3, 9, 16, 0.88);
+  scrollbar-width: thin;
+}
+
+.react-olympus-map-tree {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: stretch;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid rgba(154, 194, 225, 0.2);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(15, 30, 43, 0.96), rgba(5, 13, 22, 0.94));
+  box-shadow: 0 20px 42px rgba(0, 0, 0, 0.24);
+}
+
+.react-olympus-map-tree strong {
+  color: rgba(236, 247, 255, 0.96);
+  font-size: 12px;
+}
+
+.react-olympus-map-tree span {
+  padding: 8px 9px;
+  border: 1px solid rgba(154, 194, 225, 0.16);
+  border-radius: 10px;
+  color: rgba(205, 219, 237, 0.82);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  background: rgba(2, 8, 14, 0.62);
+}
+
+.react-olympus-map-tree span:nth-child(2) {
+  border-color: rgba(255, 108, 130, 0.28);
+  background: rgba(88, 18, 34, 0.34);
+  color: rgba(255, 214, 223, 0.94);
+}
+
+.react-olympus-minimap {
+  grid-column: 1;
+  grid-row: 2;
+  width: 100%;
+  height: 126px;
+  margin-top: 0;
+  border: 1px solid rgba(154, 194, 225, 0.2);
+  border-radius: 12px;
+  background:
+    linear-gradient(rgba(141, 167, 198, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(141, 167, 198, 0.08) 1px, transparent 1px),
+    rgba(3, 9, 16, 0.86);
+  background-size: 16px 16px;
+}
+
+.react-olympus-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+
+.react-olympus-minimap rect {
+  fill: rgba(159, 194, 232, 0.1);
+  stroke: rgba(159, 194, 232, 0.34);
+}
+
+.react-olympus-minimap circle {
+  fill: rgba(129, 255, 218, 0.82);
+}
+
+.react-olympus-map {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: block;
+  min-width: 0;
+  width: 100%;
+  height: 840px;
+  border: 1px solid rgba(154, 194, 225, 0.22);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px rgba(105, 216, 255, 0.08), 0 24px 52px rgba(0, 0, 0, 0.28);
+}
+
+.react-olympus-bg {
+  fill: #07111c;
+}
+
+.react-olympus-zone rect {
+  fill: rgba(9, 20, 30, 0.38);
+  stroke: rgba(159, 194, 232, 0.3);
+  stroke-width: 1.4;
+  stroke-dasharray: 6 6;
+}
+
+.react-olympus-zone.zone-external rect,
+.react-olympus-zone.zone-edge rect {
+  fill: rgba(58, 16, 30, 0.22);
+  stroke: rgba(255, 108, 130, 0.48);
+}
+
+.react-olympus-zone.zone-network rect,
+.react-olympus-zone.zone-hosts rect {
+  fill: rgba(10, 42, 38, 0.2);
+  stroke: rgba(129, 255, 218, 0.38);
+}
+
+.react-olympus-zone.zone-telemetry rect,
+.react-olympus-zone.zone-siem rect {
+  fill: rgba(7, 35, 54, 0.24);
+  stroke: rgba(105, 216, 255, 0.42);
+}
+
+.react-olympus-zone.zone-holding rect {
+  fill: rgba(78, 48, 8, 0.18);
+  stroke: rgba(244, 187, 98, 0.5);
+}
+
+.react-olympus-zone.zone-management rect,
+.react-olympus-zone.zone-control rect {
+  fill: rgba(48, 28, 68, 0.18);
+  stroke: rgba(197, 140, 255, 0.44);
+}
+
+.react-olympus-zone.zone-storage rect {
+  fill: rgba(6, 31, 48, 0.22);
+  stroke: rgba(87, 185, 255, 0.46);
+}
+
+.react-olympus-zone text {
+  fill: rgba(226, 238, 252, 0.78);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.react-olympus-zone .react-olympus-zone-meta {
+  fill: rgba(164, 182, 205, 0.7);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.react-olympus-edge path {
+  fill: none;
+  stroke: rgba(159, 194, 232, 0.52);
+  stroke-width: 1.7;
+  marker-end: url(#olympusArrow);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.react-olympus-edge text {
+  fill: rgba(205, 219, 237, 0.5);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  opacity: 0.62;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.react-olympus-edge.tone-wan path {
+  stroke: rgba(255, 108, 130, 0.72);
+}
+
+.react-olympus-edge.tone-lan path {
+  stroke: rgba(129, 255, 218, 0.62);
+}
+
+.react-olympus-edge.tone-telemetry path {
+  stroke: rgba(129, 179, 255, 0.68);
+  stroke-dasharray: 7 7;
+}
+
+.react-olympus-edge.tone-siem path {
+  stroke: rgba(63, 205, 246, 0.82);
+  stroke-width: 2.3;
+}
+
+.react-olympus-edge.tone-response path {
+  stroke: rgba(244, 187, 98, 0.68);
+  stroke-dasharray: 8 6;
+}
+
+.react-olympus-edge.tone-attack path {
+  stroke: rgba(255, 108, 130, 0.76);
+  stroke-dasharray: 7 5;
+}
+
+.react-olympus-edge.tone-management path {
+  stroke: rgba(197, 140, 255, 0.72);
+  stroke-dasharray: 9 5;
+}
+
+.react-olympus-edge.tone-metrics path {
+  stroke: rgba(148, 163, 184, 0.62);
+  stroke-dasharray: 3 5;
+}
+
+.react-olympus-arrow {
+  fill: rgba(129, 225, 255, 0.9);
+}
+
+.react-olympus-node {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.react-olympus-node rect {
+  fill: rgba(11, 25, 39, 0.96);
+  stroke: rgba(159, 194, 232, 0.5);
+  stroke-width: 1.45;
+}
+
+.react-olympus-node circle {
+  fill: rgba(3, 9, 16, 0.95);
+  stroke: rgba(159, 194, 232, 0.55);
+  stroke-width: 1.6;
+}
+
+.react-olympus-node.shape-sentinel rect,
+.react-olympus-node.shape-service rect {
+  fill: rgba(8, 43, 58, 0.96);
+  stroke: rgba(63, 205, 246, 0.86);
+}
+
+.react-olympus-node.shape-cloud rect {
+  fill: rgba(48, 15, 28, 0.96);
+  stroke: rgba(255, 108, 130, 0.82);
+}
+
+.react-olympus-node.shape-edge rect,
+.react-olympus-node.shape-vpn rect {
+  fill: rgba(57, 19, 32, 0.96);
+  stroke: rgba(255, 108, 130, 0.88);
+}
+
+.react-olympus-node.shape-router rect,
+.react-olympus-node.shape-switch rect {
+  fill: rgba(7, 42, 39, 0.96);
+  stroke: rgba(129, 255, 218, 0.84);
+}
+
+.react-olympus-node.shape-proxmox rect {
+  fill: rgba(58, 37, 10, 0.96);
+  stroke: rgba(244, 187, 98, 0.9);
+}
+
+.react-olympus-node.shape-windows rect,
+.react-olympus-node.shape-linux rect,
+.react-olympus-node.shape-host rect {
+  fill: rgba(12, 28, 42, 0.96);
+  stroke: rgba(159, 194, 232, 0.62);
+}
+
+.react-olympus-node.shape-collector rect {
+  fill: rgba(12, 34, 55, 0.96);
+  stroke: rgba(129, 179, 255, 0.8);
+}
+
+.react-olympus-node.shape-holding rect {
+  fill: rgba(55, 34, 9, 0.96);
+  stroke: rgba(244, 187, 98, 0.86);
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-node.zone-sources rect {
+  fill: rgba(7, 48, 46, 0.98);
+  stroke: rgba(129, 255, 218, 0.78);
+  stroke-width: 1.8;
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-node.kind-network-sources rect {
+  fill: rgba(8, 53, 48, 0.98);
+  stroke: rgba(129, 255, 218, 0.94);
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-node.kind-host-sources rect {
+  fill: rgba(12, 39, 58, 0.98);
+  stroke: rgba(129, 179, 255, 0.94);
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-node.kind-infrastructure-sources rect {
+  fill: rgba(57, 40, 12, 0.98);
+  stroke: rgba(244, 187, 98, 0.92);
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-node.kind-application-sources rect {
+  fill: rgba(48, 28, 68, 0.98);
+  stroke: rgba(197, 140, 255, 0.9);
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-node.kind-security-sources rect {
+  fill: rgba(58, 18, 34, 0.98);
+  stroke: rgba(255, 108, 130, 0.92);
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-edge.tone-telemetry path {
+  stroke-width: 2.2;
+}
+
+.react-olympus-map-shell.mode-telemetry .react-olympus-edge text {
+  opacity: 0.46;
+}
+
+.react-olympus-node.status-healthy rect {
+  box-shadow: none;
+}
+
+.react-olympus-status-dot {
+  stroke: rgba(3, 9, 16, 0.95) !important;
+  stroke-width: 2 !important;
+}
+
+.react-olympus-status-dot.status-healthy {
+  fill: rgba(129, 255, 218, 0.92) !important;
+}
+
+.react-olympus-status-dot.status-degraded {
+  fill: rgba(244, 187, 98, 0.94) !important;
+}
+
+.react-olympus-status-dot.status-stale {
+  fill: rgba(148, 163, 184, 0.92) !important;
+}
+
+.react-olympus-status-dot.status-error {
+  fill: rgba(255, 108, 130, 0.96) !important;
+}
+
+.react-olympus-status-dot.status-unknown {
+  fill: rgba(105, 216, 255, 0.56) !important;
+}
+
+.react-olympus-node.selected rect,
+.react-olympus-node:hover rect,
+.react-olympus-node:focus-visible rect {
+  stroke-width: 2.8;
+  filter: drop-shadow(0 0 12px rgba(105, 216, 255, 0.36));
+}
+
+.react-olympus-node.dimmed {
+  opacity: 0.22;
+}
+
+.react-olympus-node text {
+  paint-order: stroke;
+  stroke: rgba(3, 9, 16, 0.86);
+  stroke-linejoin: round;
+  stroke-width: 3px;
+}
+
+.react-olympus-glyph {
+  fill: rgba(231, 242, 255, 0.88);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+  text-anchor: middle;
+}
+
+.react-olympus-label {
+  fill: #f5f9ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.react-olympus-meta {
+  fill: rgba(205, 219, 237, 0.74);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.react-olympus-detail {
+  fill: rgba(166, 184, 208, 0.74);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.react-olympus-count {
+  fill: rgba(129, 255, 218, 0.96);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+  text-anchor: end;
+}
+
+.react-packet-tracer-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 720px;
+  background:
+    linear-gradient(rgba(141, 167, 198, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(141, 167, 198, 0.055) 1px, transparent 1px),
+    radial-gradient(circle at 18% 30%, rgba(255, 108, 130, 0.12), transparent 28%),
+    radial-gradient(circle at 78% 24%, rgba(105, 216, 255, 0.15), transparent 32%),
+    rgba(3, 9, 16, 0.9);
+  background-size: 64px 64px, 64px 64px, auto, auto;
+  scrollbar-width: thin;
+}
+
+.react-packet-tracer-map {
+  display: block;
+  min-width: 1640px;
+  width: 100%;
+  height: 720px;
+}
+
+.react-packet-tracer-bg {
+  fill: rgba(3, 9, 16, 0.54);
+}
+
+.react-packet-tracer-lane rect {
+  fill: rgba(10, 23, 36, 0.34);
+  stroke: rgba(159, 194, 232, 0.32);
+  stroke-width: 1.4;
+  stroke-dasharray: 7 7;
+}
+
+.react-packet-tracer-lane.lane-internet rect,
+.react-packet-tracer-lane.lane-edge rect {
+  fill: rgba(58, 16, 30, 0.22);
+  stroke: rgba(255, 108, 130, 0.42);
+}
+
+.react-packet-tracer-lane.lane-network rect,
+.react-packet-tracer-lane.lane-hosts rect {
+  fill: rgba(18, 36, 38, 0.28);
+  stroke: rgba(129, 255, 218, 0.32);
+}
+
+.react-packet-tracer-lane.lane-telemetry rect,
+.react-packet-tracer-lane.lane-core rect {
+  fill: rgba(9, 37, 54, 0.3);
+  stroke: rgba(105, 216, 255, 0.36);
+}
+
+.react-packet-tracer-lane text {
+  fill: rgba(211, 226, 245, 0.82);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.react-packet-tracer-link path {
+  fill: none;
+  stroke: rgba(141, 167, 198, 0.42);
+  stroke-width: 2;
+  opacity: 0.62;
+}
+
+.react-packet-tracer-link text {
+  fill: rgba(205, 219, 237, 0.58);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.react-packet-tracer-link.dashed path {
+  stroke-dasharray: 8 7;
+}
+
+.react-packet-tracer-link.tone-attack path {
+  stroke: rgba(255, 108, 130, 0.84);
+}
+
+.react-packet-tracer-link.tone-edge path {
+  stroke: rgba(244, 187, 98, 0.72);
+}
+
+.react-packet-tracer-link.tone-lan path {
+  stroke: rgba(129, 255, 218, 0.58);
+}
+
+.react-packet-tracer-link.tone-telemetry path {
+  stroke: rgba(129, 179, 255, 0.68);
+}
+
+.react-packet-tracer-link.tone-pipeline path,
+.react-packet-tracer-link.tone-soar path {
+  stroke: rgba(63, 205, 246, 0.86);
+  stroke-width: 2.6;
+}
+
+.react-packet-tracer-arrow {
+  fill: rgba(105, 216, 255, 0.86);
+}
+
+.react-packet-tracer-device {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.react-packet-tracer-device path,
+.react-packet-tracer-device rect {
+  fill: rgba(11, 25, 39, 0.96);
+  stroke: rgba(159, 194, 232, 0.55);
+  stroke-width: 1.6;
+  filter: url(#packetTracerGlow);
+}
+
+.react-packet-tracer-device.shape-cloud path {
+  fill: rgba(44, 13, 27, 0.96);
+  stroke: rgba(255, 108, 130, 0.78);
+}
+
+.react-packet-tracer-device.shape-edge path {
+  fill: rgba(54, 19, 32, 0.96);
+  stroke: rgba(255, 108, 130, 0.82);
+}
+
+.react-packet-tracer-device.shape-router path,
+.react-packet-tracer-device.shape-switch rect {
+  fill: rgba(7, 42, 39, 0.96);
+  stroke: rgba(129, 255, 218, 0.78);
+}
+
+.react-packet-tracer-device.shape-source rect,
+.react-packet-tracer-device.shape-collector rect {
+  fill: rgba(12, 34, 55, 0.96);
+  stroke: rgba(129, 179, 255, 0.78);
+}
+
+.react-packet-tracer-device.shape-service rect {
+  fill: rgba(9, 42, 57, 0.96);
+  stroke: rgba(63, 205, 246, 0.86);
+}
+
+.react-packet-tracer-device.kind-proxmox_host rect,
+.react-packet-tracer-device.kind-proxmox_guest rect {
+  fill: rgba(55, 34, 9, 0.96);
+  stroke: rgba(244, 187, 98, 0.9);
+}
+
+.react-packet-tracer-device.kind-vpn_host rect,
+.react-packet-tracer-device.kind-vpn_gateway rect,
+.react-packet-tracer-device.kind-vpn_host path,
+.react-packet-tracer-device.kind-vpn_gateway path {
+  fill: rgba(58, 18, 34, 0.96);
+  stroke: rgba(255, 108, 130, 0.86);
+}
+
+.react-packet-tracer-device.selected path,
+.react-packet-tracer-device.selected rect,
+.react-packet-tracer-device:hover path,
+.react-packet-tracer-device:hover rect,
+.react-packet-tracer-device:focus-visible path,
+.react-packet-tracer-device:focus-visible rect {
+  stroke-width: 2.5;
+  filter: url(#packetTracerGlow);
+}
+
+.react-packet-tracer-device.dimmed {
+  opacity: 0.18;
+}
+
+.react-packet-tracer-device text {
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: rgba(3, 9, 16, 0.88);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.react-packet-tracer-glyph {
+  fill: rgba(231, 242, 255, 0.78);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.react-packet-tracer-label {
+  fill: #f5f9ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.react-packet-tracer-meta {
+  fill: rgba(205, 219, 237, 0.76);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.react-packet-tracer-count {
+  fill: rgba(129, 255, 218, 0.9);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.react-raw-topology-panel {
+  margin: 0 16px 16px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  border-radius: 18px;
+  background: rgba(3, 9, 16, 0.58);
+}
+
+.react-raw-topology-toolbar {
+  border-bottom-color: rgba(141, 167, 198, 0.08);
+}
+
+.react-raw-topology-stage {
+  margin: 12px;
+}
+
+.react-topology-lane line {
+  stroke: rgba(141, 167, 198, 0.09);
+  stroke-dasharray: 8 10;
+}
+
+.react-topology-lane text {
+  fill: rgba(174, 190, 211, 0.68);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.react-topology-edge {
+  fill: none;
+  stroke: rgba(141, 167, 198, 0.38);
+  stroke-width: 1.4;
+  opacity: 0.74;
+  transition: opacity 140ms ease, stroke-width 140ms ease;
+}
+
+.react-topology-edge.edge-attack_observation {
+  stroke: rgba(255, 108, 130, 0.72);
+  stroke-width: 1.8;
+}
+
+.react-topology-edge.edge-needs_onboarding {
+  stroke: rgba(244, 187, 98, 0.72);
+  stroke-dasharray: 6 6;
+}
+
+.react-topology-edge.edge-pipeline,
+.react-topology-edge.edge-ingest {
+  stroke: rgba(105, 216, 255, 0.68);
+  stroke-width: 1.9;
+}
+
+.react-topology-edge.selected {
+  opacity: 1;
+  stroke-width: 2.8;
+}
+
+.react-topology-edge.dimmed {
+  opacity: 0.12;
+}
+
+.react-topology-arrow {
+  fill: rgba(141, 167, 198, 0.68);
+}
+
+.react-topology-node {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 140ms ease;
+}
+
+.react-topology-node circle {
+  fill: rgba(14, 24, 37, 0.94);
+  stroke: rgba(141, 167, 198, 0.36);
+  stroke-width: 1.5;
+  transition: fill 120ms ease, stroke 120ms ease, r 120ms ease;
+}
+
+.react-topology-node text {
+  fill: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(4, 10, 17, 0.88);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.react-topology-node .react-topology-node-glyph {
+  fill: rgba(231, 242, 255, 0.72);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  stroke-width: 0;
+}
+
+.react-topology-node .react-topology-node-meta {
+  fill: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.react-topology-node.type-source circle {
+  fill: rgba(129, 255, 218, 0.1);
+  stroke: rgba(129, 255, 218, 0.64);
+}
+
+.react-topology-node.type-source .react-topology-node-label {
+  fill: #dffcf5;
+}
+
+.react-topology-node.type-source .react-topology-node-meta {
+  fill: rgba(185, 255, 235, 0.72);
+}
+
+.react-topology-node.type-collector circle {
+  fill: rgba(129, 179, 255, 0.11);
+  stroke: rgba(129, 179, 255, 0.7);
+}
+
+.react-topology-node.type-collector .react-topology-node-label {
+  fill: #e5efff;
+}
+
+.react-topology-node.type-core_service .react-topology-node-label {
+  fill: #d9f5ff;
+}
+
+.react-topology-node.tone-ok circle {
+  stroke: rgba(129, 255, 218, 0.76);
+}
+
+.react-topology-node.tone-warn circle,
+.react-topology-node.tone-attention circle {
+  stroke: rgba(244, 187, 98, 0.82);
+}
+
+.react-topology-node.type-external_ip circle {
+  stroke: rgba(255, 108, 130, 0.82);
+}
+
+.react-topology-node.type-protected_public_ip circle {
+  fill: rgba(255, 108, 130, 0.12);
+  stroke: rgba(255, 108, 130, 0.86);
+}
+
+.react-topology-node.type-core_service circle {
+  fill: rgba(63, 205, 246, 0.12);
+  stroke: rgba(105, 216, 255, 0.86);
+}
+
+.react-topology-access-ring {
+  fill: none !important;
+  stroke: rgba(129, 255, 218, 0.78) !important;
+  stroke-dasharray: 4 5;
+  stroke-width: 1.4 !important;
+  animation: topologyAccessPulse 3.6s linear infinite;
+}
+
+.react-topology-node.selected circle,
+.react-topology-node.hovered circle,
+.react-topology-node:hover circle,
+.react-topology-node:focus-visible circle {
+  fill: rgba(63, 205, 246, 0.18);
+  stroke-width: 2.2;
+}
+
+.react-topology-node.selected text,
+.react-topology-node.hovered text,
+.react-topology-node:hover text,
+.react-topology-node:focus-visible text {
+  fill: #f7fbff;
+}
+
+.react-topology-node.dimmed {
+  opacity: 0.2;
+}
+
+.react-topology-secret-note {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(244, 187, 98, 0.22);
+  border-radius: 12px;
+  background: rgba(244, 187, 98, 0.07);
+}
+
+.react-topology-host-form {
+  margin-top: 12px;
+}
+
+.react-topology-host-form .react-query-editor {
+  min-height: 86px;
+}
+
+.react-topology-profile-list {
+  margin-top: 14px;
+}
+
+.react-topology-profile-list .react-list-item {
+  align-items: flex-start;
+}
+
+.react-topology-profile-list .react-list-item > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.react-packet-flow-panel {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(105, 216, 255, 0.16);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(105, 216, 255, 0.14), transparent 28%),
+    radial-gradient(circle at 90% 70%, rgba(129, 255, 218, 0.1), transparent 28%),
+    linear-gradient(135deg, rgba(8, 17, 28, 0.96), rgba(4, 10, 17, 0.98));
+}
+
+.react-packet-flow-diagram {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(210px, 1fr));
+  gap: 14px;
+  overflow-x: auto;
+  padding: 8px 2px 4px;
+  scrollbar-width: thin;
+}
+
+.react-packet-flow-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 245px;
+  padding: 14px;
+  border: 1px solid rgba(141, 167, 198, 0.15);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015)),
+    rgba(5, 15, 25, 0.78);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.react-packet-flow-stage:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -17px;
+  z-index: 2;
+  width: 20px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(105, 216, 255, 0.72), rgba(129, 255, 218, 0.72));
+  box-shadow: 0 0 18px rgba(105, 216, 255, 0.3);
+  content: "";
+}
+
+.react-packet-flow-stage:not(:last-child)::before {
+  position: absolute;
+  top: calc(50% - 4px);
+  right: -18px;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid rgba(129, 255, 218, 0.78);
+  border-right: 2px solid rgba(129, 255, 218, 0.78);
+  transform: rotate(45deg);
+  content: "";
+}
+
+.react-packet-flow-stage.lane-external,
+.react-packet-flow-stage.lane-edge {
+  border-color: rgba(255, 108, 130, 0.26);
+}
+
+.react-packet-flow-stage.lane-source,
+.react-packet-flow-stage.lane-collector {
+  border-color: rgba(129, 255, 218, 0.23);
+}
+
+.react-packet-flow-stage.lane-core {
+  border-color: rgba(105, 216, 255, 0.25);
+}
+
+.react-packet-flow-index {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(105, 216, 255, 0.36);
+  border-radius: 50%;
+  color: #dff8ff;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  background: rgba(63, 205, 246, 0.1);
+}
+
+.react-packet-flow-body {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.react-packet-flow-body strong {
+  color: var(--color-text-primary);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.react-packet-flow-route {
+  color: rgba(205, 219, 237, 0.82);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.react-packet-flow-route b {
+  color: rgba(129, 255, 218, 0.92);
+}
+
+.react-packet-flow-body p {
+  margin: 0;
+  color: rgba(174, 190, 211, 0.82);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-packet-flow-meta,
+.react-packet-flow-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.react-packet-flow-meta span,
+.react-packet-flow-tags span {
+  padding: 5px 7px;
+  border: 1px solid rgba(141, 167, 198, 0.14);
+  border-radius: 999px;
+  color: rgba(205, 219, 237, 0.78);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.react-packet-flow-tags span {
+  border-color: rgba(129, 255, 218, 0.17);
+  color: rgba(185, 255, 235, 0.78);
+}
+
+@keyframes topologyAccessPulse {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.42;
+  }
+  100% {
+    stroke-dashoffset: -36;
+    opacity: 0.95;
+  }
+}
+
+.react-page-sources > .react-grid.react-grid-5,
+.react-page-vuln > .react-grid.react-grid-5 {
+  gap: 12px;
+}
+
+.react-page-sources .react-split > .react-card:last-child,
+.react-page-vuln .react-split > .react-card:last-child {
+  position: sticky;
+  top: 88px;
+  align-self: start;
+}
+
+.react-page-sources .react-list.react-list-compact,
+.react-page-vuln .react-list.react-list-compact,
+.react-page-access .react-list.react-list-compact {
+  gap: 10px;
+}
+
+.react-page-events .react-table,
+.react-page-incidents .react-table,
+.react-page-sources .react-table,
+.react-page-vuln .react-table {
+  background: rgba(9, 15, 23, 0.78);
+}
+
+.react-connection-wizard {
+  border-color: rgba(129, 255, 218, 0.18);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(129, 255, 218, 0.08), transparent 28%),
+    linear-gradient(145deg, rgba(8, 22, 30, 0.96), rgba(3, 9, 16, 0.96));
+}
+
+.react-wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.react-wizard-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(141, 167, 198, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.react-wizard-step > span {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(129, 255, 218, 0.32);
+  border-radius: 50%;
+  color: rgba(185, 255, 235, 0.9);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  background: rgba(129, 255, 218, 0.08);
+}
+
+.react-wizard-step strong {
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.react-wizard-step small {
+  overflow: hidden;
+  color: rgba(174, 190, 211, 0.74);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-telemetry-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.react-telemetry-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid rgba(141, 167, 198, 0.13);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.react-telemetry-option input {
+  margin-top: 3px;
+  accent-color: #81ffda;
+}
+
+.react-telemetry-option span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.react-telemetry-option strong {
+  color: rgba(231, 242, 255, 0.94);
+  font-size: 12px;
+}
+
+.react-telemetry-option small {
+  color: rgba(174, 190, 211, 0.7);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.react-telemetry-option.selected {
+  border-color: rgba(129, 255, 218, 0.38);
+  background: rgba(129, 255, 218, 0.07);
+}
+
+.react-telemetry-option:hover,
+.react-telemetry-option:focus-within {
+  border-color: rgba(129, 255, 218, 0.42);
+  transform: translateY(-1px);
+}
+
+.react-page-incidents .react-incidents-table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  max-height: none;
+}
+
+.react-page-incidents .react-incidents-drawer-layout {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.react-page-incidents .react-incidents-drawer-panel.react-drawer-panel-wide {
+  width: min(1120px, 96vw);
+}
+
+.react-page-incidents .react-incidents-drawer-panel .react-kv-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.react-page-incidents .react-incidents-drawer-panel .react-card-nested {
+  border-color: rgba(141, 167, 198, 0.1);
+}
+
+.react-page-incidents .react-incidents-drawer-panel .react-details {
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: rgba(8, 17, 29, 0.42);
+}
+
+.react-page-incidents .react-incidents-drawer-panel .react-details > summary {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.react-page-incidents .react-incidents-drawer-panel .react-details .react-card {
+  margin-top: 10px;
+}
+
+.react-page-incidents .react-incidents-drawer-panel .react-table th,
+.react-page-incidents .react-incidents-drawer-panel .react-table td {
+  vertical-align: top;
+}
+
+.react-page-incidents .react-incidents-drawer-summary-strip {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.react-page-incidents .react-incidents-drawer-summary-wide {
+  grid-column: span 2;
+}
+
+.react-page-incidents .react-incidents-drawer-focus-note {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+}
+
+.react-page-incidents .react-incidents-drawer-focus-note strong {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.react-page-incidents .react-incidents-drawer-focus-note span {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.react-page-events .react-events-console-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.react-page-events .react-events-console-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.react-page-events .react-events-console-copy {
+  min-width: 0;
+  max-width: 78ch;
+}
+
+.react-page-events .react-events-console-copy .react-muted {
+  margin: 6px 0 0;
+}
+
+.react-page-events .react-events-console-body {
+  display: grid;
+  gap: 12px;
+}
+
+.react-page-events .react-query-toolbar .react-query-controls {
+  display: none;
+}
+
+.react-page-events .react-query-stack > .react-inline-note-spaced {
+  display: none;
+}
+
+.react-page-host-runtime .react-filter-bar {
+  display: none;
+}
+
+@media (max-width: 1400px) {
+  .react-page-access .react-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .react-page-incidents .react-incidents-drawer-summary-wide {
+    grid-column: span 1;
+  }
+
+  .react-page-dashboard .react-overview-pressure-grid,
+  .react-page-dashboard .react-overview-lane-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .react-topology-toolbar {
+    flex-direction: column;
+  }
+
+  .react-topology-controls {
+    justify-content: flex-start;
+    max-width: none;
+    width: 100%;
+  }
+
+  .react-topology-layer-strip {
+    justify-content: flex-start;
+  }
+
+  .react-topology-map {
+    min-height: 380px;
+  }
+
+  .react-topology-widget,
+  .react-topology-cytoscape {
+    min-height: 460px;
+  }
+
+  .react-topology-widget-hint {
+    display: none;
+  }
+
+  .react-topology-floating-card {
+    left: 12px;
+    right: 12px;
+    top: 58px;
+    width: auto;
+  }
+
+  .react-topology-floating-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .react-topology-contour-legend {
+    left: 12px;
+    right: 12px;
+    max-width: none;
+  }
+
+  .react-page-events .react-events-console-head {
+    flex-direction: column;
+  }
+}

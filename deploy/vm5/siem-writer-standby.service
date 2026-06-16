@@ -1,0 +1,16 @@
+[Unit]
+Description=SIEM standby writer consumer
+After=network-online.target clickhouse-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/siem/siem-solution
+EnvironmentFile=/etc/siem/storage-standby.env
+ExecStart=/opt/siem/venv-storage/bin/python /opt/siem/siem-solution/services/writer/worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=SIEM post-restart ingest recovery watchdog
+After=network-online.target openvpn-client@home-gateway.service siem-jump-tunnels.service
+Wants=network-online.target
+ConditionPathExists=/etc/siem/web.env
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/siem/web.env
+WorkingDirectory=/opt/siem/siem-solution
+ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/deploy/homelab_watchdog.py
+
+[Install]
+WantedBy=multi-user.target

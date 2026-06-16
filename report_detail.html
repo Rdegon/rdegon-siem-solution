@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ (report.report_id if report else report_id) }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ 'Детали отчета' if ui_lang == 'ru' else 'Report details' }}{% endblock %}
+{% block page_subtitle %}{{ t['page.reports.subtitle'] }}{% endblock %}
+{% block content %}
+{% set is_ru = ui_lang == 'ru' %}
+<div class="view-stack">
+    <div class="chip-row">
+        <a class="btn ghost" href="/reports">{{ 'Назад к отчетам' if is_ru else 'Back to reports' }}</a>
+        {% if report %}
+        <a class="btn primary" href="/events?q={{ ("category = 'vulnerability' AND event_code = '" ~ report.report_id ~ "'") | urlencode }}">{{ 'Связанные события' if is_ru else 'Related events' }}</a>
+        {% endif %}
+    </div>
+    {% if report %}
+    <div class="grid-4">
+        <section class="kpi"><p class="kpi-label">Report ID</p><div class="kpi-value" style="font-size:20px;">{{ report.report_id }}</div><div class="kpi-meta">{{ report.scanner_source }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Находки' if is_ru else 'Findings' }}</p><div class="kpi-value">{{ report.finding_count }}</div><div class="kpi-meta">{{ 'Всего строк findings в этом отчете.' if is_ru else 'Total finding rows in this report.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Цели' if is_ru else 'Targets' }}</p><div class="kpi-value">{{ report.target_count }}</div><div class="kpi-meta">{{ 'Уникальные адреса назначения.' if is_ru else 'Distinct target addresses.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Порты' if is_ru else 'Ports' }}</p><div class="kpi-value">{{ report.port_count }}</div><div class="kpi-meta">{{ 'Количество уникальных портов.' if is_ru else 'Distinct destination ports.' }}</div></section>
+    </div>
+    <div class="grid-2">
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Сводка' if is_ru else 'Summary' }}</h3><p class="panel-subtitle">{{ 'Сводочный результат и охват отчета.' if is_ru else 'Summary result and scope of the report.' }}</p></div></div>
+            <div class="panel-body view-stack">
+                <div class="sql-box mono">{{ report.summary_message or ('Сводка не сохранена' if is_ru else 'No summary stored') }}</div>
+                <div class="kv-list">
+                    <div class="kv"><div class="kv-key">{{ 'Цели' if is_ru else 'Targets' }}</div><div class="kv-value">{{ (report.targets or []) | join(', ') or 'n/a' }}</div></div>
+                    <div class="kv"><div class="kv-key">{{ 'Порты' if is_ru else 'Ports' }}</div><div class="kv-value">{{ (report.ports or []) | join(', ') or 'n/a' }}</div></div>
+                </div>
+            </div>
+        </section>
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">CVE</h3><p class="panel-subtitle">{{ 'Извлеченные из findings маркеры CVE.' if is_ru else 'CVE markers extracted from report findings.' }}</p></div></div>
+            <div class="panel-body">
+                {% if report.cves %}
+                <div class="view-stack">
+                    {% for line in report.cves %}
+                    <div class="sql-box mono">{{ line }}</div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-box">{{ 'CVE пока не извлечены из этого отчета.' if is_ru else 'No CVEs were extracted from this report yet.' }}</div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+    <section class="panel">
+        <div class="panel-header"><div><h3 class="panel-title">{{ 'Находки' if is_ru else 'Findings' }}</h3><p class="panel-subtitle">{{ 'Детализированные результаты сканера по хостам, портам, сервисам и severity.' if is_ru else 'Detailed scanner results across hosts, ports, services and severity.' }}</p></div></div>
+        <div class="panel-body table-wrap">
+            <table>
+                <thead><tr><th>{{ 'Время' if is_ru else 'Seen' }}</th><th>{{ 'Источник' if is_ru else 'Source' }}</th><th>{{ 'Цель' if is_ru else 'Target' }}</th><th>{{ 'Порт' if is_ru else 'Port' }}</th><th>{{ 'Сервис' if is_ru else 'Service' }}</th><th>{{ 'Важность' if is_ru else 'Severity' }}</th><th>{{ 'Сообщение' if is_ru else 'Message' }}</th></tr></thead>
+                <tbody>
+                    {% for row in report.findings %}
+                    <tr>
+                        <td data-ts="{{ row.ts }}">{{ row.ts }}</td>
+                        <td>{{ row.source }}</td>
+                        <td class="table-code">{{ row.dst_ip }}</td>
+                        <td>{{ row.dst_port }}</td>
+                        <td>{{ row.process_name or row.process_command or 'n/a' }}</td>
+                        <td><span class="severity {{ ('sev-' ~ (row.severity or 'info')) | lower }}">{{ row.severity or 'info' }}</span></td>
+                        <td class="wrap-cell">{{ row.message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="error-box">{{ error or ('Отчет не найден.' if is_ru else 'Report was not found.') }}</div>
+    {% endif %}
+</div>
+{% endblock %}

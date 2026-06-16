@@ -1,0 +1,50 @@
+{
+  "pack_id": "gitea-activity-v1",
+  "title": "Gitea activity correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "Tracks authentication, admin changes and unusual repository activity on pilot-web-01.",
+    "Suppression key: host.name + service.name + rule family."
+  ],
+  "stream_rules": [
+    {
+      "id": 2511,
+      "title": "Gitea Failed Login Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 5,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + gitea_activity_v1",
+      "status": "active",
+      "operator_action": "Review failed principals, client IP and whether the failures align with expected SSO rollout or abuse.",
+      "sigma_yaml": "title: Gitea Failed Login Burst\nid: sigma-gitea-failed-login-burst\nstatus: experimental\nlogsource:\n  product: application\n  service: gitea\ndetection:\n  selection_source:\n    host.name: pilot-web-01\n  selection_message:\n    message|contains:\n      - Failed authentication attempt\n      - invalid credentials\n      - authentication failed\n  condition: selection_source and selection_message\nlevel: medium\n"
+    },
+    {
+      "id": 2512,
+      "title": "Gitea Administrative Change",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + gitea_activity_v1",
+      "status": "active",
+      "operator_action": "Validate the admin action against change control and confirm the actor has the expected grant scope.",
+      "sigma_yaml": "title: Gitea Administrative Change\nid: sigma-gitea-administrative-change\nstatus: experimental\nlogsource:\n  product: application\n  service: gitea\ndetection:\n  selection_source:\n    host.name: pilot-web-01\n  selection_message:\n    message|contains:\n      - admin user changed\n      - auth source updated\n      - repository deleted\n      - user promoted to admin\n  condition: selection_source and selection_message\nlevel: high\n"
+    },
+    {
+      "id": 2513,
+      "title": "Gitea Repository Activity Spike",
+      "severity": "medium",
+      "window_s": 900,
+      "threshold": 10,
+      "entity_field": "repository.name",
+      "suppression_key": "host.name + service.name + gitea_activity_v1",
+      "status": "active",
+      "operator_action": "Check whether clone, push or repository creation volume is expected for the current maintenance or migration window.",
+      "sigma_yaml": "title: Gitea Repository Activity Spike\nid: sigma-gitea-repository-activity-spike\nstatus: experimental\nlogsource:\n  product: application\n  service: gitea\ndetection:\n  selection_source:\n    host.name: pilot-web-01\n  selection_message:\n    message|contains:\n      - repository created\n      - repository deleted\n      - git push\n      - git clone\n  condition: selection_source and selection_message\nlevel: medium\n"
+    }
+  ],
+  "batch_rules": []
+}

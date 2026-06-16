@@ -1,0 +1,49 @@
+{
+  "pack_id": "navidrome-activity-v1",
+  "title": "Navidrome activity correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "Covers reverse-proxy authentication failures, first-seen users and abnormal API/playback bursts on navidrome-01."
+  ],
+  "stream_rules": [
+    {
+      "id": 2521,
+      "title": "Navidrome Proxy Authentication Failure Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 5,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + navidrome_activity_v1",
+      "status": "retired_duplicate",
+      "operator_action": "Retired as duplicate of source_coverage_v1 rule 2903; keep rule 2903 active to avoid duplicate alerts.",
+      "sigma_yaml": "title: Navidrome Proxy Authentication Failure Burst\nid: sigma-navidrome-proxy-auth-failure-burst\nstatus: experimental\nlogsource:\n  product: application\n  service: oauth2-proxy\ndetection:\n  selection_source:\n    host.name: navidrome-01\n  selection_message:\n    message|contains:\n      - authentication failed\n      - access denied\n      - AuthFailure\n  condition: selection_source and selection_message\nlevel: medium\n"
+    },
+    {
+      "id": 2522,
+      "title": "Navidrome First-Seen User",
+      "severity": "low",
+      "window_s": 86400,
+      "threshold": 1,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + user.name + navidrome_activity_v1",
+      "status": "active",
+      "operator_action": "Confirm the principal is expected to access the media service and that the grant exists in Access.",
+      "sigma_yaml": "title: Navidrome First-Seen User\nid: sigma-navidrome-first-seen-user\nstatus: experimental\nlogsource:\n  product: application\n  service: navidrome\ndetection:\n  selection_source:\n    host.name: navidrome-01\n  selection_message:\n    message|contains:\n      - logged in\n      - authenticated user\n  condition: selection_source and selection_message\nlevel: low\n"
+    },
+    {
+      "id": 2523,
+      "title": "Navidrome Abnormal Playback Or API Burst",
+      "severity": "medium",
+      "window_s": 900,
+      "threshold": 20,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + navidrome_activity_v1",
+      "status": "active",
+      "operator_action": "Review whether the principal is performing expected playback or a scripted scraping/API pattern.",
+      "sigma_yaml": "title: Navidrome Abnormal Playback Or API Burst\nid: sigma-navidrome-abnormal-playback-or-api-burst\nstatus: experimental\nlogsource:\n  product: application\n  service: navidrome\ndetection:\n  selection_source:\n    host.name: navidrome-01\n  selection_message:\n    message|contains:\n      - stream started\n      - api request\n      - scrobble\n  condition: selection_source and selection_message\nlevel: medium\n"
+    }
+  ],
+  "batch_rules": []
+}

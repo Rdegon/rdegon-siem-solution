@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SIEM host runtime stale telemetry monitor
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=3m
+Unit=siem-host-runtime-monitor.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

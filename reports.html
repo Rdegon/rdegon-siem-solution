@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ t['page.reports.title'] }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ t['page.reports.title'] }}{% endblock %}
+{% block page_subtitle %}{{ t['page.reports.subtitle'] }}{% endblock %}
+{% block extra_head %}
+<style>
+    .reports-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.6fr) minmax(320px, .9fr);
+        gap: 18px;
+        align-items: start;
+    }
+    .report-list {
+        display: grid;
+        gap: 12px;
+    }
+    .report-card {
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--surface-solid), var(--surface-alt));
+        box-shadow: var(--shadow-soft);
+    }
+    .report-card h3 {
+        margin: 0;
+        font-size: 18px;
+    }
+    .report-meta {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+    }
+    .report-meta-card {
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+    }
+    @media (max-width: 1280px) {
+        .reports-grid,
+        .report-meta {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% set is_ru = ui_lang == 'ru' %}
+<div class="view-stack">
+    <div class="grid-4">
+        <section class="kpi"><p class="kpi-label">{{ 'Отчеты 14д' if is_ru else 'Reports 14d' }}</p><div class="kpi-value">{{ reports | length }}</div><div class="kpi-meta">{{ 'Количество отдельных отчетов сканера.' if is_ru else 'Distinct scanner reports currently visible.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Находки' if is_ru else 'Findings' }}</p><div class="kpi-value">{{ reports | sum(attribute='findings_total') }}</div><div class="kpi-meta">{{ 'Порты, сервисы и уязвимости, выделенные сканером.' if is_ru else 'Ports, services and vulnerability-related findings collected by the scanner.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Цели' if is_ru else 'Targets' }}</p><div class="kpi-value">{{ reports | sum(attribute='target_count') }}</div><div class="kpi-meta">{{ 'Количество охваченных хостов в наборе отчетов.' if is_ru else 'Total hosts covered across the visible report set.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Последний отчет' if is_ru else 'Latest report' }}</p><div class="kpi-value" style="font-size:22px;" data-ts="{{ reports[0].ts_last if reports else '' }}">{{ reports[0].ts_last if reports else 'n/a' }}</div><div class="kpi-meta">{{ 'Время последнего импортированного результата.' if is_ru else 'Timestamp of the latest imported result.' }}</div></section>
+    </div>
+    <div class="reports-grid">
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3 class="panel-title">{{ 'Каталог отчетов' if is_ru else 'Report catalog' }}</h3>
+                    <p class="panel-subtitle">{{ 'Каждый отчет открывается отдельной страницей с деталями, находками и pivot-переходами.' if is_ru else 'Each report opens as its own page with findings, detail context and pivot links.' }}</p>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div style="margin-bottom:12px;">
+                    <input class="field" id="reportSearchInput" type="text" placeholder="{{ 'Поиск по ID, хосту, порту, сервису или CVE' if is_ru else 'Search by report id, host, port, service or CVE' }}">
+                </div>
+                <div class="report-list" id="reportList">
+                    {% for row in reports %}
+                    <article class="report-card" data-search="{{ row.report_id }} {{ row.scanner_source }} {{ row.targets | join(' ') }} {{ row.ports | join(' ') }} {{ row.summary_message }}">
+                        <div class="chip-row">
+                            <span class="chip">{{ row.report_id }}</span>
+                            <span class="chip">{{ row.scanner_source }}</span>
+                            <span class="chip">{{ row.unique_ports }} {{ 'портов' if is_ru else 'ports' }}</span>
+                        </div>
+                        <h3>{{ row.summary_message or row.report_id }}</h3>
+                        <div class="report-meta">
+                            <div class="report-meta-card"><div class="hint">{{ 'Находки' if is_ru else 'Findings' }}</div><div>{{ row.findings_total }}</div></div>
+                            <div class="report-meta-card"><div class="hint">{{ 'Цели' if is_ru else 'Targets' }}</div><div>{{ row.target_count }}</div></div>
+                            <div class="report-meta-card"><div class="hint">{{ 'Заметные риски' if is_ru else 'Notable risks' }}</div><div>{{ row.notable_findings }}</div></div>
+                            <div class="report-meta-card"><div class="hint">{{ 'Завершен' if is_ru else 'Finished' }}</div><div data-ts="{{ row.ts_last }}">{{ row.ts_last }}</div></div>
+                        </div>
+                        <div class="chip-row">
+                            <a class="btn primary" href="/reports/{{ row.report_id | urlencode }}">{{ 'Открыть отчет' if is_ru else 'Open report' }}</a>
+                            <a class="btn ghost" href="/events?q={{ ("category = 'vulnerability' AND event_code = '" ~ row.report_id ~ "'") | urlencode }}">{{ 'Связанные события' if is_ru else 'Related events' }}</a>
+                        </div>
+                    </article>
+                    {% endfor %}
+                    {% if not reports %}
+                    <div class="empty-box">{{ 'Отчеты уязвимостей пока не импортированы.' if is_ru else 'No vulnerability reports were imported yet.' }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+        <aside class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3 class="panel-title">{{ 'Что доступно' if is_ru else 'What you can do here' }}</h3>
+                    <p class="panel-subtitle">{{ 'Быстрые сценарии работы с отчетами и находками.' if is_ru else 'Quick workflows for working with scanner findings.' }}</p>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="kv-list">
+                    <div class="kv"><div class="kv-key">1</div><div class="kv-value">{{ 'Откройте отчет и проверьте цели, CVE и сервисы.' if is_ru else 'Open a report and inspect its targets, CVEs and exposed services.' }}</div></div>
+                    <div class="kv"><div class="kv-key">2</div><div class="kv-value">{{ 'Переходите в Event Console по связанным событиям для расследования уязвимого актива.' if is_ru else 'Pivot into Event Console to investigate the vulnerable asset in event context.' }}</div></div>
+                    <div class="kv"><div class="kv-key">3</div><div class="kv-value">{{ 'Используйте CMDB и TI, чтобы понять бизнес-критичность и внешние IOC-попадания.' if is_ru else 'Use CMDB and TI enrichment to understand business criticality and IOC exposure.' }}</div></div>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const reportSearchInput = document.getElementById('reportSearchInput');
+const reportCards = Array.from(document.querySelectorAll('[data-search]'));
+if (reportSearchInput) {
+    reportSearchInput.addEventListener('input', () => {
+        const token = reportSearchInput.value.trim().toLowerCase();
+        reportCards.forEach((node) => {
+            const haystack = String(node.dataset.search || '').toLowerCase();
+            node.style.display = !token || haystack.includes(token) ? '' : 'none';
+        });
+    });
+}
+applyTimestampFormatting(document);
+</script>
+{% endblock %}

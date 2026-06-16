@@ -1,0 +1,77 @@
+{
+  "installDir": "%ProgramFiles%\\Rdegon\\WindowsEventAgent",
+  "stateDirectory": "%ProgramData%\\RdegonSIEM\\WindowsEventAgent",
+  "serviceName": "RdegonWindowsEventAgent",
+  "displayName": "Rdegon Windows Event Agent",
+  "instanceName": "AUTO_MACHINE_NAME",
+  "baseUrl": "https://192.168.1.35",
+  "sharedSecret": "2f7715c3f0d841ad8d2bce0d5d7a0f6e",
+  "allowInvalidServerCertificate": true,
+  "pollIntervalSeconds": 60,
+  "batchSize": 200,
+  "maxSendBatch": 50,
+  "timeoutSeconds": 15,
+  "includeXml": true,
+  "channels": [
+    {
+      "name": "Security",
+      "routePath": "/ingest/windows/security",
+      "enabled": true
+    },
+    {
+      "name": "System",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Application",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-Sysmon/Operational",
+      "routePath": "/ingest/windows/sysmon",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-PowerShell/Operational",
+      "routePath": "/ingest/windows/powershell",
+      "enabled": true
+    },
+    {
+      "name": "Windows PowerShell",
+      "routePath": "/ingest/windows/powershell",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-Windows Defender/Operational",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-WMI-Activity/Operational",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-TaskScheduler/Operational",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    },
+    {
+      "name": "Microsoft-Windows-WinRM/Operational",
+      "routePath": "/ingest/windows/base",
+      "enabled": true
+    }
+  ]
+}

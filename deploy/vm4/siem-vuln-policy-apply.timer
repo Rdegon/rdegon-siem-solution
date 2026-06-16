@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rdegon SIEM vulnerability incident policy apply every 30 minutes
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=30m
+Persistent=true
+Unit=siem-vuln-policy-apply.service
+
+[Install]
+WantedBy=timers.target

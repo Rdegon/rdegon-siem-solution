@@ -1,0 +1,113 @@
+{
+  "pack_id": "diploma-core-stream-v1",
+  "title": "Diploma core stream correlation rules",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "diploma-siem",
+  "notes": [
+    "Small operational pack for thesis scenarios that must be demonstrated explicitly.",
+    "Rules use enriched normalized fields and conservative thresholds to reduce false positives.",
+    "Rules are published into siem.correlation_rules_stream and executed by the stream correlation worker."
+  ],
+  "stream_rules": [
+    {
+      "id": 9001,
+      "title": "Threat Intel IOC Match On Enriched Event",
+      "description": "Creates an incident when a normalized event already contains a threat-intelligence indicator.",
+      "status": "active",
+      "severity": "high",
+      "pattern": "threshold",
+      "window_s": 300,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "expr": "((ti_indicator != '' or threat.indicator != '')) and not tags icontains 'allowlist:'",
+      "operator_action": "Open the event, confirm the indicator source and affected host, then pivot to related events by host and indicator.",
+      "scenario": "IOC match"
+    },
+    {
+      "id": 9002,
+      "title": "Repeated IOC Destination",
+      "description": "Detects repeated connections or events involving the same suspicious destination with IOC context.",
+      "status": "active",
+      "severity": "high",
+      "pattern": "threshold",
+      "window_s": 1800,
+      "threshold": 5,
+      "entity_field": "host.name",
+      "expr": "((ti_indicator != '' and (destination.ip != '' or destination.domain != ''))) and not tags icontains 'allowlist:'",
+      "operator_action": "Check whether the host repeatedly reaches an IOC-backed destination and isolate the host if the traffic is not approved.",
+      "scenario": "Repeated suspicious destination"
+    },
+    {
+      "id": 9003,
+      "title": "Network Port Scan Burst",
+      "description": "Detects repeated blocked firewall or scan events from the same source address.",
+      "status": "active",
+      "severity": "medium",
+      "pattern": "threshold",
+      "window_s": 600,
+      "threshold": 20,
+      "entity_field": "source.ip",
+      "expr": "(((event.type == 'linux_firewall_blocked' or event.type == 'network_scan') and source.ip != '')) and not tags icontains 'allowlist:'",
+      "operator_action": "Review target ports, source address and affected hosts; keep as incident only when the burst is not expected internet background noise.",
+      "scenario": "Port scan"
+    },
+    {
+      "id": 9004,
+      "title": "Suspicious Windows LOLBin Process Burst",
+      "description": "Detects repeated Windows process creation events for common living-off-the-land binaries.",
+      "status": "active",
+      "severity": "medium",
+      "pattern": "threshold",
+      "window_s": 900,
+      "threshold": 3,
+      "entity_field": "host.name",
+      "expr": "((event.type == 'windows_process_create' and (process.name icontains 'rundll32' or process.name icontains 'regsvr32' or process.name icontains 'mshta' or process.name icontains 'wmic'))) and not tags icontains 'allowlist:'",
+      "operator_action": "Inspect parent process, command line and user context; compare with administrative software allowlists.",
+      "scenario": "Suspicious process"
+    },
+    {
+      "id": 9005,
+      "title": "Repeated Non-Informational Network Destination",
+      "description": "Detects repeated medium-or-higher network events to the same destination.",
+      "status": "active",
+      "severity": "medium",
+      "pattern": "threshold",
+      "window_s": 1800,
+      "threshold": 25,
+      "entity_field": "destination.ip",
+      "expr": "(((event.category == 'network' and destination.ip != '') and event.severity != 'info')) and not tags icontains 'allowlist:'",
+      "operator_action": "Check if repeated non-informational network activity to the destination is expected; pivot to host and destination timeline.",
+      "scenario": "Repeated suspicious destination"
+    },
+    {
+      "id": 9006,
+      "title": "Protected Public IP Probe Burst",
+      "description": "Detects repeated network or firewall activity toward protected public SIEM/VPN addresses.",
+      "status": "active",
+      "severity": "high",
+      "pattern": "threshold",
+      "window_s": 600,
+      "threshold": 5,
+      "entity_field": "source.ip",
+      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (event.category == 'network' or event.type == 'linux_firewall_blocked' or event.type == 'network_scan'))) and not tags icontains 'allowlist:'",
+      "operator_action": "Pivot to Attack geography and IP detail, confirm target ports, then add the source to TI/deny list only after validating it is not expected monitoring.",
+      "scenario": "Protected perimeter probing"
+    },
+    {
+      "id": 9007,
+      "title": "Protected Public SSH Spray",
+      "description": "Detects SSH/authentication failures against protected public addresses.",
+      "status": "active",
+      "severity": "high",
+      "pattern": "threshold",
+      "window_s": 900,
+      "threshold": 3,
+      "entity_field": "source.ip",
+      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (destination.port == 22 or event.type icontains 'ssh' or event.category == 'authentication'))) and not tags icontains 'allowlist:'",
+      "operator_action": "Check whether the source is spraying SSH or auth endpoints, review related failures, and escalate if the address also appears in GeoIP/TI context.",
+      "scenario": "Public SSH password spray"
+    }
+  ],
+  "batch_rules": []
+}

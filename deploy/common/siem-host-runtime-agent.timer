@@ -1,0 +1,12 @@
+[Unit]
+Description=Run SIEM host runtime telemetry agent
+
+[Timer]
+OnBootSec=90s
+OnActiveSec=2m
+OnUnitActiveSec=2m
+Unit=siem-host-runtime-agent.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

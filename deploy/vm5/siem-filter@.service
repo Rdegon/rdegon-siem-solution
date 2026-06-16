@@ -1,0 +1,18 @@
+[Unit]
+Description=Rdegon SIEM VM5 Filter worker %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/siem/siem-solution
+Environment=PYTHONUNBUFFERED=1
+Environment=SIEM_ENV=prod
+EnvironmentFile=/etc/siem/processing.env
+Environment=SIEM_FILTER_CONSUMER=filter-vm5-%i
+ExecStart=/opt/siem/venv-processing/bin/python -m services.filter.worker
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

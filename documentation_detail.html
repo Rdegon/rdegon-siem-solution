@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}{{ detail_title or t['page.documentation.title'] }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ detail_title or t['page.documentation.title'] }}{% endblock %}
+{% block page_subtitle %}{{ t['page.documentation.subtitle'] }}{% endblock %}
+{% block extra_head %}
+<style>
+    .docs-detail-shell {
+        display: grid;
+        grid-template-columns: minmax(250px, .62fr) minmax(0, 1.56fr) minmax(240px, .58fr);
+        gap: 20px;
+        align-items: start;
+    }
+    .docs-left,
+    .docs-right {
+        position: sticky;
+        top: 106px;
+        align-self: start;
+    }
+    .docs-left .panel,
+    .docs-right .panel {
+        position: static;
+    }
+    .docs-tree,
+    .docs-tree-group,
+    .docs-tree-links,
+    .docs-page-meta,
+    .docs-toc-list {
+        display: grid;
+        gap: 10px;
+    }
+    .docs-tree-link,
+    .docs-toc-link {
+        display: block;
+        padding: 9px 12px;
+        border-radius: 12px;
+        color: var(--text-soft);
+        transition: background .16s ease, color .16s ease;
+    }
+    .docs-tree-link:hover,
+    .docs-tree-link.active,
+    .docs-toc-link:hover {
+        background: var(--surface-alt);
+        color: var(--text);
+    }
+    .docs-article {
+        padding: 26px 28px;
+        border-radius: 24px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--surface-solid), var(--surface-alt));
+        box-shadow: var(--shadow-soft);
+        line-height: 1.78;
+    }
+    .docs-article h1,
+    .docs-article h2,
+    .docs-article h3,
+    .docs-article h4 {
+        margin: 0 0 14px;
+        line-height: 1.24;
+        scroll-margin-top: 104px;
+    }
+    .docs-article h1 { font-size: 34px; }
+    .docs-article h2 { font-size: 26px; margin-top: 28px; }
+    .docs-article h3 { font-size: 21px; margin-top: 22px; }
+    .docs-article p,
+    .docs-article ul,
+    .docs-article ol {
+        margin: 0 0 16px;
+        color: var(--text-soft);
+    }
+    .docs-article pre,
+    .docs-article code {
+        font-family: var(--font-mono);
+    }
+    .docs-article pre {
+        overflow: auto;
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .docs-article table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .docs-article th,
+    .docs-article td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+    }
+    .docs-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .docs-meta-card {
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .docs-inline-actions {
+        display: grid;
+        gap: 14px;
+        margin-top: 18px;
+    }
+    .docs-inline-actions details {
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: var(--surface-alt);
+    }
+    .docs-inline-actions summary {
+        cursor: pointer;
+        font-weight: 700;
+    }
+    .docs-toc-link.level-3 { padding-left: 20px; }
+    .docs-toc-link.level-4 { padding-left: 34px; }
+    @media (max-width: 1480px) {
+        .docs-detail-shell {
+            grid-template-columns: minmax(250px, .72fr) minmax(0, 1fr);
+        }
+        .docs-right {
+            grid-column: 1 / -1;
+            position: static;
+        }
+    }
+    @media (max-width: 1100px) {
+        .docs-detail-shell,
+        .docs-meta-grid {
+            grid-template-columns: 1fr;
+        }
+        .docs-left,
+        .docs-right { position: static; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% set is_ru = ui_lang == 'ru' %}
+<div class="view-stack">
+    <div class="docs-detail-shell">
+        <aside class="docs-left">
+            <section class="panel">
+                <div class="panel-body docs-tree">
+                    <a class="btn ghost" href="/documentation">{{ 'Назад к документации' if is_ru else 'Back to documentation' }}</a>
+                    {% for section in doc_sections %}
+                    <div class="docs-tree-group">
+                        <div class="hint">{{ section['title'] }}</div>
+                        <div class="docs-tree-links">
+                            {% for item in section['items'] %}
+                            <a class="docs-tree-link {% if selected_doc and selected_doc.name == item.name %}active{% endif %}" href="/documentation/files/{{ item.name | urlencode }}">{{ item.name }}</a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    <div class="docs-tree-group">
+                        <div class="hint">{{ t['doc.playbooks'] }}</div>
+                        <div class="docs-tree-links">
+                            {% for item in playbooks %}
+                            <a class="docs-tree-link {% if selected_playbook and selected_playbook.slug == item.slug %}active{% endif %}" href="/documentation/playbooks/{{ item.slug | urlencode }}">{{ item.title }}</a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <section class="docs-center">
+            <article class="docs-article">
+                {% if selected_doc %}
+                <div class="docs-meta-grid">
+                    <div class="docs-meta-card">
+                        <div class="hint">{{ 'Файл' if is_ru else 'File' }}</div>
+                        <div>{{ selected_doc.name }}</div>
+                    </div>
+                    <div class="docs-meta-card">
+                        <div class="hint">{{ 'Обновлено' if is_ru else 'Updated' }}</div>
+                        <div>{{ selected_doc.updated_ts }}</div>
+                    </div>
+                </div>
+                {{ selected_doc.content_html | safe }}
+                {% if 'docs:write' in user.permissions %}
+                <div class="docs-inline-actions">
+                    <details>
+                        <summary>{{ 'Редактировать документ' if is_ru else 'Edit document' }}</summary>
+                        <form method="post" action="/documentation/save" class="view-stack" style="margin-top:12px;">
+                            <input class="field" type="text" name="doc_name" value="{{ selected_doc.name }}">
+                            <textarea class="textarea mono" name="doc_content" rows="16">{{ selected_doc.content }}</textarea>
+                            <div class="chip-row">
+                                <button class="btn primary" type="submit">{{ 'Сохранить' if is_ru else 'Save' }}</button>
+                                <button class="btn ghost" type="submit" formaction="/documentation/delete" formmethod="post" name="doc_name" value="{{ selected_doc.name }}">{{ 'Удалить' if is_ru else 'Delete' }}</button>
+                            </div>
+                        </form>
+                    </details>
+                </div>
+                {% endif %}
+                {% elif selected_playbook %}
+                <div class="chip-row">
+                    {% for source in selected_playbook.sources %}
+                    <span class="chip">{{ source }}</span>
+                    {% endfor %}
+                </div>
+                <p class="page-note" style="margin: 0 0 18px;">{{ selected_playbook.summary }}</p>
+                <div class="drawer-section">
+                    <div class="hint">{{ t['doc.steps'] }}</div>
+                    <ol class="playbook-step-list">
+                        {% for step in selected_playbook.steps %}
+                        <li>{{ step }}</li>
+                        {% endfor %}
+                    </ol>
+                </div>
+                <div class="drawer-section" style="margin-top:18px;">
+                    <div class="hint">{{ t['doc.examples'] }}</div>
+                    <div class="view-stack">
+                        {% for query in selected_playbook.queries %}
+                        <div class="sql-box mono">{{ query }}</div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="empty-box">{{ 'Элемент документации не найден.' if is_ru else 'Documentation item was not found.' }}</div>
+                {% endif %}
+            </article>
+        </section>
+
+        <aside class="docs-right">
+            <section class="panel">
+                <div class="panel-body docs-page-meta">
+                    <div>
+                        <div class="hint">{{ 'На этой странице' if is_ru else 'On this page' }}</div>
+                        <div class="page-note">{{ 'Быстрые переходы по текущему материалу.' if is_ru else 'Quick jumps inside the current page.' }}</div>
+                    </div>
+                    <div class="docs-toc-list">
+                        {% if selected_doc and selected_doc.toc %}
+                            {% for item in selected_doc.toc %}
+                            <a class="docs-toc-link level-{{ item.level }}" href="#{{ item.id }}">{{ item.name }}</a>
+                            {% endfor %}
+                        {% elif selected_playbook %}
+                            <div class="page-note">{{ 'Используйте шаги и примеры запросов в основном контенте.' if is_ru else 'Use the steps and example queries in the main content pane.' }}</div>
+                        {% else %}
+                            <div class="page-note">{{ 'Оглавление появится, когда документ содержит заголовки.' if is_ru else 'The table of contents appears when the document contains headings.' }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}

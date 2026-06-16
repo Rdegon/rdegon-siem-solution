@@ -1,0 +1,55 @@
+{
+  "pack_id": "vuln-coverage-v1",
+  "title": "Fleet vulnerability coverage correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "This pack keeps OpenVAS-first findings prominent on the operator surfaces.",
+    "It focuses on public and pilot services where fresh critical findings should page the operator faster than raw report browsing.",
+    "Coverage freshness and unmapped-target drift remain documented as follow-up batch analytics.",
+    "OpenVAS remains authoritative. Nmap-derived exposure events are kept supplemental and should not outrank Greenbone findings in operator workflows."
+  ],
+  "stream_rules": [
+    {
+      "id": 2401,
+      "title": "Critical Exposure On Fleet Service",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "destination.ip",
+      "suppression_key": "destination.ip + vulnerability + vuln_coverage_v1",
+      "status": "active",
+      "operator_action": "Pivot into the vulnerability queue for the affected service, confirm scan freshness, and start remediation planning for externally reachable or business-critical nodes.",
+      "sigma_yaml": "title: Critical Exposure On Fleet Service\nid: sigma-critical-exposure-on-fleet-service\nstatus: experimental\nlogsource:\n  product: vulnerability\n  service: fleet_scanner\ndetection:\n  selection_category:\n    event.category: vulnerability\n  selection_severity:\n    severity:\n      - high\n      - critical\n  selection_target:\n    destination.ip:\n      - 192.168.1.29\n      - 192.168.1.34\n      - 192.168.1.36\n      - 192.168.1.39\n      - 192.168.1.120\n      - 192.168.1.121\n      - 192.168.1.126\n      - 192.168.1.232\n  condition: selection_category and selection_severity and selection_target\nlevel: high\ntags:\n  - vulnerability\n  - openvas-primary\n  - fleet-service\n"
+    },
+    {
+      "id": 2402,
+      "title": "Public Service Vulnerability Burst",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 5,
+      "entity_field": "destination.ip",
+      "suppression_key": "destination.ip + vulnerability + vuln_coverage_v1",
+      "status": "active",
+      "operator_action": "Assess whether the current scan wave uncovered a broad service-level issue or multiple unresolved inherited findings on the same target.",
+      "sigma_yaml": "title: Public Service Vulnerability Burst\nid: sigma-public-service-vulnerability-burst\nstatus: experimental\nlogsource:\n  product: vulnerability\n  service: fleet_scanner\ndetection:\n  selection_category:\n    event.category: vulnerability\n  selection_target:\n    destination.ip:\n      - 192.168.1.34\n      - 192.168.1.39\n      - 192.168.1.120\n      - 192.168.1.121\n      - 192.168.1.126\n  condition: selection_category and selection_target\nlevel: high\ntags:\n  - vulnerability\n  - openvas-primary\n  - public-surface\n"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4401,
+      "title": "Fleet Scan Freshness Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review for reachable guests that have not received a recent vulnerability scan."
+    },
+    {
+      "id": 4402,
+      "title": "Fleet Unmapped Target Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review for unresolved and unmapped targets from the fleet-sourced vulnerability inventory."
+    }
+  ]
+}

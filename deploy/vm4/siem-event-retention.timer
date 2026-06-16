@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SIEM event retention archive and cold cleanup
+
+[Timer]
+OnBootSec=15m
+OnUnitActiveSec=6h
+Persistent=true
+Unit=siem-event-retention.service
+
+[Install]
+WantedBy=timers.target

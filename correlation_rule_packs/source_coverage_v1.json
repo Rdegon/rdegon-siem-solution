@@ -1,0 +1,179 @@
+{
+  "pack_id": "source-coverage-v1",
+  "title": "Source coverage and source-family behavior pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "This pack widens source-family coverage beyond the original fleet, scanner, OpenClaw, Windows and Linux packs.",
+    "It is tuned for application, identity, and telemetry continuity signals across Nextcloud, Gitea, Navidrome, VPN edge and generic fleet telemetry.",
+    "Suppression key: host.name + service.name + source family."
+  ],
+  "stream_rules": [
+    {
+      "id": 2901,
+      "title": "Nextcloud Authentication Failure Burst",
+      "severity": "medium",
+      "window_s": 300,
+      "threshold": 6,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + nextcloud + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Check whether the burst is user-caused, SSO drift, or credential abuse against the collaboration surface.",
+      "sigma_yaml": "title: Nextcloud Authentication Failure Burst\nid: sigma-nextcloud-auth-failure-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: nextcloud\ndetection:\n  selection_host:\n    host.name: nextcloud-siem\n  selection_auth:\n    message|contains:\n      - login failed\n      - authentication failed\n      - invalid password\n  condition: selection_host and selection_auth\nlevel: medium\ntags:\n  - nextcloud\n  - auth\n"
+    },
+    {
+      "id": 2902,
+      "title": "Gitea Administrative Change Burst",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + gitea + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Review whether repository, org, or admin-scope changes were expected and tied to the intended operator identity.",
+      "sigma_yaml": "title: Gitea Administrative Change Burst\nid: sigma-gitea-administrative-change-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: gitea\ndetection:\n  selection_host:\n    host.name: pilot-web-01\n  selection_message:\n    message|contains:\n      - admin\n      - repository deleted\n      - organization deleted\n      - user promoted\n  condition: selection_host and selection_message\nlevel: high\ntags:\n  - gitea\n  - admin\n"
+    },
+    {
+      "id": 2903,
+      "title": "Navidrome Proxy Authentication Failure Burst",
+      "severity": "medium",
+      "window_s": 300,
+      "threshold": 5,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + navidrome + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Validate Keycloak / oauth2-proxy health and check whether the failures map to one principal or a wider auth outage.",
+      "sigma_yaml": "title: Navidrome Proxy Authentication Failure Burst\nid: sigma-navidrome-proxy-auth-failure-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: oauth2-proxy\ndetection:\n  selection_host:\n    host.name: navidrome-01\n  selection_message:\n    message|contains:\n      - authentication failed\n      - access denied\n      - forbidden\n      - invalid session\n  condition: selection_host and selection_message\nlevel: medium\ntags:\n  - navidrome\n  - auth\n"
+    },
+    {
+      "id": 2904,
+      "title": "VPN Edge Telemetry Drop",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + vpn-edge + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Treat missing VPN edge telemetry as both an observability and security gap. Check OpenClaw and external VPN nodes immediately.",
+      "sigma_yaml": "title: VPN Edge Telemetry Drop\nid: sigma-vpn-edge-telemetry-drop\nstatus: experimental\nlogsource:\n  product: custom\n  service: host-runtime\ndetection:\n  selection_source:\n    source.family:\n      - openclaw\n      - vpn.xray\n  selection_state:\n    event.type:\n      - host_runtime_stale\n      - source_stale\n      - source_missing\n  condition: selection_source and selection_state\nlevel: high\ntags:\n  - vpn\n  - telemetry\n"
+    },
+    {
+      "id": 2905,
+      "title": "Proxmox Fleet and Scan Drift",
+      "severity": "medium",
+      "window_s": 3600,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + proxmox-fleet + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Check whether new or renamed guests lost monitoring or scanner coverage after Proxmox inventory drift.",
+      "sigma_yaml": "title: Proxmox Fleet and Scan Drift\nid: sigma-proxmox-fleet-and-scan-drift\nstatus: experimental\nlogsource:\n  product: custom\n  service: proxmox-fleet\ndetection:\n  selection:\n    event.type:\n      - proxmox_inventory_drift\n      - proxmox_guest_unmapped\n      - scanner_target_drift\n  condition: selection\nlevel: medium\ntags:\n  - proxmox\n  - inventory\n  - scanner\n"
+    },
+    {
+      "id": 2906,
+      "title": "PostgreSQL Authentication Failure Burst",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 5,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + postgres + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Check whether the failures are caused by a broken application secret, brute-force activity, or a service-account drift on the database node.",
+      "sigma_yaml": "title: PostgreSQL Authentication Failure Burst\nid: sigma-postgresql-auth-failure-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: postgresql\ndetection:\n  selection_host:\n    host.name: pilot-db-01\n  selection_message:\n    message|contains:\n      - password authentication failed\n      - authentication failed\n      - no pg_hba.conf entry\n  condition: selection_host and selection_message\nlevel: high\ntags:\n  - postgres\n  - auth\n"
+    },
+    {
+      "id": 2907,
+      "title": "Valkey Persistence Or Restart Burst",
+      "severity": "medium",
+      "window_s": 900,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + valkey + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Review whether Valkey restarts, AOF/RDB persistence failures, or memory-pressure events are breaking cache-backed workflows.",
+      "sigma_yaml": "title: Valkey Persistence Or Restart Burst\nid: sigma-valkey-persistence-or-restart-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: valkey\ndetection:\n  selection_host:\n    host.name: pilot-cache-01\n  selection_message:\n    message|contains:\n      - Background saving terminated by signal\n      - Ready to accept connections\n      - Failed opening the temp RDB file\n      - Out Of Memory\n  condition: selection_host and selection_message\nlevel: medium\ntags:\n  - valkey\n  - cache\n"
+    },
+    {
+      "id": 2908,
+      "title": "SIEM Web Or Keycloak Authentication Degradation",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 6,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + siem-auth + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Treat repeated SIEM or Keycloak login failures as a platform access issue. Verify IdP reachability, session cookies, and break-glass availability.",
+      "sigma_yaml": "title: SIEM Web Or Keycloak Authentication Degradation\nid: sigma-siem-web-or-keycloak-auth-degradation\nstatus: experimental\nlogsource:\n  product: linux\n  service: siem-web\ndetection:\n  selection_host:\n    host.name: siem-vm4\n  selection_message:\n    message|contains:\n      - login failed\n      - oidc\n      - keycloak\n      - csrf\n      - access denied\n  condition: selection_host and selection_message\nlevel: high\ntags:\n  - siem\n  - keycloak\n  - auth\n"
+    },
+    {
+      "id": 2909,
+      "title": "Generic Source Telemetry Stall",
+      "severity": "medium",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + telemetry-stall + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Inspect the stalled source or collector before data loss propagates into incidents, AI assessments, or scanner coverage gaps.",
+      "sigma_yaml": "title: Generic Source Telemetry Stall\nid: sigma-generic-source-telemetry-stall\nstatus: experimental\nlogsource:\n  product: custom\n  service: source-health\ndetection:\n  selection_state:\n    event.type:\n      - source_stale\n      - source_missing\n      - collector_stale\n      - collector_missing\n  condition: selection_state\nlevel: medium\ntags:\n  - telemetry\n  - source\n"
+    },
+    {
+      "id": 2910,
+      "title": "Windows Or BSD Guest Coverage Gap",
+      "severity": "medium",
+      "window_s": 3600,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + guest-coverage-gap + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Check whether the guest is offline by design or whether onboarding, telemetry, or vulnerability coverage drifted for the monitored non-Linux node.",
+      "sigma_yaml": "title: Windows Or BSD Guest Coverage Gap\nid: sigma-windows-or-bsd-guest-coverage-gap\nstatus: experimental\nlogsource:\n  product: custom\n  service: fleet-coverage\ndetection:\n  selection_guest:\n    event.type:\n      - guest_offline_unexpectedly\n      - host_runtime_stale\n      - vuln_scan_stale\n    host.name:\n      - WIN-RTX-test\n      - BSDRP-internal\n  condition: selection_guest\nlevel: medium\ntags:\n  - windows\n  - bsd\n  - coverage\n"
+    },
+    {
+      "id": 2911,
+      "title": "VPN SSH Invalid User Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 10,
+      "entity_field": "source.ip",
+      "suppression_key": "host.name + vpn-edge + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Review the attacking IPs and whether the activity is a routine internet spray or a more targeted SSH enumeration attempt against the VPN contour.",
+      "sigma_yaml": "title: VPN SSH Invalid User Burst\nid: sigma-vpn-ssh-invalid-user-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: sshd\ndetection:\n  selection_hosts:\n    host.name:\n      - vpn-host-khanov\n      - asset-vpn-host\n      - vm15611031\n  selection_auth:\n    event.type: ssh_invalid_user\n  condition: selection_hosts and selection_auth\nlevel: medium\ntags:\n  - vpn\n  - ssh\n  - perimeter\n"
+    },
+    {
+      "id": 2912,
+      "title": "VPN Firewall Blocked Probe Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 12,
+      "entity_field": "source.ip",
+      "suppression_key": "host.name + vpn-edge + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Review the destination ports, blocked source set, and whether the burst is routine internet background noise or a targeted scan worth retaining in the incident queue.",
+      "sigma_yaml": "title: VPN Firewall Blocked Probe Burst\nid: sigma-vpn-firewall-blocked-probe-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: kernel\ndetection:\n  selection_hosts:\n    host.name:\n      - vpn-host-khanov\n      - asset-vpn-host\n      - vm15611031\n  selection_block:\n    event.type: linux_firewall_blocked\n  condition: selection_hosts and selection_block\nlevel: medium\ntags:\n  - vpn\n  - firewall\n  - perimeter\n"
+    },
+    {
+      "id": 2913,
+      "title": "Jump Host SSH Failure Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 6,
+      "entity_field": "source.ip",
+      "suppression_key": "host.name + jump-host + source_coverage_v1",
+      "status": "active",
+      "operator_action": "Review whether the failures are expected operator mistakes, stale automation credentials, or targeted auth activity against the jump host.",
+      "sigma_yaml": "title: Jump Host SSH Failure Burst\nid: sigma-jump-host-ssh-failure-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: sshd\ndetection:\n  selection_host:\n    host.name: asset-jump-host\n  selection_type:\n    event.type:\n      - ssh_login_failure\n      - ssh_invalid_user\n  condition: selection_host and selection_type\nlevel: medium\ntags:\n  - jump-host\n  - ssh\n  - auth\n"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4901,
+      "title": "Source Coverage Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review for source families with repeated stale or weakly enriched telemetry."
+    }
+  ]
+}

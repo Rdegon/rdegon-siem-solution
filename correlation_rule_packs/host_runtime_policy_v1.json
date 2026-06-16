@@ -1,0 +1,15 @@
+{
+  "version": "host-runtime-policy-v1",
+  "event_overrides": {
+    "host_cpu_pressure": { "suppression_seconds": 600, "escalate_after": 3, "severity": "high" },
+    "host_memory_pressure": { "suppression_seconds": 600, "escalate_after": 2, "severity": "high" },
+    "host_disk_pressure": { "suppression_seconds": 1800, "escalate_after": 2, "severity": "high" },
+    "host_load_pressure": { "suppression_seconds": 600, "escalate_after": 3, "severity": "medium" },
+    "host_swap_pressure": { "suppression_seconds": 900, "escalate_after": 2, "severity": "high" },
+    "host_inode_pressure": { "suppression_seconds": 1800, "escalate_after": 2, "severity": "medium" },
+    "host_service_flapping": { "suppression_seconds": 900, "escalate_after": 2, "severity": "medium" },
+    "host_storage_pressure": { "suppression_seconds": 900, "escalate_after": 2, "severity": "high" },
+    "host_control_plane_pressure": { "suppression_seconds": 900, "escalate_after": 2, "severity": "high" },
+    "host_telemetry_stale": { "suppression_seconds": 1800, "escalate_after": 1, "severity": "high" }
+  }
+}

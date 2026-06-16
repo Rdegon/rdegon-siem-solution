@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw gateway service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+WorkingDirectory=/home/openclaw
+ExecStart=/usr/bin/node /usr/lib/node_modules/openclaw/dist/index.js gateway --port 18789
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

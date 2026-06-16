@@ -1,0 +1,58 @@
+---
+- name: Restart an allowlisted service with evidence
+  hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    allowed_services:
+      - siem-web.service
+      - siem-normalizer.service
+      - siem-host-runtime.service
+      - siem-transport-runtime.service
+      - siem-incident-telegram-bot.service
+      - kafka.service
+      - clickhouse-server.service
+      - nginx.service
+      - postgresql.service
+      - mongod.service
+  tasks:
+    - name: Require service_name
+      ansible.builtin.assert:
+        that:
+          - service_name is defined
+          - service_name | length > 0
+          - service_name in allowed_services
+        fail_msg: "service_name must be one of the allowlisted SIEM services"
+
+    - name: Capture service status before restart
+      ansible.builtin.command: "systemctl status {{ service_name }} --no-pager"
+      register: before_status
+      changed_when: false
+      failed_when: false
+
+    - name: Restart service
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        state: restarted
+        daemon_reload: true
+
+    - name: Capture service status after restart
+      ansible.builtin.command: "systemctl status {{ service_name }} --no-pager"
+      register: after_status
+      changed_when: false
+      failed_when: false
+
+    - name: Capture recent service journal
+      ansible.builtin.command: "journalctl -u {{ service_name }} -n 80 --no-pager"
+      register: journal_status
+      changed_when: false
+      failed_when: false
+
+    - name: Emit restart evidence
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          service: "{{ service_name }}"
+          before: "{{ before_status.stdout_lines | default([]) }}"
+          after: "{{ after_status.stdout_lines | default([]) }}"
+          journal: "{{ journal_status.stdout_lines | default([]) }}"

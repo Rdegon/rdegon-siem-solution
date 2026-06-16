@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% block title %}{{ t['page.dashboards.title'] }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ t['page.dashboards.title'] }}{% endblock %}
+{% block page_subtitle %}{{ t['page.dashboards.subtitle'] }}{% endblock %}
+{% block extra_head %}
+<style>
+    .dashboard-grid {
+        display: grid;
+        gap: 18px;
+    }
+    .dashboard-table tbody tr {
+        cursor: pointer;
+    }
+    .chart-empty {
+        min-height: 220px;
+        display: grid;
+        place-items: center;
+        color: var(--text-soft);
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% set is_ru = ui_lang == 'ru' %}
+<div class="view-stack dashboard-grid">
+    <section class="panel">
+        <div class="panel-body" style="display:grid; gap:14px;">
+            <div style="display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center;">
+                <div class="chip-row">
+                    {% for item in dashboards %}
+                    <a class="chip {% if selected_dashboard and selected_dashboard.id == item.id %}active{% endif %}" href="/dashboards?dashboard={{ item.id | urlencode }}">{{ item.title }}</a>
+                    {% endfor %}
+                </div>
+                <div class="page-note">{{ selected_dashboard.description if selected_dashboard else ('Библиотека дашбордов' if is_ru else 'Dashboard library') }}</div>
+            </div>
+            {% if 'dashboards:write' in user.permissions %}
+            <details>
+                <summary class="page-note" style="cursor:pointer;">{{ 'Управление дашбордами' if is_ru else 'Manage dashboards' }}</summary>
+                <div class="grid-2" style="margin-top:12px;">
+                    <form method="post" action="/dashboards" class="panel" style="overflow:visible;">
+                        <div class="panel-body view-stack">
+                            <div class="hint">{{ 'Создать дашборд' if is_ru else 'Create dashboard' }}</div>
+                            <input class="field" type="text" name="dashboard_title" placeholder="{{ 'Руководительский обзор' if is_ru else 'Executive Overview' }}">
+                            <input class="field" type="text" name="dashboard_description" placeholder="{{ 'Высокоуровневый KPI-вид для демо или SOC-экрана' if is_ru else 'High-level KPI view for demo or SOC wallboard' }}">
+                            <div class="chip-row">
+                                {% for widget in dashboard_widget_catalog %}
+                                <label class="chip"><input type="checkbox" name="widgets" value="{{ widget.id }}" checked> {{ widget.label }}</label>
+                                {% endfor %}
+                            </div>
+                            <button class="btn primary" type="submit">{{ 'Сохранить дашборд' if is_ru else 'Save dashboard' }}</button>
+                        </div>
+                    </form>
+                    <form method="post" action="/dashboards/delete" class="panel" style="overflow:visible;">
+                        <div class="panel-body view-stack">
+                            <div class="hint">{{ 'Удалить дашборд' if is_ru else 'Delete dashboard' }}</div>
+                            <select class="select" name="dashboard_id">
+                                {% for item in dashboards if not item.built_in %}
+                                <option value="{{ item.id }}">{{ item.title }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn ghost" type="submit">{{ 'Удалить выбранный дашборд' if is_ru else 'Delete selected dashboard' }}</button>
+                        </div>
+                    </form>
+                </div>
+            </details>
+            {% endif %}
+        </div>
+    </section>
+
+    {% set widgets = selected_dashboard.widgets if selected_dashboard else [] %}
+    {% if 'kpis' in widgets %}
+    <div class="grid-4">
+        <section class="kpi"><p class="kpi-label">{{ 'Открытые инциденты' if is_ru else 'Open incidents' }}</p><div class="kpi-value" id="kpiOpenIncidents">{{ metrics.open_incidents_24h or 0 }}</div><div class="kpi-meta">{{ 'Агрегированные инциденты, которые еще не закрыты за последние 24 часа.' if is_ru else 'Aggregated incidents that are still not closed in the last 24 hours.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Новые алерты' if is_ru else 'New alerts' }}</p><div class="kpi-value" id="kpiNewAlerts">{{ metrics.new_alerts_24h or 0 }}</div><div class="kpi-meta">{{ 'Свежие raw-алерты, ожидающие первичного разбора аналитиком.' if is_ru else 'Fresh raw alerts waiting for first analyst review.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'События 1ч' if is_ru else 'Events 1h' }}</p><div class="kpi-value" id="kpiEvents1h">{{ metrics.events_1h or 0 }}</div><div class="kpi-meta">{{ 'Текущий темп поступления телеметрии по всей мониторируемой инфраструктуре.' if is_ru else 'Current ingestion tempo across monitored infrastructure.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'TI-хиты 24ч' if is_ru else 'TI hits 24h' }}</p><div class="kpi-value" id="kpiTiHits">{{ metrics.ti_hits_24h or 0 }}</div><div class="kpi-meta">{{ 'События, обогащенные threat-intel индикаторами за последние 24 часа.' if is_ru else 'Events enriched with threat-intel indicators during the last 24 hours.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Audit события 24ч' if is_ru else 'Audit events 24h' }}</p><div class="kpi-value" id="kpiAuditEvents">{{ metrics.audit_events_24h or 0 }}</div><div class="kpi-meta">{{ 'auditd-телеметрия, видимая в общем пайплайне событий.' if is_ru else 'auditd telemetry visible inside the same event pipeline.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Критичные активы' if is_ru else 'Critical assets observed' }}</p><div class="kpi-value" id="kpiCriticalAssets">{{ metrics.critical_assets_observed_24h or 0 }}</div><div class="kpi-meta">{{ 'Уникальные high/critical CMDB-активы, замеченные в телеметрии.' if is_ru else 'Distinct high or critical CMDB assets seen in telemetry.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Активные источники 24ч' if is_ru else 'Active sources 24h' }}</p><div class="kpi-value" id="kpiActiveSources">{{ metrics.active_sources_24h or 0 }}</div><div class="kpi-meta">{{ 'Уникальные хосты или log_source, которые присылали данные за последние 24 часа.' if is_ru else 'Unique reporting hosts or log sources seen in the last 24 hours.' }}</div></section>
+        <section class="kpi"><p class="kpi-label">{{ 'Статус платформы' if is_ru else 'Platform status' }}</p><div class="kpi-value" id="kpiPlatformStatus">{{ 'LIVE' if ((platform_status.clickhouse_runtime and platform_status.clickhouse_runtime.healthy is sameas true) or platform_status.clickhouse_ok) else 'DOWN' }}</div><div class="kpi-meta" id="kpiPlatformMeta">{{ 'Статус ClickHouse и свежесть последнего события по frontend polling path.' if is_ru else 'ClickHouse status and latest event freshness from the frontend polling path.' }}</div></section>
+    </div>
+    {% endif %}
+
+    {% if 'severity_breakdown' in widgets %}
+    <div class="grid-3">
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'События по важности' if is_ru else 'Events by severity' }}</h3><p class="panel-subtitle">{{ 'Распределение событий по важности за последние 24 часа.' if is_ru else 'Severity distribution across events for the last 24 hours.' }}</p></div></div>
+            <div class="panel-body"><div class="stacked-bar" id="eventsSeverityBar"></div><div class="legend" id="eventsSeverityLegend"></div></div>
+        </section>
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Алерты по важности' if is_ru else 'Alerts by severity' }}</h3><p class="panel-subtitle">{{ 'Какие уровни важности доминируют в текущей очереди алертов.' if is_ru else 'Which alert severities dominate the current queue.' }}</p></div></div>
+            <div class="panel-body"><div class="stacked-bar" id="alertSeverityBar"></div><div class="legend" id="alertSeverityLegend"></div></div>
+        </section>
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Алерты по статусу' if is_ru else 'Alerts by status' }}</h3><p class="panel-subtitle">{{ 'Распределение raw-алертов по стадиям жизненного цикла.' if is_ru else 'Lifecycle breakdown of raw alerts in storage.' }}</p></div></div>
+            <div class="panel-body"><div class="stacked-bar" id="alertStatusBar"></div><div class="legend" id="alertStatusLegend"></div></div>
+        </section>
+    </div>
+    {% endif %}
+
+    {% if 'timelines' in widgets %}
+    <div class="grid-2">
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Объем событий' if is_ru else 'Event volume' }}</h3><p class="panel-subtitle">{{ 'Последние 24 часа, бакеты по одному часу.' if is_ru else 'Last 24 hours, one-hour buckets.' }}</p></div></div>
+            <div class="panel-body">
+                <div id="dashboardTimeline" class="timeline-surface"></div>
+                <div id="dashboardTimelineMeta" class="page-note" style="margin-top:12px;"></div>
+            </div>
+        </section>
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Объем алертов' if is_ru else 'Alert volume' }}</h3><p class="panel-subtitle">{{ 'Новые raw-алерты по часам за последние 24 часа.' if is_ru else 'New raw alerts by hour during the last 24 hours.' }}</p></div></div>
+            <div class="panel-body">
+                <div id="dashboardAlertTimeline" class="timeline-surface"></div>
+                <div id="dashboardAlertTimelineMeta" class="page-note" style="margin-top:12px;"></div>
+            </div>
+        </section>
+    </div>
+    {% endif %}
+
+    {% if 'sources' in widgets or 'ports' in widgets %}
+    <div class="grid-2">
+        {% if 'sources' in widgets %}
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Топ источников' if is_ru else 'Top sources' }}</h3><p class="panel-subtitle">{{ 'Самые активные источники за последние 24 часа.' if is_ru else 'Most active monitored sources during the last 24 hours.' }}</p></div></div>
+            <div class="panel-body table-wrap">
+                <table class="dashboard-table">
+                    <thead><tr><th>{{ 'Источник' if is_ru else 'Source' }}</th><th>{{ 'События' if is_ru else 'Events' }}</th><th>{{ 'Последняя активность' if is_ru else 'Last seen' }}</th></tr></thead>
+                    <tbody id="topSourcesBody"></tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+        {% if 'ports' in widgets %}
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Целевые порты' if is_ru else 'Targeted ports' }}</h3><p class="panel-subtitle">{{ 'Какие сервисы пробуют и выглядит ли основной сигнал как auth probing или blocked scanning.' if is_ru else 'Which services are being probed and whether the dominant signal looks like auth probing or blocked scanning.' }}</p></div></div>
+            <div class="panel-body table-wrap">
+                <table class="dashboard-table">
+                    <thead><tr><th>{{ 'Порт' if is_ru else 'Port' }}</th><th>{{ 'Сервис' if is_ru else 'Service' }}</th><th>{{ 'Попытки' if is_ru else 'Attempts' }}</th><th>{{ 'Уникальные источники' if is_ru else 'Unique sources' }}</th><th>{{ 'Сигнал' if is_ru else 'Signal' }}</th><th>{{ 'Последняя активность' if is_ru else 'Last seen' }}</th></tr></thead>
+                    <tbody id="topPortsBody"></tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if 'vpn_sites' in widgets %}
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3 class="panel-title">{{ 'Топ сайтов через VPN' if is_ru else 'Top visited sites through VPN' }}</h3>
+                <p class="panel-subtitle">{{ 'Домены, к которым чаще всего обращались клиенты VPN за последние 24 часа.' if is_ru else 'Domains most frequently requested by VPN clients in the last 24 hours.' }}</p>
+            </div>
+        </div>
+        <div class="panel-body table-wrap">
+            <table class="dashboard-table">
+                <thead>
+                    <tr>
+                        <th>{{ 'Сайт' if is_ru else 'Site' }}</th>
+                        <th>{{ 'Визиты' if is_ru else 'Visits' }}</th>
+                        <th>{{ 'Клиенты' if is_ru else 'Clients' }}</th>
+                        <th>{{ 'Профиль' if is_ru else 'Client profile' }}</th>
+                        <th>{{ 'Последняя активность' if is_ru else 'Last seen' }}</th>
+                    </tr>
+                </thead>
+                <tbody id="topVpnSitesBody"></tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if 'categories' in widgets or 'incidents_preview' in widgets %}
+    <div class="grid-2">
+        {% if 'categories' in widgets %}
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Топ категорий' if is_ru else 'Top categories' }}</h3><p class="panel-subtitle">{{ 'Наиболее частые нормализованные категории в потоке событий.' if is_ru else 'Most frequent normalized categories in the event stream.' }}</p></div></div>
+            <div class="panel-body"><div class="mini-list" id="topCategoriesList"></div></div>
+        </section>
+        {% endif %}
+        {% if 'incidents_preview' in widgets %}
+        <section class="panel">
+            <div class="panel-header"><div><h3 class="panel-title">{{ 'Превью очереди' if is_ru else 'Queue preview' }}</h3><p class="panel-subtitle">{{ 'Самые свежие инциденты. Нажмите на строку, чтобы перейти в полную очередь.' if is_ru else 'Most recent incidents. Click a row to jump straight into the full incident queue.' }}</p></div><a class="btn ghost" href="/alerts">{{ 'Открыть инциденты' if is_ru else 'Open incidents' }}</a></div>
+            <div class="panel-body table-wrap">
+                <table class="dashboard-table">
+                    <thead><tr><th>{{ 'Последняя активность' if is_ru else 'Last seen' }}</th><th>{{ 'Правило' if is_ru else 'Rule' }}</th><th>{{ 'Важность' if is_ru else 'Severity' }}</th><th>{{ 'Алерты' if is_ru else 'Alerts' }}</th><th>{{ 'Статус' if is_ru else 'Status' }}</th></tr></thead>
+                    <tbody id="recentIncidentsBody"></tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if 'incident_queue' in widgets %}
+    <section class="panel">
+        <div class="panel-header"><div><h3 class="panel-title">{{ 'Очередь инцидентов' if is_ru else 'Incident queue' }}</h3><p class="panel-subtitle">{{ 'Расширенное превью инцидентов с переходом в полную консоль инцидентов.' if is_ru else 'Expanded incident preview with navigation into the full incident console.' }}</p></div><a class="btn ghost" href="/alerts">{{ 'Открыть инциденты' if is_ru else 'Open incidents' }}</a></div>
+        <div class="panel-body table-wrap">
+            <table class="dashboard-table">
+                <thead><tr><th>{{ 'Последняя активность' if is_ru else 'Last seen' }}</th><th>{{ 'Правило' if is_ru else 'Rule' }}</th><th>{{ 'Важность' if is_ru else 'Severity' }}</th><th>{{ 'Алерты' if is_ru else 'Alerts' }}</th><th>{{ 'Источники' if is_ru else 'Sources' }}</th><th>{{ 'Статус' if is_ru else 'Status' }}</th><th>{{ 'Исполнитель' if is_ru else 'Assignee' }}</th></tr></thead>
+                <tbody id="incidentQueueBody"></tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+let dashboardSnapshot = {
+    metrics: {{ metrics | tojson }},
+    timeline: {{ timeline | tojson }},
+    alert_timeline: {{ alert_timeline | tojson }},
+    severity_breakdown: {{ severity_breakdown | tojson }},
+    alert_severity_breakdown: {{ alert_severity_breakdown | tojson }},
+    alert_status_breakdown: {{ alert_status_breakdown | tojson }},
+    top_sources: {{ top_sources | tojson }},
+    top_target_ports: {{ top_target_ports | tojson }},
+    top_vpn_sites: {{ top_vpn_sites | tojson }},
+    top_categories: {{ top_categories | tojson }},
+    recent_alerts: {{ recent_alerts | tojson }},
+    platform_status: {{ platform_status | tojson }},
+};
+let dashboardRefreshTimer = null;
+
+function eventConsoleUrl(query) {
+    return `/events?q=${encodeURIComponent(query)}`;
+}
+
+function sqlQuote(value) {
+    return String(value ?? '').replace(/'/g, "''");
+}
+
+function renderLegend(containerId, rows) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    container.innerHTML = rows.map((row) => {
+        const count = Number(row.count || 0);
+        const percent = total ? Math.round((count / total) * 100) : 0;
+        return `<div class="legend-row"><span class="legend-swatch" style="background:${row.__color}"></span><span>${escapeHtml(row.label)}</span><strong>${count} <span class="page-note">(${percent}%)</span></strong></div>`;
+    }).join('') || '<div class="page-note">No data</div>';
+}
+
+function renderBreakdown(barId, legendId, rows) {
+    const bar = document.getElementById(barId);
+    if (!bar) return;
+    const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const colors = ['#4b93ff', '#1ed7a4', '#ffb357', '#ff8fa3', '#7c95b4', '#8e63d3'];
+    bar.innerHTML = rows.map((row, index) => {
+        const count = Number(row.count || 0);
+        const width = total ? Math.max(4, (count / total) * 100) : 0;
+        row.__color = colors[index % colors.length];
+        return `<div class="stacked-segment" style="width:${width}%; background:${row.__color}" title="${escapeHtml(row.label)}: ${count}"></div>`;
+    }).join('') || '<div class="page-note">No data</div>';
+    renderLegend(legendId, rows);
+}
+
+function renderTimelineChart(containerId, metaId, rows, emptyText, summaryPrefix) {
+    const container = document.getElementById(containerId);
+    const meta = document.getElementById(metaId);
+    if (!container) return;
+    if (!rows.length) {
+        container.innerHTML = `<div class="chart-empty">${escapeHtml(emptyText)}</div>`;
+        if (meta) meta.textContent = '';
+        return;
+    }
+    const width = 760;
+    const height = 220;
+    const paddingX = 18;
+    const paddingTop = 16;
+    const paddingBottom = 44;
+    const innerHeight = height - paddingTop - paddingBottom;
+    const innerWidth = width - (paddingX * 2);
+    const counts = rows.map((item) => Number(item.cnt || 0));
+    const maxValue = Math.max(...counts, 1);
+    const points = rows.map((item, index) => {
+        const x = paddingX + ((innerWidth) * (rows.length === 1 ? 0 : index / (rows.length - 1)));
+        const y = paddingTop + innerHeight - ((Number(item.cnt || 0) / maxValue) * innerHeight);
+        return { x, y, count: Number(item.cnt || 0), bucket: item.bucket || '' };
+    });
+    const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+    const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${(height - paddingBottom).toFixed(2)} L ${points[0].x.toFixed(2)} ${(height - paddingBottom).toFixed(2)} Z`;
+    const labels = points.map((point, index) => {
+        const showLabel = index % 4 === 0 || index === points.length - 1;
+        if (!showLabel) return '';
+        const label = formatDisplayTimestamp(point.bucket).slice(11, 16);
+        return `<text x="${point.x.toFixed(2)}" y="${(height - 14).toFixed(2)}" text-anchor="middle" class="timeline-axis-label">${escapeHtml(label)}</text>`;
+    }).join('');
+    const circles = points.map((point, index) => `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" class="timeline-point" data-index="${index}"></circle>`).join('');
+    container.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" class="timeline-svg" preserveAspectRatio="none">
+            <defs>
+                <linearGradient id="${containerId}Fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="rgba(75,147,255,0.40)"></stop>
+                    <stop offset="100%" stop-color="rgba(75,147,255,0.02)"></stop>
+                </linearGradient>
+            </defs>
+            <line x1="${paddingX}" y1="${height - paddingBottom}" x2="${width - paddingX}" y2="${height - paddingBottom}" class="timeline-axis"></line>
+            <path d="${areaPath}" class="timeline-area" style="fill:url(#${containerId}Fill)"></path>
+            <path d="${linePath}" class="timeline-line"></path>
+            ${circles}
+            ${labels}
+        </svg>
+        <div class="timeline-tooltip" id="${containerId}Tooltip"></div>
+    `;
+    const tooltip = document.getElementById(`${containerId}Tooltip`);
+    const svg = container.querySelector('svg');
+    const pointNodes = Array.from(container.querySelectorAll('.timeline-point'));
+    const latestPoint = points[points.length - 1];
+    const total = counts.reduce((sum, value) => sum + value, 0);
+    const peak = Math.max(...counts, 0);
+    const summaryText = `${summaryPrefix}: ${total} total, peak ${peak}. Hover to inspect a bucket.`;
+    function hideTooltip() {
+        pointNodes.forEach((node) => node.classList.remove('is-active'));
+        if (tooltip) tooltip.classList.remove('open');
+        if (meta) meta.textContent = summaryText;
+    }
+    function showTooltip(index) {
+        const point = points[index];
+        const node = pointNodes[index];
+        if (!point || !node || !tooltip || !svg) return;
+        pointNodes.forEach((item) => item.classList.toggle('is-active', item === node));
+        const rect = svg.getBoundingClientRect();
+        tooltip.innerHTML = `<strong>${point.count}</strong><div>${escapeHtml(formatDisplayTimestamp(point.bucket))}</div><div class="page-note">Volume in this bucket</div>`;
+        tooltip.classList.add('open');
+        const rawLeft = (point.x / width) * rect.width + 12;
+        const top = Math.max(36, (point.y / height) * rect.height + 10);
+        const halfWidth = tooltip.offsetWidth / 2;
+        const clampedLeft = Math.max(halfWidth + 8, Math.min(rect.width - halfWidth - 8, rawLeft));
+        tooltip.style.left = `${clampedLeft}px`;
+        tooltip.style.top = `${top}px`;
+        if (meta) meta.textContent = `${formatDisplayTimestamp(point.bucket)}: ${point.count}`;
+    }
+    pointNodes.forEach((node, index) => {
+        node.addEventListener('mouseenter', () => showTooltip(index));
+        node.addEventListener('focus', () => showTooltip(index));
+    });
+    container.addEventListener('mouseleave', hideTooltip);
+    svg.addEventListener('blur', hideTooltip, true);
+    if (meta) meta.textContent = summaryText;
+}
+
+function renderTopSources(rows) {
+    const body = document.getElementById('topSourcesBody');
+    if (!body) return;
+    body.innerHTML = rows.map((row) => `
+        <tr onclick="window.location.href='${eventConsoleUrl(`log_source = '${sqlQuote(row.log_source || '')}'`)}'">
+            <td class="mono">${escapeHtml(row.log_source || 'unknown')}</td>
+            <td>${Number(row.events || 0)}</td>
+            <td data-ts="${escapeHtml(row.last_seen || '')}">${escapeHtml(row.last_seen || '')}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="3"><div class="empty-box">No sources in the selected window.</div></td></tr>';
+    applyTimestampFormatting(body);
+}
+
+function renderTopPorts(rows) {
+    const body = document.getElementById('topPortsBody');
+    if (!body) return;
+    body.innerHTML = rows.map((row) => `
+        <tr onclick="window.location.href='${eventConsoleUrl(`dst_port = ${Number(row.dst_port || 0)}`)}'">
+            <td class="table-code">${Number(row.dst_port || 0)}</td>
+            <td>${escapeHtml(row.service || 'custom')}</td>
+            <td>${Number(row.attempts || 0)}</td>
+            <td>${Number(row.unique_sources || 0)}</td>
+            <td>${escapeHtml(row.signal || '')}</td>
+            <td data-ts="${escapeHtml(row.last_seen || '')}">${escapeHtml(row.last_seen || '')}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="6"><div class="empty-box">No targeted ports in the selected window.</div></td></tr>';
+    applyTimestampFormatting(body);
+}
+
+function renderTopVpnSites(rows) {
+    const body = document.getElementById('topVpnSitesBody');
+    if (!body) return;
+    body.innerHTML = rows.map((row) => `
+        <tr onclick="window.location.href='${eventConsoleUrl(`network.domain = '${sqlQuote(row.domain || '')}'`)}'">
+            <td class="table-code">${escapeHtml(row.domain || 'unknown')}</td>
+            <td>${Number(row.visits || 0)}</td>
+            <td>${Number(row.unique_clients || 0)}</td>
+            <td>${escapeHtml(row.client_id || 'shared')}</td>
+            <td data-ts="${escapeHtml(row.last_seen || '')}">${escapeHtml(row.last_seen || '')}</td>
+        </tr>
+    `).join('') || '<tr><td colspan="5"><div class="empty-box">No VPN site data in the selected window.</div></td></tr>';
+    applyTimestampFormatting(body);
+}
+
+function renderTopCategories(rows) {
+    const container = document.getElementById('topCategoriesList');
+    if (!container) return;
+    const maxEvents = rows.length ? Math.max(...rows.map((row) => Number(row.events || 0)), 1) : 1;
+    container.innerHTML = rows.map((row) => `
+        <div class="mini-row">
+            <div>
+                <div style="font-weight:600;">${escapeHtml(row.category || 'unknown')}</div>
+                <div class="page-note">${Number(row.events || 0)} events</div>
+            </div>
+            <div style="width:160px;">
+                <div class="mini-bar-track"><div class="mini-bar" style="width:${(Number(row.events || 0) / maxEvents) * 100}%;"></div></div>
+            </div>
+        </div>
+    `).join('') || '<div class="empty-box">No category data.</div>';
+}
+
+function incidentTarget(row) {
+    return `/alerts?view=agg&focus=${encodeURIComponent(String(row.agg_id || ''))}`;
+}
+
+function renderIncidentRows(containerId, rows, compact = false) {
+    const body = document.getElementById(containerId);
+    if (!body) return;
+    if (compact) {
+        body.innerHTML = rows.map((row) => `
+            <tr onclick="window.location.href='${incidentTarget(row)}'">
+                <td data-ts="${escapeHtml(row.ts_last || '')}">${escapeHtml(row.ts_last || '')}</td>
+                <td>${escapeHtml(row.rule_name || '')}</td>
+                <td><span class="severity ${severityClass(row.severity_agg)}">${escapeHtml(row.severity_agg || 'info')}</span></td>
+                <td>${Number(row.count_alerts || 0)}</td>
+                <td><span class="status-pill">${escapeHtml(row.status || 'new')}</span></td>
+            </tr>
+        `).join('') || '<tr><td colspan="5"><div class="empty-box">No incidents in the queue.</div></td></tr>';
+    } else {
+        body.innerHTML = rows.map((row) => `
+            <tr onclick="window.location.href='${incidentTarget(row)}'">
+                <td data-ts="${escapeHtml(row.ts_last || '')}">${escapeHtml(row.ts_last || '')}</td>
+                <td>${escapeHtml(row.rule_name || '')}</td>
+                <td><span class="severity ${severityClass(row.severity_agg)}">${escapeHtml(row.severity_agg || 'info')}</span></td>
+                <td>${Number(row.count_alerts || 0)}</td>
+                <td>${escapeHtml((row.sources || []).slice(0, 3).join(', ') || row.source_summary || 'n/a')}</td>
+                <td><span class="status-pill">${escapeHtml(row.status || 'new')}</span></td>
+                <td>${escapeHtml(row.assignee || 'unassigned')}</td>
+            </tr>
+        `).join('') || '<tr><td colspan="7"><div class="empty-box">No incidents in the queue.</div></td></tr>';
+    }
+    applyTimestampFormatting(body);
+}
+
+function updateKpis(metrics, platformStatus) {
+    const setText = (id, value) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = String(value);
+    };
+    const clickhouseOk = platformStatus && typeof platformStatus?.clickhouse_runtime?.healthy === 'boolean'
+        ? !!platformStatus.clickhouse_runtime.healthy
+        : !!(platformStatus && platformStatus.clickhouse_ok);
+    setText('kpiOpenIncidents', metrics.open_incidents_24h || 0);
+    setText('kpiNewAlerts', metrics.new_alerts_24h || 0);
+    setText('kpiEvents1h', metrics.events_1h || 0);
+    setText('kpiTiHits', metrics.ti_hits_24h || 0);
+    setText('kpiAuditEvents', metrics.audit_events_24h || 0);
+    setText('kpiCriticalAssets', metrics.critical_assets_observed_24h || 0);
+    setText('kpiActiveSources', metrics.active_sources_24h || 0);
+    setText('kpiPlatformStatus', clickhouseOk ? 'LIVE' : 'DOWN');
+    const platformMeta = document.getElementById('kpiPlatformMeta');
+    if (platformMeta) {
+        platformMeta.textContent = platformStatus && platformStatus.last_event_ts
+            ? `Last event: ${formatDisplayTimestamp(platformStatus.last_event_ts)}. Events 5m: ${Number(platformStatus.events_5m || 0)}.`
+            : 'Frontend status polling could not reach ClickHouse.';
+    }
+}
+
+function renderDashboard(snapshot) {
+    dashboardSnapshot = snapshot;
+    updateKpis(snapshot.metrics || {}, snapshot.platform_status || {});
+    renderBreakdown('eventsSeverityBar', 'eventsSeverityLegend', (snapshot.severity_breakdown || []).map((row) => ({ label: row.severity, count: row.cnt })));
+    renderBreakdown('alertSeverityBar', 'alertSeverityLegend', (snapshot.alert_severity_breakdown || []).map((row) => ({ label: row.severity, count: row.cnt })));
+    renderBreakdown('alertStatusBar', 'alertStatusLegend', (snapshot.alert_status_breakdown || []).map((row) => ({ label: row.status, count: row.cnt })));
+    renderTimelineChart('dashboardTimeline', 'dashboardTimelineMeta', snapshot.timeline || [], 'No event volume data.', 'Events');
+    renderTimelineChart('dashboardAlertTimeline', 'dashboardAlertTimelineMeta', snapshot.alert_timeline || [], 'No alert volume data.', 'Alerts');
+    renderTopSources(snapshot.top_sources || []);
+    renderTopPorts(snapshot.top_target_ports || []);
+    renderTopVpnSites(snapshot.top_vpn_sites || []);
+    renderTopCategories(snapshot.top_categories || []);
+    renderIncidentRows('recentIncidentsBody', snapshot.recent_alerts || [], true);
+    renderIncidentRows('incidentQueueBody', snapshot.recent_alerts || [], false);
+}
+
+async function refreshDashboard() {
+    try {
+        const response = await fetch('/api/dashboard/summary', { headers: { 'Accept': 'application/json' } });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Unable to refresh dashboard');
+        renderDashboard(payload);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+renderDashboard(dashboardSnapshot);
+window.addEventListener('rdegon:timezone-changed', () => renderDashboard(dashboardSnapshot));
+window.addEventListener('rdegon:platform-status', (event) => {
+    if (event && event.detail) {
+        updateKpis(dashboardSnapshot.metrics || {}, event.detail);
+    }
+});
+dashboardRefreshTimer = window.setInterval(refreshDashboard, 15000);
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshDashboard();
+});
+</script>
+{% endblock %}

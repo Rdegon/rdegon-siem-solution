@@ -1,0 +1,15 @@
+[Unit]
+Description=SIEM event retention archive and cold cleanup
+After=network-online.target siem-web.service
+Wants=network-online.target
+ConditionPathExists=/etc/siem/web.env
+
+[Service]
+Type=oneshot
+User=rdegon
+WorkingDirectory=/opt/siem/siem-solution
+EnvironmentFile=/etc/siem/web.env
+ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/retention_runner.py
+
+[Install]
+WantedBy=multi-user.target

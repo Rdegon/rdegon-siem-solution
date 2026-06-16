@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SIEM post-restart ingest recovery watchdog
+
+[Timer]
+OnBootSec=3m
+OnUnitActiveSec=15m
+Unit=siem-ingest-recovery-watchdog.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

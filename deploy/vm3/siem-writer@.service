@@ -1,0 +1,16 @@
+[Unit]
+Description=SIEM Writer Worker Instance %i
+After=network.target clickhouse-server.service
+Wants=clickhouse-server.service
+
+[Service]
+User=rdegon
+WorkingDirectory=/opt/siem/siem-solution
+EnvironmentFile=/etc/siem/storage.env
+Environment=SIEM_WRITER_CONSUMER=writer-%i
+ExecStart=/opt/siem/venv-storage/bin/python /opt/siem/siem-solution/services/writer/worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

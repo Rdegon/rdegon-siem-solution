@@ -1,0 +1,12 @@
+[Unit]
+Description=Rdegon SIEM vulnerability incident policy apply
+After=network-online.target siem-web.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=rdegon
+WorkingDirectory=/opt/siem/siem-solution
+EnvironmentFile=/etc/siem/web.env
+ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/deploy/vuln/rdegon_vuln_policy_apply.py --days 30 --limit 50 --actor systemd-timer
+

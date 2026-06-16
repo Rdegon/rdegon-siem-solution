@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}{{ t['page.documentation.title'] }} | Rdegon SIEM{% endblock %}
+{% block page_title %}{{ t['page.documentation.title'] }}{% endblock %}
+{% block page_subtitle %}{{ t['page.documentation.subtitle'] }}{% endblock %}
+{% block extra_head %}
+<style>
+    .docs-shell {
+        display: grid;
+        grid-template-columns: minmax(250px, .64fr) minmax(0, 1.52fr) minmax(280px, .74fr);
+        gap: 20px;
+        align-items: start;
+    }
+    .docs-sidebar,
+    .docs-actions {
+        position: sticky;
+        top: 106px;
+        align-self: start;
+    }
+    .docs-sidebar .panel,
+    .docs-actions .panel {
+        position: static;
+    }
+    .docs-sidebar-stack,
+    .docs-article-stack,
+    .docs-actions-stack,
+    .docs-nav-links,
+    .docs-sections,
+    .docs-file-list,
+    .docs-playbooks {
+        display: grid;
+        gap: 14px;
+    }
+    .docs-nav-panel,
+    .docs-hero,
+    .docs-section-block,
+    .docs-action-panel,
+    .docs-playbook-card {
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--surface-solid), var(--surface-alt));
+        border-radius: 22px;
+        box-shadow: var(--shadow-soft);
+    }
+    .docs-nav-panel,
+    .docs-section-block,
+    .docs-action-panel,
+    .docs-playbook-card {
+        padding: 18px 20px;
+    }
+    .docs-nav-link,
+    .docs-file-row {
+        display: grid;
+        gap: 6px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        color: var(--text-soft);
+        transition: background .16s ease, color .16s ease, border-color .16s ease;
+    }
+    .docs-nav-link {
+        border: 1px solid transparent;
+    }
+    .docs-nav-link:hover,
+    .docs-file-row:hover {
+        background: var(--surface-alt);
+        color: var(--text);
+    }
+    .docs-file-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        border: 1px solid var(--border);
+    }
+    .docs-file-row h4,
+    .docs-section-block h3,
+    .docs-hero h3,
+    .docs-action-panel h3,
+    .docs-playbook-card h3 {
+        margin: 0;
+    }
+    .docs-hero {
+        padding: 24px 26px;
+        display: grid;
+        gap: 16px;
+    }
+    .docs-hero h3 {
+        font-size: 30px;
+        letter-spacing: -.04em;
+    }
+    .docs-file-meta,
+    .docs-meta-line {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        color: var(--text-mute);
+        font-size: 12px;
+    }
+    .docs-section-block {
+        display: grid;
+        gap: 14px;
+    }
+    .docs-section-head {
+        display: grid;
+        gap: 6px;
+    }
+    .docs-section-head p {
+        margin: 0;
+        color: var(--text-soft);
+        line-height: 1.6;
+    }
+    .docs-playbook-card {
+        display: grid;
+        gap: 10px;
+    }
+    .docs-action-panel details {
+        display: grid;
+        gap: 12px;
+    }
+    .docs-action-panel summary {
+        cursor: pointer;
+        font-weight: 700;
+    }
+    @media (max-width: 1480px) {
+        .docs-shell {
+            grid-template-columns: minmax(260px, .72fr) minmax(0, 1fr);
+        }
+        .docs-actions {
+            grid-column: 1 / -1;
+            position: static;
+        }
+    }
+    @media (max-width: 1100px) {
+        .docs-shell {
+            grid-template-columns: 1fr;
+        }
+        .docs-sidebar,
+        .docs-actions { position: static; }
+        .docs-file-row {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% set is_ru = ui_lang == 'ru' %}
+<div class="view-stack">
+    <div class="docs-shell">
+        <aside class="docs-sidebar">
+            <section class="panel">
+                <div class="panel-body docs-sidebar-stack">
+                    <div class="docs-nav-panel">
+                        <div class="hint">{{ 'Навигация' if is_ru else 'Navigation' }}</div>
+                        <input class="field" id="docSearchInput" type="text" placeholder="{{ 'Поиск по документации' if is_ru else 'Search documentation' }}">
+                        <div class="docs-nav-links">
+                            {% for section in doc_sections %}
+                            <a class="docs-nav-link" href="#section-{{ section['id'] }}">
+                                <strong>{{ section['title'] }}</strong>
+                                <span class="page-note">{{ section['items'] | length }} {{ 'файлов' if is_ru else 'files' }}</span>
+                            </a>
+                            {% endfor %}
+                            <a class="docs-nav-link" href="#section-playbooks">
+                                <strong>{{ t['doc.playbooks'] }}</strong>
+                                <span class="page-note">{{ playbooks | length }} {{ 'сценариев' if is_ru else 'playbooks' }}</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <section class="docs-main">
+            <div class="docs-article-stack">
+                <section class="docs-hero">
+                    <div class="chip-row">
+                        <span class="chip">{{ docs | length }} {{ 'документов' if is_ru else 'documents' }}</span>
+                        <span class="chip">{{ playbooks | length }} {{ 'playbooks' if is_ru else 'playbooks' }}</span>
+                    </div>
+                    <h3>{{ 'Внутренняя документация Rdegon SIEM' if is_ru else 'Rdegon SIEM internal documentation' }}</h3>
+                    <p class="page-note">{{ 'База знаний для эксплуатации и красивого demo-flow: доступы, onboarding, playbooks, расследования и регламенты сопровождения.' if is_ru else 'A knowledge base for operations and demo flow: access, onboarding, playbooks, investigations, and maintenance procedures.' }}</p>
+                    <div class="kv-list">
+                        <div class="kv"><div class="kv-key">1</div><div class="kv-value">{{ t['doc.quickstart.1'] }}</div></div>
+                        <div class="kv"><div class="kv-key">2</div><div class="kv-value">{{ t['doc.quickstart.2'] }}</div></div>
+                        <div class="kv"><div class="kv-key">3</div><div class="kv-value">{{ t['doc.quickstart.3'] }}</div></div>
+                        <div class="kv"><div class="kv-key">4</div><div class="kv-value">{{ t['doc.quickstart.4'] }}</div></div>
+                    </div>
+                </section>
+
+                <div class="docs-sections" id="docSectionList">
+                    {% for section in doc_sections %}
+                    <section class="docs-section-block" id="section-{{ section['id'] }}">
+                        <div class="docs-section-head">
+                            <h3>{{ section['title'] }}</h3>
+                            <p>{{ section['subtitle'] }}</p>
+                        </div>
+                        <div class="docs-file-list">
+                            {% for item in section['items'] %}
+                            <article class="docs-file-row" data-doc-search="{{ (section['title'] ~ ' ' ~ item.name) | lower }}">
+                                <div>
+                                    <h4>{{ item.name }}</h4>
+                                    <div class="docs-file-meta">
+                                        <span>{{ item.updated_ts }}</span>
+                                        <span>{{ item.size }} bytes</span>
+                                    </div>
+                                </div>
+                                <div class="chip-row">
+                                    <a class="btn primary" href="/documentation/files/{{ item.name | urlencode }}">{{ 'Открыть' if is_ru else 'Open' }}</a>
+                                    {% if 'docs:write' in user.permissions %}
+                                    <form method="post" action="/documentation/delete">
+                                        <input type="hidden" name="doc_name" value="{{ item.name }}">
+                                        <button class="btn ghost" type="submit">{{ 'Удалить' if is_ru else 'Delete' }}</button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </article>
+                            {% endfor %}
+                        </div>
+                    </section>
+                    {% endfor %}
+
+                    <section class="docs-section-block" id="section-playbooks">
+                        <div class="docs-section-head">
+                            <h3>{{ t['doc.playbooks'] }}</h3>
+                            <p>{{ 'Готовые сценарии расследований и наборы запросов для SOC-демо.' if is_ru else 'Ready-made investigation flows and query packs for SOC demos.' }}</p>
+                        </div>
+                        <div class="docs-playbooks">
+                            {% for playbook in playbooks %}
+                            <article class="docs-playbook-card">
+                                <div class="chip-row">
+                                    {% for source in playbook.sources %}
+                                    <span class="chip">{{ source }}</span>
+                                    {% endfor %}
+                                </div>
+                                <h3>{{ playbook.title }}</h3>
+                                <p class="page-note">{{ playbook.summary }}</p>
+                                <a class="btn ghost" href="/documentation/playbooks/{{ playbook.slug | urlencode }}">{{ 'Открыть сценарий' if is_ru else 'Open playbook' }}</a>
+                            </article>
+                            {% endfor %}
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </section>
+
+        <aside class="docs-actions">
+            <section class="panel">
+                <div class="panel-body docs-actions-stack">
+                    <div class="docs-action-panel">
+                        <div class="hint">{{ 'Обзор' if is_ru else 'Overview' }}</div>
+                        <div class="docs-meta-line">
+                            <span>{{ docs | length }} {{ 'файлов' if is_ru else 'files' }}</span>
+                            <span>{{ playbooks | length }} {{ 'playbooks' if is_ru else 'playbooks' }}</span>
+                        </div>
+                        <p class="page-note">{{ 'Левая колонка работает как дерево разделов, центр как нормальная контент-область, а операции вынесены отдельно и больше не забивают страницу блоками.' if is_ru else 'The left rail works as the section tree, the center as the content pane, and write actions are separated so the page is no longer overloaded with cards.' }}</p>
+                    </div>
+                    {% if 'docs:write' in user.permissions %}
+                    <div class="docs-action-panel">
+                        <details>
+                            <summary>{{ 'Новый документ' if is_ru else 'New document' }}</summary>
+                            <form method="post" action="/documentation/save" class="view-stack" style="margin-top:12px;">
+                                <input class="field" type="text" name="doc_name" placeholder="10_new_runbook.md">
+                                <textarea class="textarea mono" name="doc_content" rows="10" placeholder="{{ 'Содержимое документа' if is_ru else 'Document contents' }}"></textarea>
+                                <button class="btn primary" type="submit">{{ 'Сохранить документ' if is_ru else 'Save document' }}</button>
+                            </form>
+                        </details>
+                    </div>
+                    <div class="docs-action-panel">
+                        <details>
+                            <summary>{{ 'Загрузить файл' if is_ru else 'Upload file' }}</summary>
+                            <form method="post" action="/documentation/upload" enctype="multipart/form-data" class="view-stack" style="margin-top:12px;">
+                                <input class="field" type="file" name="doc_file">
+                                <button class="btn ghost" type="submit">{{ 'Загрузить' if is_ru else 'Upload' }}</button>
+                            </form>
+                        </details>
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const docSearchInput = document.getElementById('docSearchInput');
+const docCards = Array.from(document.querySelectorAll('[data-doc-search]'));
+const docSections = Array.from(document.querySelectorAll('.docs-section-block[id^="section-"]'));
+if (docSearchInput) {
+    docSearchInput.addEventListener('input', () => {
+        const token = docSearchInput.value.trim().toLowerCase();
+        docCards.forEach((card) => {
+            const haystack = String(card.dataset.docSearch || '').toLowerCase();
+            card.style.display = !token || haystack.includes(token) ? '' : 'none';
+        });
+        docSections.forEach((section) => {
+            if (section.id === 'section-playbooks') return;
+            const visibleCards = section.querySelectorAll('[data-doc-search]:not([style*="display: none"])');
+            section.style.display = visibleCards.length ? '' : 'none';
+        });
+    });
+}
+</script>
+{% endblock %}

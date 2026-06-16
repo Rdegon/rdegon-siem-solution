@@ -1,0 +1,16 @@
+[Unit]
+Description=SIEM Writer Shadow Worker
+After=network.target clickhouse-server.service
+Wants=clickhouse-server.service
+
+[Service]
+User=rdegon
+WorkingDirectory=/opt/siem/siem-solution
+EnvironmentFile=/etc/siem/storage.env
+EnvironmentFile=-/etc/siem/storage-kafka-shadow.env
+ExecStart=/opt/siem/venv-storage/bin/python /opt/siem/siem-solution/writer_worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+---
+- name: Apply guarded host quarantine
+  hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    quarantine_apply: false
+    management_cidr: "192.168.1.0/24"
+    quarantine_note: "SIEM SOAR quarantine"
+  tasks:
+    - name: Capture firewall rules before quarantine
+      ansible.builtin.command: iptables-save
+      register: iptables_before
+      changed_when: false
+      failed_when: false
+
+    - name: Store rollback firewall backup
+      ansible.builtin.copy:
+        dest: "/var/tmp/siem-soar-iptables-{{ inventory_hostname }}.rules"
+        content: "{{ iptables_before.stdout | default('') }}"
+        mode: "0600"
+      when: quarantine_apply | bool
+
+    - name: Keep management network reachable
+      ansible.builtin.command: "iptables -C INPUT -s {{ management_cidr }} -j ACCEPT"
+      register: management_rule_check
+      changed_when: false
+      failed_when: false
+      when: quarantine_apply | bool
+
+    - name: Allow management network
+      ansible.builtin.command: "iptables -I INPUT 1 -s {{ management_cidr }} -j ACCEPT"
+      when:
+        - quarantine_apply | bool
+        - management_rule_check.rc != 0
+
+    - name: Add quarantine reject marker
+      ansible.builtin.command: "iptables -A INPUT -m comment --comment '{{ quarantine_note }}' -j REJECT"
+      when: quarantine_apply | bool
+
+    - name: Dry-run guardrail
+      ansible.builtin.debug:
+        msg: "quarantine_apply=false, no firewall change was made"
+      when: not quarantine_apply | bool
+
+    - name: Emit quarantine evidence
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          management_cidr: "{{ management_cidr }}"
+          backup_path: "/var/tmp/siem-soar-iptables-{{ inventory_hostname }}.rules"
+          applied: "{{ quarantine_apply | bool }}"

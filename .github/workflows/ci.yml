@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest fastapi starlette pydantic clickhouse-driver redis paramiko python-dotenv
+      - name: Run focused runtime tests
+        run: |
+          python -m pytest tests/test_transport_runtime.py tests/test_ingest_fabric.py tests/test_stream_worker.py tests/test_full_rule_audit.py tests/test_event_incident_query_stability.py tests/test_deploy_rollout_regressions.py tests/test_vm5_transport_wave.py tests/test_vm5_transport_provision.py tests/test_host_runtime_delivery.py
+
+  frontend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+      - run: npm ci
+      - run: npm test

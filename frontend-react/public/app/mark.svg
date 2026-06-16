@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="rs-shell" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11263d" />
+      <stop offset="1" stop-color="#05101b" />
+    </linearGradient>
+    <linearGradient id="rs-signal" x1="18" y1="14" x2="46" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5de0ff" />
+      <stop offset="1" stop-color="#81ffd8" />
+    </linearGradient>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="16" fill="url(#rs-shell)" stroke="#5de0ff" stroke-opacity=".16" stroke-width="2" />
+  <path d="M32 14L45 22V41L32 50L19 41V22L32 14Z" stroke="url(#rs-signal)" stroke-width="3.2" stroke-linejoin="round" />
+  <path d="M32 21V33" stroke="#dcfdff" stroke-width="3.6" stroke-linecap="round" />
+  <circle cx="32" cy="39.5" r="5.2" fill="#81ffd8" />
+  <path d="M24 45.5L32 50L40 45.5" stroke="#5de0ff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

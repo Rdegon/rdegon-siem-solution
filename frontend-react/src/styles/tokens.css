@@ -1,0 +1,73 @@
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/ibm-plex-sans-400.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/ibm-plex-sans-500.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/ibm-plex-sans-600.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../assets/fonts/ibm-plex-sans-700.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../assets/fonts/ibm-plex-mono-400.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../assets/fonts/ibm-plex-mono-500.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "Consolas", monospace;
+  --color-bg-base: #030811;
+  --color-bg-surface: #09111b;
+  --color-bg-panel: #0f1824;
+  --color-bg-panel-2: #131f2d;
+  --color-bg-panel-3: #182636;
+  --color-text-primary: #eaf3ff;
+  --color-text-secondary: #aab9ca;
+  --color-text-muted: #7e90a5;
+  --color-accent-blue: #3fcdf6;
+  --color-accent-mint: #81ffda;
+  --color-success: #8cffd4;
+  --color-warning: #f4bb62;
+  --color-critical: #ff6c82;
+  --color-info: #69d8ff;
+  --shadow-card: 0 22px 48px rgba(0, 0, 0, 0.34);
+  --shadow-drawer: -24px 0 60px rgba(0, 0, 0, 0.42);
+  --shadow-toast: 0 18px 34px rgba(0, 0, 0, 0.34);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-xl: 32px;
+}

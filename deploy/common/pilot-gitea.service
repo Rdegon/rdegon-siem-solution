@@ -1,0 +1,18 @@
+[Unit]
+Description=Pilot Gitea service
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/docker rm -f pilot-gitea
+ExecStartPre=/usr/bin/mkdir -p /opt/pilot/gitea /opt/pilot/gitea/ca /opt/pilot/gitea/gitea/conf
+ExecStart=/usr/bin/docker run --name pilot-gitea --log-driver=journald --log-opt tag=pilot-gitea --env-file /etc/default/pilot-gitea -p 3000:3000 -p 2222:22 -v /opt/pilot/gitea:/data -v /opt/pilot/gitea/ca:/data/ca:ro -v /opt/pilot/gitea/ca:/usr/local/share/ca-certificates/siem-extra:ro --entrypoint /bin/sh gitea/gitea:latest -lc "update-ca-certificates >/dev/null 2>&1 || true; exec /usr/bin/entrypoint /usr/bin/s6-svscan /etc/s6"
+ExecStop=/usr/bin/docker stop -t 20 pilot-gitea
+ExecStopPost=-/usr/bin/docker rm -f pilot-gitea
+
+[Install]
+WantedBy=multi-user.target

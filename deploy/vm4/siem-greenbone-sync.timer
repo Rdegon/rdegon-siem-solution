@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rdegon SIEM Greenbone synchronization every 30 minutes
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=30m
+Persistent=true
+Unit=siem-greenbone-sync.service
+
+[Install]
+WantedBy=timers.target

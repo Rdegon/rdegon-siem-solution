@@ -1,0 +1,14 @@
+# Operator/debug access without exposing the entire lab subnet.
+route-nopull
+route 10.20.20.120 255.255.255.255 vpn_gateway
+route 10.20.20.121 255.255.255.255 vpn_gateway
+route 10.20.30.122 255.255.255.255 vpn_gateway
+route 10.20.30.123 255.255.255.255 vpn_gateway
+route 10.20.30.124 255.255.255.255 vpn_gateway
+route 10.20.30.125 255.255.255.255 vpn_gateway
+route 10.20.30.126 255.255.255.255 vpn_gateway
+route 192.168.1.30 255.255.255.255 vpn_gateway
+route 192.168.1.35 255.255.255.255 vpn_gateway
+route 192.168.1.39 255.255.255.255 vpn_gateway
+route 192.168.1.102 255.255.255.255 vpn_gateway
+route 192.168.1.101 255.255.255.255 vpn_gateway

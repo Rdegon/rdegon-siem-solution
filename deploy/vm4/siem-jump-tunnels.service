@@ -1,0 +1,14 @@
+[Unit]
+Description=Reverse tunnels from home lab to jump host
+Wants=network-online.target openvpn-client@home-gateway.service
+After=network-online.target openvpn-client@home-gateway.service
+
+[Service]
+Type=simple
+User=rdegon
+ExecStart=/usr/local/bin/siem-jump-tunnels.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=SIEM Vault
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/siem/vault.env
+Environment=VAULT_ADDR=http://127.0.0.1:8200
+ExecStart=/opt/siem/vault/current/vault server -config=/etc/siem/vault.hcl
+ExecStartPost=/usr/local/bin/siem-vault-unseal.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

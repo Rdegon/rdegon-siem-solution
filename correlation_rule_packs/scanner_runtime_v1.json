@@ -1,0 +1,49 @@
+{
+  "pack_id": "scanner-runtime-v1",
+  "title": "Scanner runtime correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "Tracks Greenbone probe/sync/import degradation and drift between Proxmox fleet inventory and vulnerability runtime."
+  ],
+  "stream_rules": [
+    {
+      "id": 2531,
+      "title": "Greenbone Sync Or Import Degradation",
+      "severity": "high",
+      "window_s": 1200,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + scanner_runtime_v1",
+      "status": "active",
+      "operator_action": "Inspect probe, target sync and import logs before retrying the scanner workflow from the vulnerability page.",
+      "sigma_yaml": "title: Greenbone Sync Or Import Degradation\nid: sigma-greenbone-sync-or-import-degradation\nstatus: experimental\nlogsource:\n  product: siem\n  service: vulnerability\ndetection:\n  selection_action:\n    event.action:\n      - vuln.greenbone_probe_failed\n      - vuln.sync_failed\n      - vuln.import_failed\n  condition: selection_action\nlevel: high\n"
+    },
+    {
+      "id": 2532,
+      "title": "Fleet Scan Coverage Stale",
+      "severity": "medium",
+      "window_s": 7200,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + scanner_runtime_v1",
+      "status": "active",
+      "operator_action": "Check whether the affected fleet nodes are reachable and whether their OpenVAS target mapping is still valid.",
+      "sigma_yaml": "title: Fleet Scan Coverage Stale\nid: sigma-fleet-scan-coverage-stale\nstatus: experimental\nlogsource:\n  product: siem\n  service: vulnerability\ndetection:\n  selection_action:\n    event.action:\n      - vuln.coverage_stale\n      - vuln.target_unmapped\n  condition: selection_action\nlevel: medium\n"
+    },
+    {
+      "id": 2533,
+      "title": "Scanner Target Drift Against Proxmox Inventory",
+      "severity": "medium",
+      "window_s": 3600,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + scanner_runtime_v1",
+      "status": "active",
+      "operator_action": "Investigate whether new Proxmox guests were created or whether OpenVAS target reconciliation failed.",
+      "sigma_yaml": "title: Scanner Target Drift Against Proxmox Inventory\nid: sigma-scanner-target-drift-against-proxmox-inventory\nstatus: experimental\nlogsource:\n  product: siem\n  service: vulnerability\ndetection:\n  selection_action:\n    event.action:\n      - vuln.target_drift_detected\n      - vuln.fleet_inventory_changed\n  condition: selection_action\nlevel: medium\n"
+    }
+  ],
+  "batch_rules": []
+}

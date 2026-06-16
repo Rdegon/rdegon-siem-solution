@@ -1,0 +1,245 @@
+{
+  "pack_id": "windows-activity-v1",
+  "title": "Windows activity correlation pack",
+  "version": "1.1.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "Covers high-signal Windows authentication, privilege, persistence, remote access, and endpoint-protection activity for workstation and server telemetry.",
+    "Suppression key: host.name + service.name + windows_activity_v1."
+  ],
+  "stream_rules": [
+    {
+      "id": 2601,
+      "title": "Windows Logon Failure Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 8,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Review the principal, client address, and target host before deciding whether to suppress, lock, or escalate the authentication activity.",
+      "sigma_yaml": "title: Windows Logon Failure Burst\nid: sigma-windows-logon-failure-burst\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.provider: windows.security\n    event.type: windows_logon_failure\n  condition: selection\nlevel: medium\n"
+    },
+    {
+      "id": 2602,
+      "title": "Windows Audit Log Cleared",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Inspect the actor, validate whether the clear event was approved maintenance, and check for adjacent tampering or defense-evasion activity.",
+      "sigma_yaml": "title: Windows Audit Log Cleared\nid: sigma-windows-audit-log-cleared\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.provider: windows.security\n    event.type: windows_audit_log_cleared\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2603,
+      "title": "Windows Privileged Group Membership Change",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "user.target.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Confirm the user, target group, and operator are expected. If not, remove the privilege and review preceding logon or admin activity.",
+      "sigma_yaml": "title: Windows Privileged Group Membership Change\nid: sigma-windows-privileged-group-membership-change\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.provider: windows.security\n    event.type: windows_user_added_to_privileged_group\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2604,
+      "title": "Windows Encoded PowerShell Command",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Review the command line, user context, and parent process. Treat unexpected encoded execution as possible defense evasion or post-exploitation.",
+      "expr": "(event.provider == 'windows.powershell' and event.type == 'windows_powershell_encoded_command' and not event.original icontains 'RdegonSIEMCollector' and not event.original icontains 'rdegon-siem-collector.ps1' and not event.original icontains 'C:\\ProgramData\\RdegonSIEM' and not event.original icontains 'collector-state.json' and not event.original icontains '[System.Text.Encoding]::UTF8' and not event.original icontains 'Get-Content -Path repo' and not tags icontains 'allowlist:')"
+    },
+    {
+      "id": 2605,
+      "title": "Windows Service Installed",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Validate the service name, binary path, and install source. Escalate unexpected service creation as persistence or unauthorized software deployment.",
+      "expr": "(event.type == 'windows_service_installed' and not event.original icontains 'RdegonSIEMCollector' and not event.original icontains 'rdegon-siem-collector.ps1' and not event.original icontains 'C:\\ProgramData\\RdegonSIEM' and not event.original icontains 'collector-state.json' and not tags icontains 'allowlist:')"
+    },
+    {
+      "id": 2606,
+      "title": "Windows User Created",
+      "severity": "medium",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "user.target.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Check whether the account creation is tied to approved provisioning. Investigate unknown local-user creation together with admin and remote-login activity.",
+      "sigma_yaml": "title: Windows User Created\nid: sigma-windows-user-created\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.type: windows_user_created\n  condition: selection\nlevel: medium\n"
+    },
+    {
+      "id": 2607,
+      "title": "Windows Scheduled Task Created",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Review the task author, schedule, and launched command. Unexpected scheduled tasks are a common persistence mechanism on Windows assets.",
+      "sigma_yaml": "title: Windows Scheduled Task Created\nid: sigma-windows-scheduled-task-created\nstatus: experimental\nlogsource:\n  product: windows\n  service: taskscheduler\ndetection:\n  selection:\n    event.type: windows_scheduled_task_created\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2608,
+      "title": "Windows Registry Persistence Change",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Inspect the modified registry path and value. Repeated registry writes can indicate autorun persistence, policy tampering, or malware staging.",
+      "sigma_yaml": "title: Windows Registry Persistence Change\nid: sigma-windows-registry-persistence-change\nstatus: experimental\nlogsource:\n  product: windows\n  service: sysmon\ndetection:\n  selection:\n    event.type: windows_registry_value_set\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2609,
+      "title": "Windows Suspicious Process Creation Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 8,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Inspect parent-child chains and command lines. Repeated suspicious process creation can indicate script abuse, payload launch, or hands-on-keyboard activity.",
+      "sigma_yaml": "title: Windows Suspicious Process Creation Burst\nid: sigma-windows-suspicious-process-creation-burst\nstatus: experimental\nlogsource:\n  product: windows\n  service: sysmon\ndetection:\n  selection:\n    event.type: windows_process_create\n  condition: selection\nlevel: medium\n"
+    },
+    {
+      "id": 2610,
+      "title": "Windows User Deleted",
+      "severity": "medium",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "user.target.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Verify whether the deletion belongs to approved user lifecycle operations. Unexpected removals can hide account abuse or cleanup after compromise.",
+      "sigma_yaml": "title: Windows User Deleted\nid: sigma-windows-user-deleted\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.type: windows_user_deleted\n  condition: selection\nlevel: medium\n"
+    },
+    {
+      "id": 2611,
+      "title": "Windows Special Privileges Assigned",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 2,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Review privileged logons and the originating session. Unexpected assignment of special privileges often precedes lateral movement or admin misuse.",
+      "expr": "(event.type == 'windows_special_privileges_assigned' and user.name != 'SYSTEM' and not (host.name == 'DESKTOP-5JMJVBH' and user.name == 'Rdegon') and not event.original icontains 'Security ID:\t\tS-1-5-18' and not event.original icontains 'Account Name:\t\tSYSTEM' and not tags icontains 'allowlist:')"
+    },
+    {
+      "id": 2612,
+      "title": "Windows Explicit Credentials Logon",
+      "severity": "medium",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Validate why explicit credentials were supplied and whether the target host or service matches approved administration activity.",
+      "expr": "(event.type == 'windows_explicit_credentials_logon' and not (process.name == 'svchost.exe' and user.name icontains '$' and event.original icontains 'Security ID:\t\tS-1-5-18' and event.original icontains 'Target Server Name:\tlocalhost') and not tags icontains 'allowlist:')"
+    },
+    {
+      "id": 2613,
+      "title": "Windows Audit Policy Changed",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Treat unexpected audit policy changes as potential defense evasion. Confirm whether logging was reduced, redirected, or selectively disabled.",
+      "sigma_yaml": "title: Windows Audit Policy Changed\nid: sigma-windows-audit-policy-changed\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.type: windows_audit_policy_changed\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2614,
+      "title": "Windows Password Reset Or Change",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "user.target.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Validate who changed or reset the password, for which account, and whether the operation belongs to approved helpdesk or administration work.",
+      "sigma_yaml": "title: Windows Password Reset Or Change\nid: sigma-windows-password-reset-or-change\nstatus: experimental\nlogsource:\n  product: windows\n  service: security\ndetection:\n  selection:\n    event.type:\n      - windows_password_changed\n      - windows_password_reset\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2615,
+      "title": "Windows Defender Malware Detected",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Validate the malware family, affected path, and whether Defender quarantined the artifact. Escalate quickly if execution or lateral movement indicators exist nearby.",
+      "sigma_yaml": "title: Windows Defender Malware Detected\nid: sigma-windows-defender-malware-detected\nstatus: experimental\nlogsource:\n  product: windows\n  service: defender\ndetection:\n  selection:\n    event.type: windows_defender_malware_detected\n  condition: selection\nlevel: high\n"
+    },
+    {
+      "id": 2616,
+      "title": "Windows Defender Configuration Changed",
+      "severity": "high",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Review which Defender setting changed and whether protection was weakened. Unexpected configuration drift should be treated as possible tampering.",
+      "expr": "(event.type == 'windows_defender_configuration_changed' and (event.original icontains 'DisableRealtimeMonitoring' or event.original icontains 'DisableBehaviorMonitoring' or event.original icontains 'DisableIOAVProtection' or event.original icontains 'DisableAntiSpyware' or event.original icontains 'DisableAntiVirus' or event.original icontains 'DisableScriptScanning' or event.original icontains 'DisableBlockAtFirstSeen' or event.original icontains 'TamperProtection' or event.original icontains 'PUAProtection' or event.original icontains 'Exclusions\\Paths' or event.original icontains 'Exclusions\\Extensions' or event.original icontains 'Exclusions\\Processes' or event.original icontains 'Spynet\\SubmitSamplesConsent' or event.original icontains 'MAPSReporting' or event.original icontains 'CloudBlockLevel') and not event.original icontains 'UX Configuration\\ToastOrSsoTrigger' and not event.original icontains 'MpEngine\\MpEngineRing' and not event.original icontains 'MpEngine\\MpCampRing' and not event.original icontains 'Signature Updates' and not event.original icontains 'Security intelligence version updated' and not event.original icontains 'CoreService\\WdConfigHash' and not event.original icontains 'Features\\EcsConfigs' and not event.original icontains 'Features\\Controls' and not tags icontains 'allowlist:')"
+    },
+    {
+      "id": 2617,
+      "title": "Windows RDP Authentication Burst",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 3,
+      "entity_field": "source.ip",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Inspect the remote address, principal, and destination host. Repeated successful RDP logons can indicate lateral movement or shared-admin account misuse.",
+      "sigma_yaml": "title: Windows RDP Authentication Burst\nid: sigma-windows-rdp-authentication-burst\nstatus: experimental\nlogsource:\n  product: windows\n  service: terminalservices\ndetection:\n  selection:\n    event.type: windows_rdp_auth_success\n  condition: selection\nlevel: medium\n"
+    },
+    {
+      "id": 2618,
+      "title": "Windows WMI Activity Burst",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 4,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + service.name + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Review WMI activity context, parent process, and operator identity. Bursts of WMI usage often indicate remote execution, discovery, or post-exploitation tradecraft.",
+      "expr": "(event.type == 'windows_wmi_activity' and event.code != '5857' and event.code != '5860' and not event.original icontains 'WmiPerfInst provider started' and not event.original icontains 'WmiPerfClass provider started' and not event.original icontains 'CIMWin32 provider started' and not event.original icontains 'StorageWMI provider started' and not event.original icontains 'WMI Kernel Trace Event Provider provider started' and not event.original icontains 'WMIProv provider started' and not event.original icontains 'Win32_PerfFormattedData_' and not event.original icontains 'Win32_PerfFormattedData_PerfProc_Process' and not event.original icontains 'WmiMonitorID' and not event.original icontains 'CreateInstanceEnum - root\\\\cimv2' and not (event.original icontains 'IWbemServices::CreateInstanceEnum' and event.original icontains 'Could not send status to client') and not (event.original icontains 'IWbemServices::ExecNotificationQuery' and event.original icontains 'Win32_ProcessStartTrace' and event.original icontains 'wsmprovhost.exe') and not (host.name == 'DESKTOP-5JMJVBH' and event.original icontains 'IWbemServices::CreateInstanceEnum' and event.original icontains 'root') and not event.original icontains 'User = NT AUTHORITY\\SYSTEM' and not event.original icontains 'wsmprovhost.exe' and not tags icontains 'allowlist:')"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4601,
+      "title": "Windows Privilege Change Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review of privileged-group changes and adjacent admin activity across Windows assets."
+    },
+    {
+      "id": 4602,
+      "title": "Windows Remote Administration Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review of RDP, explicit-credential, WMI, and special-privilege activity across Windows assets."
+    }
+  ]
+}

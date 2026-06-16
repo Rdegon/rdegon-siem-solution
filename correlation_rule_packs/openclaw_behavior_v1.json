@@ -1,0 +1,85 @@
+{
+  "pack_id": "openclaw-behavior-v1",
+  "title": "OpenClaw behavior correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "This pack targets the OpenClaw gateway with full metadata monitoring.",
+    "The expected telemetry sources are Linux auditd syscall events, systemd-resolved debug metadata, and OpenClaw/Xray runtime logs.",
+    "The rules are intentionally tuned to burst conditions to avoid alerting on every single metadata event.",
+    "Suppression key: host.name + process.name + rule family. Interactive and privileged actions escalate only after threshold or on explicit high-risk event types.",
+    "Expected OpenClaw DNS success traffic and known transient proxy runtime noise are allowlisted in normalization before stream correlation."
+  ],
+  "stream_rules": [
+    {
+      "id": 2301,
+      "title": "OpenClaw Outbound Connection Burst",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 20,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + process.name + openclaw_behavior_v1",
+      "status": "active",
+      "operator_action": "Inspect the destination set and recent operator actions. Validate whether the burst is tied to the expected browser/session workload.",
+      "sigma_yaml": "title: OpenClaw Outbound Connection Burst\nid: sigma-openclaw-outbound-connection-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.provider: linux.auditd\n    host.name: openclaw-gateway\n    event.type: linux_network_connection\n  condition: selection\nlevel: high\ntags:\n  - openclaw\n  - network\n  - egress\n"
+    },
+    {
+      "id": 2302,
+      "title": "OpenClaw DNS Query Burst",
+      "severity": "medium",
+      "window_s": 300,
+      "threshold": 90,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + dns.question.name + openclaw_behavior_v1",
+      "status": "retired_noise",
+      "operator_action": "Check whether the DNS fan-out is expected for the current OpenClaw tasking and review the resolved hostnames in the event stream.",
+      "sigma_yaml": "title: OpenClaw DNS Query Burst\nid: sigma-openclaw-dns-query-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: systemd-resolved\ndetection:\n  selection_provider:\n    event.provider: linux.systemd-resolved\n    host.name: openclaw-gateway\n  selection_message:\n    message|contains: \"Regular transaction\"\n  condition: selection_provider and selection_message\nlevel: medium\ntags:\n  - openclaw\n  - dns\n  - egress\n"
+    },
+    {
+      "id": 2303,
+      "title": "OpenClaw Privileged Configuration Change",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + event.type + openclaw_behavior_v1",
+      "status": "active",
+      "operator_action": "Validate that the change belongs to an approved maintenance window. Review the exact file or command in the audit event payload.",
+      "expr": "(event.provider == 'linux.auditd' and host.name == 'openclaw-gateway' and (event.type == 'linux_audit_config_changed' or event.type == 'linux_sudoers_modified' or event.type == 'linux_rsyslog_config_modified' or event.type == 'linux_sshd_config_modified' or event.type == 'linux_firewall_modified' or event.type == 'linux_firewall_disabled' or (event.type == 'linux_systemd_unit_modified' and (event.original icontains '/etc/systemd/system/' or event.original icontains '/lib/systemd/system/' or event.original icontains '/usr/lib/systemd/system/') and not event.original icontains '.dpkg-' and not event.original icontains 'dpkg-tmp' and not event.original icontains 'dpkg-new' and not event.original icontains 'dpkg-old' and not event.original icontains 'nametype=PARENT' and not event.original icontains 'apt.systemd.daily' and not event.original icontains 'unattended-upgrade')) and not tags icontains 'allowlist:')"
+    },
+    {
+      "id": 2304,
+      "title": "OpenClaw Proxy Error Burst",
+      "severity": "medium",
+      "window_s": 1800,
+      "threshold": 180,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + process.name + openclaw_behavior_v1",
+      "status": "active",
+      "operator_action": "Inspect Xray/OpenClaw runtime logs and recent route changes. Only persistent non-allowlisted proxy failures should page the operator.",
+      "sigma_yaml": "title: OpenClaw Proxy Error Burst\nid: sigma-openclaw-proxy-error-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: openclaw\ndetection:\n  selection_host:\n    host.name: openclaw-gateway\n  selection_process:\n    process.name:\n      - xray\n      - node\n  selection_message:\n    message|contains:\n      - error\n      - failed\n      - timeout\n      - broken pipe\n  condition: selection_host and selection_process and selection_message\nlevel: medium\ntags:\n  - openclaw\n  - proxy\n  - runtime\n"
+    },
+    {
+      "id": 2305,
+      "title": "OpenClaw Suspicious Interactive Privilege Activity",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + user.name + openclaw_behavior_v1",
+      "status": "active",
+      "operator_action": "Review the exact SSH or privileged control-change event and confirm whether the activity belongs to an approved operator maintenance window.",
+      "sigma_yaml": "title: OpenClaw Suspicious Interactive Privilege Activity\nid: sigma-openclaw-suspicious-interactive-privilege-activity\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection_host:\n    host.name: openclaw-gateway\n  selection_type:\n    event.type:\n      - audit_exec_as_root\n      - linux_root_ssh_login\n      - linux_user_added_to_admin_group\n      - linux_systemd_service_disabled\n      - linux_systemd_service_enabled\n  condition: selection_host and selection_type\nlevel: high\ntags:\n  - openclaw\n  - privilege\n  - interactive\n"
+    }
+  ],
+  "batch_rules": [
+    {
+      "id": 4301,
+      "title": "OpenClaw New-Destination Review",
+      "severity": "medium",
+      "status": "planned_followup",
+      "description": "Batch review for newly observed DNS names and outbound destinations tied to OpenClaw sessions."
+    }
+  ]
+}

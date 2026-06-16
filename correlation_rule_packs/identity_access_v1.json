@@ -1,0 +1,50 @@
+{
+  "pack_id": "identity-access-v1",
+  "title": "Identity and access correlation pack",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "platform-release",
+  "notes": [
+    "Covers repeated authentication failures, first-seen app access and access-grant drift on SSO-enabled systems.",
+    "Suppression key: host.name + service.name + rule family."
+  ],
+  "stream_rules": [
+    {
+      "id": 2501,
+      "title": "Repeated External App Authentication Failures",
+      "severity": "medium",
+      "window_s": 600,
+      "threshold": 5,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + identity_access_v1",
+      "status": "active",
+      "operator_action": "Review the principal, source address and target application before forcing password rotation or access suspension.",
+      "sigma_yaml": "title: Repeated External App Authentication Failures\nid: sigma-repeated-external-app-auth-failures\nstatus: experimental\nlogsource:\n  product: application\n  service: sso\ndetection:\n  selection_outcome:\n    event.outcome: failure\n  selection_app:\n    log_source:\n      - pilot-web-01\n      - navidrome-01\n      - nextcloud-siem\n  condition: selection_outcome and selection_app\nlevel: medium\n"
+    },
+    {
+      "id": 2502,
+      "title": "First-Seen Login On SSO-Enabled Internal App",
+      "severity": "low",
+      "window_s": 3600,
+      "threshold": 1,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + user.name + identity_access_v1",
+      "status": "active",
+      "operator_action": "Confirm the new principal-to-app combination is expected and that the access grant was intentional.",
+      "sigma_yaml": "title: First-Seen Login On SSO-Enabled Internal App\nid: sigma-first-seen-login-on-sso-app\nstatus: experimental\nlogsource:\n  product: application\n  service: sso\ndetection:\n  selection_outcome:\n    event.outcome: success\n  selection_type:\n    event.type:\n      - auth_login_success\n      - oidc_login_success\n  condition: selection_outcome and selection_type\nlevel: low\n"
+    },
+    {
+      "id": 2503,
+      "title": "SSO Role Or Grant Drift Detected",
+      "severity": "high",
+      "window_s": 900,
+      "threshold": 1,
+      "entity_field": "user.name",
+      "suppression_key": "host.name + service.name + identity_access_v1",
+      "status": "active",
+      "operator_action": "Inspect the grant change, Keycloak group delta and the operator who applied it before allowing the drift to stand.",
+      "sigma_yaml": "title: SSO Role Or Grant Drift Detected\nid: sigma-sso-role-or-grant-drift-detected\nstatus: experimental\nlogsource:\n  product: siem\n  service: access\ndetection:\n  selection_action:\n    event.action:\n      - keycloak.user.groups_updated\n      - keycloak.user.roles_updated\n      - access_grant_saved\n  condition: selection_action\nlevel: high\n"
+    }
+  ],
+  "batch_rules": []
+}

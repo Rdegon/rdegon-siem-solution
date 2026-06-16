@@ -1,0 +1,217 @@
+.react-list-item,
+.react-table tbody tr,
+.react-info-row,
+.react-kv {
+  border-color: rgba(105, 216, 255, 0.08);
+}
+
+.react-list-item:hover,
+.react-table tbody tr:hover {
+  background: rgba(63, 205, 246, 0.06);
+}
+
+.react-card-button.active,
+.react-table tbody tr.selected,
+.react-row-selected {
+  background:
+    linear-gradient(180deg, rgba(63, 205, 246, 0.12), rgba(63, 205, 246, 0.04)),
+    linear-gradient(90deg, rgba(129, 255, 218, 0.08), transparent 58%);
+  border-color: rgba(63, 205, 246, 0.18);
+  box-shadow: inset 2px 0 0 rgba(129, 255, 218, 0.9);
+}
+
+.react-drawer-panel {
+  background:
+    linear-gradient(180deg, rgba(11, 18, 28, 0.98), rgba(5, 10, 16, 0.98)),
+    radial-gradient(circle at top right, rgba(63, 205, 246, 0.12), transparent 24%);
+  border-left: 1px solid rgba(105, 216, 255, 0.12);
+}
+
+.react-drawer-topbar {
+  border-bottom-color: rgba(105, 216, 255, 0.08);
+}
+
+.react-pre {
+  font-family: var(--font-mono);
+  background: rgba(4, 8, 13, 0.72);
+  border: 1px solid rgba(105, 216, 255, 0.08);
+}
+.react-investigation-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.react-investigation-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+}
+
+.react-investigation-summary.tone-critical {
+  border-color: rgba(255, 108, 130, 0.26);
+  background: linear-gradient(180deg, rgba(255, 108, 130, 0.12), rgba(255, 108, 130, 0.03));
+}
+
+.react-investigation-summary.tone-warning {
+  border-color: rgba(244, 187, 98, 0.24);
+  background: linear-gradient(180deg, rgba(244, 187, 98, 0.1), rgba(244, 187, 98, 0.03));
+}
+
+.react-investigation-summary.tone-success {
+  border-color: rgba(129, 255, 218, 0.22);
+  background: linear-gradient(180deg, rgba(129, 255, 218, 0.1), rgba(129, 255, 218, 0.03));
+}
+
+.react-investigation-summary.tone-info {
+  border-color: rgba(63, 205, 246, 0.24);
+  background: linear-gradient(180deg, rgba(63, 205, 246, 0.1), rgba(63, 205, 246, 0.03));
+}
+
+.react-investigation-summary-label {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.react-investigation-summary-value {
+  color: var(--color-text-primary);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.react-investigation-action-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.react-investigation-action {
+  min-height: 36px;
+}
+
+.react-investigation-section {
+  display: grid;
+  gap: 14px;
+}
+
+.react-card-head-tight {
+  margin-bottom: 0;
+}
+
+.react-investigation-timeline {
+  position: relative;
+  display: grid;
+  gap: 12px;
+}
+
+.react-investigation-entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.react-investigation-entry-rail {
+  position: relative;
+}
+
+.react-investigation-entry-rail::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: -18px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(141, 167, 198, 0.35), rgba(141, 167, 198, 0.05));
+}
+
+.react-investigation-entry:last-child .react-investigation-entry-rail::before {
+  bottom: 18px;
+}
+
+.react-investigation-entry-rail::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 2px solid rgba(63, 205, 246, 0.78);
+  background: rgba(7, 13, 22, 0.96);
+  box-shadow: 0 0 0 6px rgba(63, 205, 246, 0.07);
+}
+
+.react-investigation-entry.tone-critical .react-investigation-entry-rail::after {
+  border-color: rgba(255, 108, 130, 0.86);
+  box-shadow: 0 0 0 6px rgba(255, 108, 130, 0.08);
+}
+
+.react-investigation-entry.tone-warning .react-investigation-entry-rail::after {
+  border-color: rgba(244, 187, 98, 0.86);
+  box-shadow: 0 0 0 6px rgba(244, 187, 98, 0.07);
+}
+
+.react-investigation-entry.tone-success .react-investigation-entry-rail::after {
+  border-color: rgba(129, 255, 218, 0.9);
+  box-shadow: 0 0 0 6px rgba(129, 255, 218, 0.08);
+}
+
+.react-investigation-entry-body {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(141, 167, 198, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012));
+}
+
+.react-investigation-entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-investigation-entry-head strong {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.react-investigation-entry-head p {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+.react-investigation-entry-meta {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.react-investigation-entry-copy {
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .react-investigation-entry-head {
+    display: grid;
+  }
+
+  .react-investigation-entry-meta {
+    white-space: normal;
+  }
+}

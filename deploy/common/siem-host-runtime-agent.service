@@ -1,0 +1,13 @@
+[Unit]
+Description=SIEM host runtime telemetry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/siem/host-runtime.env
+WorkingDirectory=/opt/siem/siem-solution
+ExecStart=/usr/bin/python3 /opt/siem/siem-solution/deploy/host_runtime_agent.py
+
+[Install]
+WantedBy=multi-user.target

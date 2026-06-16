@@ -1,0 +1,20 @@
+{
+  "profile_id": "production-certification",
+  "stage_ladder_eps": [
+    100,
+    250,
+    500
+  ],
+  "latency_budget_skip_initial_stages": 1,
+  "delivery_ratio_min": 0.995,
+  "ingest_p95_latency_ms_max": 22000,
+  "kafka_lag_max": 5000,
+  "post_benchmark_health_required": true,
+  "destructive_drills": [
+    "kafka_transport_recovery",
+    "postgres_failover_readiness",
+    "mongo_stepdown_readiness",
+    "clickhouse_primary_standby_verification",
+    "runner_plane_recovery"
+  ]
+}

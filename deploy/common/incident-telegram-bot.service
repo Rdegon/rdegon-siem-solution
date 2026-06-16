@@ -1,0 +1,17 @@
+[Unit]
+Description=SIEM incident Telegram bot
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/siem/incident-telegram-bot
+EnvironmentFile=/etc/siem/incident-telegram-bot.env
+ExecStart=/opt/siem/incident-telegram-bot/.venv/bin/python /opt/siem/incident-telegram-bot/incident_telegram_bot.py
+Restart=always
+RestartSec=8
+
+[Install]
+WantedBy=multi-user.target
