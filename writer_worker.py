@@ -41,7 +41,7 @@ class WriterSettings:
     block_ms: int = int(os.getenv("SIEM_WRITER_BLOCK_MS", "1000"))
 
     ch_host: str = os.getenv("SIEM_CH_HOST", "127.0.0.1")
-    ch_port: int = int(os.getenv("SIEM_CH_PORT", "8123"))
+    ch_port: int = int(os.getenv("SIEM_CH_PORT", "9000"))
     ch_user: str = os.getenv("SIEM_CH_USER", "siem_app")
     ch_password: str = os.getenv("SIEM_CH_PASSWORD", "")
     ch_db: str = os.getenv("SIEM_CH_DB", "siem")

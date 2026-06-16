@@ -61,6 +61,10 @@ class KafkaConnectionSettings:
     expected_controllers: int = 3
     default_replication_factor: int = 3
     min_insync_replicas: int = 2
+    producer_linger_ms: int = 5
+    producer_compression_type: str | None = None
+    producer_max_batch_size: int = 0
+    producer_max_request_size: int = 0
 
 
 @dataclass(frozen=True)
@@ -171,6 +175,23 @@ def transport_settings_from_object(
         1,
         int(_attr(settings, "kafka_min_insync_replicas", env_map.get("SIEM_KAFKA_MIN_INSYNC_REPLICAS", "2")) or "2"),
     )
+    producer_linger_ms = max(
+        0,
+        int(_attr(settings, "kafka_producer_linger_ms", env_map.get("SIEM_KAFKA_PRODUCER_LINGER_MS", "5")) or "5"),
+    )
+    compression_raw = str(
+        _attr(settings, "kafka_producer_compression_type", env_map.get("SIEM_KAFKA_PRODUCER_COMPRESSION_TYPE", ""))
+        or ""
+    ).strip().lower()
+    producer_compression_type = compression_raw if compression_raw in {"gzip", "snappy", "lz4", "zstd"} else None
+    producer_max_batch_size = max(
+        0,
+        int(_attr(settings, "kafka_producer_max_batch_size", env_map.get("SIEM_KAFKA_PRODUCER_MAX_BATCH_SIZE", "0")) or "0"),
+    )
+    producer_max_request_size = max(
+        0,
+        int(_attr(settings, "kafka_producer_max_request_size", env_map.get("SIEM_KAFKA_PRODUCER_MAX_REQUEST_SIZE", "0")) or "0"),
+    )
 
     redis = connection_settings_from_object(settings, env=env_map)
     return TransportSettings(
@@ -192,6 +213,10 @@ def transport_settings_from_object(
             expected_controllers=expected_controllers,
             default_replication_factor=default_replication_factor,
             min_insync_replicas=min_insync_replicas,
+            producer_linger_ms=producer_linger_ms,
+            producer_compression_type=producer_compression_type,
+            producer_max_batch_size=producer_max_batch_size,
+            producer_max_request_size=producer_max_request_size,
         ),
         raw_stream=str(_attr(settings, "raw_stream_key", env_map.get("SIEM_REDIS_STREAM_RAW", "siem:raw")) or "siem:raw").strip(),
         normalized_stream=str(_attr(settings, "normalized_stream_key", env_map.get("SIEM_REDIS_STREAM_NORMALIZED", "siem:normalized")) or "siem:normalized").strip(),
@@ -263,6 +288,10 @@ def transport_health_snapshot(settings: object | None = None) -> dict[str, Any]:
         "kafka_expected_controllers": int(resolved.kafka.expected_controllers),
         "kafka_default_replication_factor": int(resolved.kafka.default_replication_factor),
         "kafka_min_insync_replicas": int(resolved.kafka.min_insync_replicas),
+        "kafka_producer_linger_ms": int(resolved.kafka.producer_linger_ms),
+        "kafka_producer_compression_type": resolved.kafka.producer_compression_type or "",
+        "kafka_producer_max_batch_size": int(resolved.kafka.producer_max_batch_size),
+        "kafka_producer_max_request_size": int(resolved.kafka.producer_max_request_size),
         "configured_topics": configured_topics,
         "configured_streams": stream_targets,
         "raw_target": resolved.alias_target("raw"),
@@ -324,10 +353,16 @@ class KafkaProducerRuntime:
                     "bootstrap_servers": list(self._settings.kafka.bootstrap_servers),
                     "client_id": self._settings.kafka.client_id,
                     "acks": "all",
-                    "linger_ms": 5,
+                    "linger_ms": self._settings.kafka.producer_linger_ms,
                     "request_timeout_ms": 120_000,
                     "retry_backoff_ms": 500,
                 }
+                if self._settings.kafka.producer_compression_type:
+                    kwargs["compression_type"] = self._settings.kafka.producer_compression_type
+                if self._settings.kafka.producer_max_batch_size > 0:
+                    kwargs["max_batch_size"] = self._settings.kafka.producer_max_batch_size
+                if self._settings.kafka.producer_max_request_size > 0:
+                    kwargs["max_request_size"] = self._settings.kafka.producer_max_request_size
                 if self._settings.kafka.security_protocol != "PLAINTEXT":
                     kwargs["security_protocol"] = self._settings.kafka.security_protocol
                 if self._settings.kafka.sasl_username:

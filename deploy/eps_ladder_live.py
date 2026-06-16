@@ -5,12 +5,15 @@ import concurrent.futures
 import json
 import os
 import shlex
+import ssl
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 try:
     import paramiko
@@ -28,6 +31,8 @@ DEFAULT_INJECTORS = (
 )
 DEFAULT_VM3 = "192.168.1.38"
 DEFAULT_KAFKA = "192.168.1.35"
+DEFAULT_WEB_URL = "https://192.168.1.39"
+DEFAULT_WEB_SMOKE_PATHS = "/,/health,/api/health,/api/health/transport,/api/health/storage"
 
 
 @dataclass(frozen=True)
@@ -157,6 +162,46 @@ def _kafka_lag(*, kafka: HostSpec, key_path: str) -> dict[str, Any]:
     }
 
 
+def _web_smoke(*, base_url: str, paths: list[str], timeout_sec: float) -> dict[str, Any]:
+    base = str(base_url or "").strip().rstrip("/")
+    if not base:
+        return {"enabled": False, "items": [], "p95_ms": 0.0, "max_ms": 0.0}
+    context = ssl._create_unverified_context() if base.lower().startswith("https://") else None
+    items: list[dict[str, Any]] = []
+    for raw_path in paths:
+        path = str(raw_path or "").strip() or "/"
+        if not path.startswith("/"):
+            path = f"/{path}"
+        url = f"{base}{path}"
+        started = time.perf_counter()
+        item: dict[str, Any] = {"path": path, "url": url, "ok": False, "status": 0, "elapsed_ms": 0.0}
+        try:
+            request = Request(url, headers={"User-Agent": "siem-eps-ladder/1.0"})
+            with urlopen(request, timeout=max(1.0, float(timeout_sec)), context=context) as response:  # noqa: S310
+                item["status"] = int(getattr(response, "status", 0) or 0)
+                response.read(4096)
+                item["ok"] = 200 <= int(item["status"]) < 500
+        except HTTPError as exc:
+            item["status"] = int(exc.code)
+            item["ok"] = 200 <= int(exc.code) < 500
+            item["error"] = str(exc)
+        except (TimeoutError, URLError, OSError) as exc:
+            item["error"] = str(exc)
+        finally:
+            item["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            items.append(item)
+    elapsed = sorted(float(item.get("elapsed_ms") or 0.0) for item in items)
+    p95 = elapsed[min(len(elapsed) - 1, int(len(elapsed) * 0.95))] if elapsed else 0.0
+    return {
+        "enabled": True,
+        "base_url": base,
+        "items": items,
+        "p95_ms": round(p95, 2),
+        "max_ms": round(max(elapsed), 2) if elapsed else 0.0,
+        "ok": all(bool(item.get("ok")) for item in items) if items else False,
+    }
+
+
 def _service_snapshot(*, key_path: str, hosts: list[HostSpec]) -> dict[str, Any]:
     checks = {
         "SIEM_VM1": "systemctl is-active siem-ingest siem-kafka nginx; df -h / /var/lib/siem-kafka 2>/dev/null",
@@ -256,6 +301,7 @@ def run_ladder(args: argparse.Namespace) -> dict[str, Any]:
     vm3 = HostSpec("SIEM_VM3", args.vm3_host, args.user)
     kafka = HostSpec("SIEM_VM1", args.kafka_host, args.user)
     all_hosts = [*injectors, vm3]
+    web_paths = [item.strip() for item in str(args.web_smoke_paths or "").split(",") if item.strip()]
 
     prepared: dict[str, tuple[str, str]] = {}
     started_at = datetime.now(timezone.utc).isoformat()
@@ -268,12 +314,17 @@ def run_ladder(args: argparse.Namespace) -> dict[str, Any]:
             "batch_size": int(args.batch_size),
             "request_timeout_sec": float(args.request_timeout_sec),
             "ingest_url": args.ingest_url,
-        "injectors": [host.name for host in injectors],
-        "workers_per_host": int(args.workers_per_host),
+            "injectors": [host.name for host in injectors],
+            "workers_per_host": int(args.workers_per_host),
+            "web_url": "" if args.skip_web_smoke else args.web_url,
+            "web_smoke_paths": [] if args.skip_web_smoke else web_paths,
         },
         "preflight": {
             "services": _service_snapshot(key_path=key_path, hosts=all_hosts),
             "kafka_lag": _kafka_lag(kafka=kafka, key_path=key_path),
+            "web_smoke": {}
+            if args.skip_web_smoke
+            else _web_smoke(base_url=args.web_url, paths=web_paths, timeout_sec=float(args.web_timeout_sec)),
         },
         "stages": [],
     }
@@ -322,6 +373,11 @@ def run_ladder(args: argparse.Namespace) -> dict[str, Any]:
                 time.sleep(5)
             after_lag = _kafka_lag(kafka=kafka, key_path=key_path)
             stage_eps = _clickhouse_stage_eps(vm3=vm3, key_path=key_path, run_id=run_id, stage=stage)
+            web_smoke = (
+                {}
+                if args.skip_web_smoke
+                else _web_smoke(base_url=args.web_url, paths=web_paths, timeout_sec=float(args.web_timeout_sec))
+            )
             errors = [str(item.get("error") or "") for item in worker_results if str(item.get("status") or "") == "error"]
             latency = {
                 "p50_ms": max((float(dict(item.get("latency") or {}).get("p50_ms") or 0.0) for item in worker_results), default=0.0),
@@ -342,6 +398,7 @@ def run_ladder(args: argparse.Namespace) -> dict[str, Any]:
                 "before_kafka_lag": before_lag,
                 "after_kafka_lag": after_lag,
                 "clickhouse_stage": stage_eps,
+                "web_smoke": web_smoke,
                 "workers": sorted(worker_results, key=lambda item: str(item.get("injector") or "")),
                 "status": "success" if not errors else "failed",
                 "errors": errors,
@@ -351,6 +408,9 @@ def run_ladder(args: argparse.Namespace) -> dict[str, Any]:
         report["postflight"] = {
             "services": _service_snapshot(key_path=key_path, hosts=all_hosts),
             "kafka_lag": _kafka_lag(kafka=kafka, key_path=key_path),
+            "web_smoke": {}
+            if args.skip_web_smoke
+            else _web_smoke(base_url=args.web_url, paths=web_paths, timeout_sec=float(args.web_timeout_sec)),
         }
     finally:
         for host in injectors:
@@ -377,6 +437,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--user", default="rdegon")
     parser.add_argument("--vm3-host", default=DEFAULT_VM3)
     parser.add_argument("--kafka-host", default=DEFAULT_KAFKA)
+    parser.add_argument("--web-url", default=DEFAULT_WEB_URL)
+    parser.add_argument("--web-smoke-paths", default=DEFAULT_WEB_SMOKE_PATHS)
+    parser.add_argument("--web-timeout-sec", type=float, default=10.0)
+    parser.add_argument("--skip-web-smoke", action="store_true")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--output", default="")
     args = parser.parse_args(argv)

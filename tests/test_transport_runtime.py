@@ -114,6 +114,53 @@ class TransportRuntimeTests(unittest.TestCase):
             transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
             transport_module.AIOKafkaProducer = original_producer
 
+    def test_kafka_producer_runtime_uses_env_tuning_knobs(self) -> None:
+        class FakeMetadata:
+            topic = "siem.raw"
+            partition = 0
+            offset = 1
+
+        class FakeProducer:
+            def __init__(self) -> None:
+                self.start = AsyncMock()
+                self.stop = AsyncMock()
+                self.send_and_wait = AsyncMock(return_value=FakeMetadata())
+
+        captured: dict[str, object] = {}
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return FakeProducer()
+
+        original_available = transport_module.KAFKA_CLIENTS_AVAILABLE
+        original_producer = transport_module.AIOKafkaProducer
+        transport_module.KAFKA_CLIENTS_AVAILABLE = True
+        transport_module.AIOKafkaProducer = factory
+        try:
+            settings = transport_settings_from_object(
+                None,
+                env={
+                    "SIEM_TRANSPORT_BACKEND": "kafka",
+                    "SIEM_KAFKA_BOOTSTRAP_SERVERS": "192.168.1.35:9092",
+                    "SIEM_KAFKA_PRODUCER_LINGER_MS": "15",
+                    "SIEM_KAFKA_PRODUCER_COMPRESSION_TYPE": "lz4",
+                    "SIEM_KAFKA_PRODUCER_MAX_BATCH_SIZE": "65536",
+                    "SIEM_KAFKA_PRODUCER_MAX_REQUEST_SIZE": "4194304",
+                },
+            )
+            runtime = transport_module.KafkaProducerRuntime(settings)
+
+            result = asyncio.run(runtime.publish("raw", {"event": "x"}))
+
+            self.assertEqual(result, "siem.raw:0:1")
+            self.assertEqual(captured["linger_ms"], 15)
+            self.assertEqual(captured["compression_type"], "lz4")
+            self.assertEqual(captured["max_batch_size"], 65536)
+            self.assertEqual(captured["max_request_size"], 4194304)
+        finally:
+            transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
+            transport_module.AIOKafkaProducer = original_producer
+
     def test_dual_backend_uses_kafka_topics_and_kafka_consumer_by_default(self) -> None:
         settings = transport_settings_from_object(
             None,
@@ -233,6 +280,7 @@ class TransportRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["cutover_stage"], "kafka_only")
         self.assertIn("raw", snapshot["configured_topics"])
         self.assertEqual(snapshot["kafka_expected_brokers"], 3)
+        self.assertEqual(snapshot["kafka_producer_linger_ms"], 5)
 
     def test_transport_health_snapshot_reports_dual_kafka_targets(self) -> None:
         class Settings:
