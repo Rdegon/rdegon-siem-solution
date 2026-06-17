@@ -69,7 +69,7 @@ class SyslogTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["port"], 1514)
         self.assertTrue(captured["reuse_port"])
 
-    async def test_syslog_handler_uses_transport_producer(self) -> None:
+    async def test_syslog_handler_uses_transport_producer_batch(self) -> None:
         settings = SimpleNamespace(
             ingest_syslog_host="0.0.0.0",
             syslog_profiles=lambda: {"linux-auth": 1514},
@@ -77,33 +77,45 @@ class SyslogTransportTests(unittest.IsolatedAsyncioTestCase):
         redis = object()
         producer = object()
         server = syslog_server.SyslogTcpServer(settings, redis, producer, "linux-auth", 1514)
-        reader = _FakeReader([b"<14>test message\n", b""])
+        reader = _FakeReader([b"<14>test message 1\n", b"<14>test message 2\n", b""])
         writer = _FakeWriter(("192.168.1.50", 5514))
         captured: dict[str, object] = {}
 
-        async def fake_push_raw_event(redis_arg, event_arg, *, settings=None, producer=None, replayed_from=""):
+        async def fake_push_raw_events_batch(redis_arg, events_arg, *, settings=None, producer=None):
             captured["redis"] = redis_arg
-            captured["event"] = dict(event_arg)
+            captured["events"] = [dict(item) for item in events_arg]
             captured["settings"] = settings
             captured["producer"] = producer
-            captured["replayed_from"] = replayed_from
-            return "raw:0:1"
+            return [{"event": dict(item), "stream_id": f"raw:0:{index}", "replayed": False} for index, item in enumerate(events_arg)]
 
-        original = syslog_server.push_raw_event
-        syslog_server.push_raw_event = fake_push_raw_event
+        async def fake_record_ingest_acceptance_batch(redis_arg, accepted_events, *, settings=None):
+            captured["accepted_redis"] = redis_arg
+            captured["accepted"] = [dict(item) for item in accepted_events]
+            captured["accepted_settings"] = settings
+
+        original_push = syslog_server.push_raw_events_batch
+        original_record = syslog_server.record_ingest_acceptance_batch
+        syslog_server.push_raw_events_batch = fake_push_raw_events_batch
+        syslog_server.record_ingest_acceptance_batch = fake_record_ingest_acceptance_batch
         try:
             await server._handle_client(reader, writer)
         finally:
-            syslog_server.push_raw_event = original
+            syslog_server.push_raw_events_batch = original_push
+            syslog_server.record_ingest_acceptance_batch = original_record
 
         self.assertTrue(writer.closed)
         self.assertIs(captured["redis"], redis)
+        self.assertIs(captured["accepted_redis"], redis)
         self.assertIs(captured["settings"], settings)
+        self.assertIs(captured["accepted_settings"], settings)
         self.assertIs(captured["producer"], producer)
-        self.assertEqual(captured["event"]["message"], "<14>test message")
-        self.assertEqual(captured["event"]["source"], "192.168.1.50")
-        self.assertEqual(captured["event"]["collector"], "syslog_tcp")
-        self.assertEqual(captured["event"]["collector_profile"], "linux-auth")
+        self.assertEqual(len(captured["events"]), 2)
+        self.assertEqual(len(captured["accepted"]), 2)
+        self.assertEqual(captured["events"][0]["message"], "<14>test message 1")
+        self.assertEqual(captured["events"][1]["message"], "<14>test message 2")
+        self.assertEqual(captured["events"][0]["source"], "192.168.1.50")
+        self.assertEqual(captured["events"][0]["collector"], "syslog_tcp")
+        self.assertEqual(captured["events"][0]["collector_profile"], "linux-auth")
 
     async def test_syslog_stop_closes_active_client_writers(self) -> None:
         settings = SimpleNamespace(

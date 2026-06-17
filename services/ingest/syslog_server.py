@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import List
 
 from typing import Any
@@ -16,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - local test fallback
     Redis = Any  # type: ignore[assignment,misc]
 
 from .config import IngestSettings
-from .redis_client import push_dead_letter_event, push_raw_event
+from .redis_client import push_dead_letter_event, push_raw_events_batch, record_ingest_acceptance_batch
 
 logger = logging.getLogger(__name__)
 
@@ -96,61 +97,91 @@ class SyslogTcpServer:
                 line = await reader.readline()
                 if not line:
                     break
+                lines = [line]
+                eof = False
+                batch_size = max(1, min(2_000, int(os.getenv("SIEM_INGEST_SYSLOG_PUBLISH_BATCH_SIZE", "250") or "250")))
+                batch_timeout = max(
+                    0.001,
+                    min(0.25, float(os.getenv("SIEM_INGEST_SYSLOG_BATCH_TIMEOUT_MS", "10") or "10") / 1000.0),
+                )
+                for _ in range(batch_size - 1):
+                    try:
+                        next_line = await asyncio.wait_for(reader.readline(), timeout=batch_timeout)
+                    except asyncio.TimeoutError:
+                        break
+                    if not next_line:
+                        eof = True
+                        break
+                    lines.append(next_line)
 
-                msg = line.decode(errors="replace").rstrip("\r\n")
-                if not msg:
+                events: list[dict[str, object]] = []
+                raw_messages: list[str] = []
+                for raw_line in lines:
+                    msg = raw_line.decode(errors="replace").rstrip("\r\n")
+                    if not msg:
+                        continue
+                    raw_messages.append(msg)
+                    events.append(
+                        {
+                            "source": host or "",
+                            "source_type": "syslog",
+                            "message": msg,
+                            "collector": "syslog_tcp",
+                            "collector_profile": self._profile,
+                            "ingest_profile": self._profile,
+                            "listener_port": self._listen_port,
+                            "observer.collector": "syslog_tcp",
+                            "observer.profile": self._profile,
+                            "observer.listener_port": str(self._listen_port),
+                            "event.dataset": self._profile,
+                        }
+                    )
+                if not events:
+                    if eof:
+                        break
                     continue
 
-                event = {
-                    "source": host or "",
-                    "source_type": "syslog",
-                    "message": msg,
-                    "collector": "syslog_tcp",
-                    "collector_profile": self._profile,
-                    "ingest_profile": self._profile,
-                    "listener_port": self._listen_port,
-                    "observer.collector": "syslog_tcp",
-                    "observer.profile": self._profile,
-                    "observer.listener_port": str(self._listen_port),
-                    "event.dataset": self._profile,
-                }
-
                 try:
-                    await push_raw_event(
+                    accepted_batch = await push_raw_events_batch(
                         self._redis,
-                        event,
+                        events,
                         settings=self._settings,
                         producer=self._producer,
                     )
+                    await record_ingest_acceptance_batch(self._redis, accepted_batch, settings=self._settings)
                 except Exception as exc:  # noqa: BLE001
                     logger.error(
-                        "Failed to push syslog message to transport",
+                        "Failed to push syslog batch to transport",
                         extra={
                             "extra": {
                                 "error": str(exc),
                                 "peer_host": host,
                                 "peer_port": port,
                                 "profile": self._profile,
+                                "batch_size": len(events),
                             }
                         },
                     )
-                    await push_dead_letter_event(
-                        self._redis,
-                        {"message": msg},
-                        reason="syslog_push_failed",
-                        source_ip=host or "",
-                        collector="syslog_tcp",
-                        collector_profile=self._profile,
-                        ingest_path=f"tcp://{self._settings.ingest_syslog_host}:{self._listen_port}",
-                        metadata={
-                            "source_type": "syslog",
-                            "collector": "syslog_tcp",
-                            "collector_profile": self._profile,
-                            "ingest_profile": self._profile,
-                            "event.dataset": self._profile,
-                            "error": str(exc),
-                        },
-                    )
+                    for msg in raw_messages:
+                        await push_dead_letter_event(
+                            self._redis,
+                            {"message": msg},
+                            reason="syslog_push_failed",
+                            source_ip=host or "",
+                            collector="syslog_tcp",
+                            collector_profile=self._profile,
+                            ingest_path=f"tcp://{self._settings.ingest_syslog_host}:{self._listen_port}",
+                            metadata={
+                                "source_type": "syslog",
+                                "collector": "syslog_tcp",
+                                "collector_profile": self._profile,
+                                "ingest_profile": self._profile,
+                                "event.dataset": self._profile,
+                                "error": str(exc),
+                            },
+                        )
+                if eof:
+                    break
         finally:
             self._active_writers.discard(writer)
             writer.close()

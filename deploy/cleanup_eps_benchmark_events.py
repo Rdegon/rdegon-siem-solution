@@ -201,6 +201,30 @@ def _eps_bench_alert_clause(columns: set[str]) -> str:
     return " OR ".join(clauses)
 
 
+def _build_cleanup_where(
+    columns: set[str],
+    *,
+    search_columns: tuple[str, ...],
+    scope: CleanupScope,
+    include_eps_bench_alerts: bool,
+    table: str,
+) -> tuple[str, bool, bool]:
+    time_where = _time_clause(columns, started_at=scope.started_at, finished_at=scope.finished_at)
+    run_id_where = _run_id_clause(columns, search_columns, scope.run_ids)
+    where_parts: list[str] = []
+    uses_time_scope = False
+    uses_all_time_benchmark_alert_scope = False
+    if run_id_where:
+        where_parts.append(f"({time_where}) AND ({run_id_where})" if time_where else f"({run_id_where})")
+        uses_time_scope = bool(time_where)
+    if include_eps_bench_alerts and table in ALERT_TABLES:
+        alert_where = _eps_bench_alert_clause(columns)
+        if alert_where:
+            where_parts.append(f"({alert_where})")
+            uses_all_time_benchmark_alert_scope = True
+    return " OR ".join(where_parts), uses_time_scope, uses_all_time_benchmark_alert_scope
+
+
 def _collect_table_plan(
     client: paramiko.SSHClient,
     table: str,
@@ -217,25 +241,23 @@ def _collect_table_plan(
         return item
     item["exists"] = True
     columns = _table_columns(client, table)
-    where_parts: list[str] = []
-    run_id_where = _run_id_clause(columns, search_columns, scope.run_ids)
-    if run_id_where:
-        where_parts.append(f"({run_id_where})")
-    if include_eps_bench_alerts and table in ALERT_TABLES:
-        alert_where = _eps_bench_alert_clause(columns)
-        if alert_where:
-            where_parts.append(f"({alert_where})")
-    if not where_parts:
+    where, uses_time_scope, uses_all_time_benchmark_alert_scope = _build_cleanup_where(
+        columns,
+        search_columns=search_columns,
+        scope=scope,
+        include_eps_bench_alerts=include_eps_bench_alerts,
+        table=table,
+    )
+    if not where:
         item["note"] = "no compatible marker columns"
         return item
-    marker_where = " OR ".join(where_parts)
-    time_where = _time_clause(columns, started_at=scope.started_at, finished_at=scope.finished_at)
-    where = f"({time_where}) AND ({marker_where})" if time_where else marker_where
-    if time_where:
+    if uses_time_scope:
         item["time_scope"] = {
             "started_at_utc": _format_clickhouse_datetime(scope.started_at),  # type: ignore[arg-type]
             "finished_at_utc": _format_clickhouse_datetime(scope.finished_at),  # type: ignore[arg-type]
         }
+    if uses_all_time_benchmark_alert_scope:
+        item["benchmark_alert_scope"] = "all_time"
     item["matched_before"] = _count(client, table, where)
     if execute and item["matched_before"]:
         _delete(client, table, where, mutations_sync=mutations_sync)

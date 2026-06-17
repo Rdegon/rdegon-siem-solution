@@ -16,7 +16,13 @@ class StockPerformanceProfileTests(unittest.TestCase):
     def test_aggressive_profile_overrides_balanced_batches(self) -> None:
         items = {item.name: item for item in profile.profile_items("aggressive")}
 
-        self.assertEqual(items["SIEM_VM1"].env["SIEM_INGEST_HTTP_PUBLISH_BATCH_SIZE"], "1000")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_INGEST_HTTP_PUBLISH_BATCH_SIZE"], "2000")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_KAFKA_PRODUCER_LINGER_MS"], "5")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_KAFKA_PRODUCER_MAX_BATCH_SIZE"], "262144")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_KAFKA_PRODUCER_SEND_WINDOW"], "2000")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_INGEST_SYSLOG_PUBLISH_BATCH_SIZE"], "500")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_INGEST_SYSLOG_BATCH_TIMEOUT_MS"], "5")
+        self.assertEqual(items["SIEM_VM1"].env["SIEM_KAFKA_PRODUCER_COMPRESSION_TYPE"], "lz4")
         self.assertEqual(items["SIEM_VM2"].env["SIEM_NORMALIZER_BATCH_SIZE"], "1000")
         self.assertEqual(items["SIEM_VM3"].env["SIEM_WRITER_BATCH_SIZE"], "2000")
 
