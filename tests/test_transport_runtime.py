@@ -115,6 +115,60 @@ class TransportRuntimeTests(unittest.TestCase):
             transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
             transport_module.AIOKafkaProducer = original_producer
 
+    def test_kafka_producer_runtime_batch_publish_uses_bounded_send_window(self) -> None:
+        class FakeMetadata:
+            def __init__(self, offset: int) -> None:
+                self.topic = "siem.raw"
+                self.partition = 0
+                self.offset = offset
+
+        class FakeProducer:
+            def __init__(self) -> None:
+                self.start = AsyncMock()
+                self.stop = AsyncMock()
+                self.active = 0
+                self.max_active = 0
+                self.offset = 0
+
+            async def send(self, target: str, data: bytes) -> FakeMetadata:  # noqa: ARG002
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+                await asyncio.sleep(0.001)
+                current = self.offset
+                self.offset += 1
+                self.active -= 1
+                return FakeMetadata(current)
+
+        created: list[FakeProducer] = []
+
+        def factory(**kwargs):
+            producer = FakeProducer()
+            created.append(producer)
+            return producer
+
+        original_available = transport_module.KAFKA_CLIENTS_AVAILABLE
+        original_producer = transport_module.AIOKafkaProducer
+        transport_module.KAFKA_CLIENTS_AVAILABLE = True
+        transport_module.AIOKafkaProducer = factory
+        try:
+            settings = transport_settings_from_object(
+                None,
+                env={
+                    "SIEM_TRANSPORT_BACKEND": "kafka",
+                    "SIEM_KAFKA_BOOTSTRAP_SERVERS": "192.168.1.35:9092",
+                },
+            )
+            runtime = transport_module.KafkaProducerRuntime(settings)
+
+            with mock.patch.dict("os.environ", {"SIEM_KAFKA_PRODUCER_SEND_WINDOW": "2"}, clear=False):
+                result = asyncio.run(runtime.publish_many("raw", [{"event": str(index)} for index in range(5)]))
+
+            self.assertEqual(result, ["siem.raw:0:0", "siem.raw:0:1", "siem.raw:0:2", "siem.raw:0:3", "siem.raw:0:4"])
+            self.assertEqual(created[0].max_active, 2)
+        finally:
+            transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
+            transport_module.AIOKafkaProducer = original_producer
+
     def test_kafka_producer_runtime_uses_env_tuning_knobs(self) -> None:
         class FakeMetadata:
             topic = "siem.raw"

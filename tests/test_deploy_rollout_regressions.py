@@ -38,6 +38,11 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         command = vm1_smoke._curl_json("/health/sources?limit=200")
         self.assertIn("'http://127.0.0.1:8443/health/sources?limit=200'", command)
 
+    def test_vm1_ingest_override_uses_eight_http_workers(self) -> None:
+        override_text = (ROOT / "deploy" / "vm1" / "siem-ingest.override.conf").read_text(encoding="utf-8")
+
+        self.assertIn("--workers 8", override_text)
+
     def test_vm1_deploy_uses_staging_and_sudo_install(self) -> None:
         import deploy.vm1_ingest_fabric_deploy as vm1_deploy
 

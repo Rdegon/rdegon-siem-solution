@@ -492,20 +492,23 @@ class KafkaProducerRuntime:
         for attempt in range(1, attempts + 1):
             producer = await self._ensure()
             try:
-                futures: list[Any] = []
-                for data in encoded:
+                ids: list[str] = []
+                send_window = max(1, min(10_000, int(os.getenv("SIEM_KAFKA_PRODUCER_SEND_WINDOW", "1000") or "1000")))
+
+                async def enqueue(data: bytes) -> Any:
                     if hasattr(producer, "send"):
                         sent = producer.send(target, data)
-                        if inspect.isawaitable(sent):
-                            sent = await sent
-                        futures.append(sent)
-                    else:  # pragma: no cover - compatibility with simple test doubles
-                        futures.append(producer.send_and_wait(target, data))
+                        return await sent if inspect.isawaitable(sent) else sent
+                    return producer.send_and_wait(target, data)  # pragma: no cover - compatibility with simple test doubles
 
-                ids: list[str] = []
-                for future in futures:
-                    metadata = await future if inspect.isawaitable(future) else future
-                    ids.append(f"{metadata.topic}:{metadata.partition}:{metadata.offset}")
+                async def resolve_metadata(value: Any) -> Any:
+                    return await value if inspect.isawaitable(value) else value
+
+                for index in range(0, len(encoded), send_window):
+                    enqueued = await asyncio.gather(*(enqueue(data) for data in encoded[index : index + send_window]))
+                    metadata_batch = await asyncio.gather(*(resolve_metadata(item) for item in enqueued))
+                    for metadata in metadata_batch:
+                        ids.append(f"{metadata.topic}:{metadata.partition}:{metadata.offset}")
                 return ids
             except Exception as exc:
                 last_error = exc
