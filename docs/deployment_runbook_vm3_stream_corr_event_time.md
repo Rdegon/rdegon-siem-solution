@@ -37,13 +37,15 @@ Optional runtime knobs:
 - `SIEM_STREAM_CORR_SHADOW_COMPARE=true|false`
 - `SIEM_STREAM_CORR_ALLOWED_LATENESS_SEC`
 - `SIEM_STREAM_CORR_WATERMARK_LAG_SEC`
+- `SIEM_STREAM_CORR_BATCH_SIZE`
 
 Recommended live values for this slice:
 
 - `SIEM_STREAM_CORR_TIME_MODE=event`
-- `SIEM_STREAM_CORR_SHADOW_COMPARE=true`
+- `SIEM_STREAM_CORR_SHADOW_COMPARE=false`
 - `SIEM_STREAM_CORR_ALLOWED_LATENESS_SEC=600`
 - `SIEM_STREAM_CORR_WATERMARK_LAG_SEC=300`
+- `SIEM_STREAM_CORR_BATCH_SIZE=1000`
 
 ## Deployment Tooling
 
@@ -92,5 +94,5 @@ The smoke script verifies:
 ## Notes
 
 - This slice keeps `processing` mode available as an emergency rollback toggle.
-- `shadow_compare=true` is intentionally left enabled during the first live phase so mismatches remain visible through `/api/health/overview`.
+- Keep `shadow_compare=false` for normal production throughput. Set `SIEM_STREAM_CORR_SHADOW_COMPARE=true` only for a bounded migration or rule-runtime validation window, then switch it back off after comparing mismatches through `/api/health/overview`.
 - The runtime snapshot table is written even during idle periods, so health visibility does not depend on a fresh event batch arriving immediately after restart.

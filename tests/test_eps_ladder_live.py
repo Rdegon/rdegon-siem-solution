@@ -1,11 +1,27 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import unittest
+from unittest import mock
 
-from deploy.eps_ladder_live import _web_smoke
+from deploy.eps_ladder_live import _ssh_control_retry, _web_smoke
 
 
 class WebSmokeTests(unittest.TestCase):
+    def test_ssh_control_retry_retries_transient_timeout(self) -> None:
+        calls = {"count": 0}
+
+        def flaky_operation() -> str:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise TimeoutError("temporary channel timeout")
+            return "ok"
+
+        with mock.patch("deploy.eps_ladder_live.time.sleep"):
+            result = _ssh_control_retry("unit", flaky_operation, attempts=2, delay_sec=0.01)
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(calls["count"], 2)
+
     def test_web_smoke_records_status_and_latency(self) -> None:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802

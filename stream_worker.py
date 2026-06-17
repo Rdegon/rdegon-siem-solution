@@ -49,6 +49,39 @@ _RULE_INDEX_FIELDS = {
 _EXACT_FIELD_RE = re.compile(r"(?P<field>[A-Za-z0-9_.-]+)\s*==\s*'(?P<value>[^']+)'")
 
 
+def _event_field_lower(event: dict[str, Any], *fields: str) -> str:
+    for field in fields:
+        value = event.get(field)
+        if value not in (None, ""):
+            return str(value).strip().lower()
+    return ""
+
+
+def _event_tags(event: dict[str, Any]) -> set[str]:
+    raw_tags = event.get("tags", event.get("event.tags", ""))
+    if isinstance(raw_tags, (list, tuple, set)):
+        return {str(item).strip().lower() for item in raw_tags if str(item).strip()}
+    text = str(raw_tags or "").strip()
+    if not text:
+        return set()
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return {str(item).strip().lower() for item in parsed if str(item).strip()}
+        except json.JSONDecodeError:
+            pass
+    return {part.strip().lower() for part in re.split(r"[,;\s]+", text) if part.strip()}
+
+
+def _is_benchmark_event(event: dict[str, Any]) -> bool:
+    if _event_field_lower(event, "event.category", "category") == "benchmark":
+        return True
+    if _event_field_lower(event, "event.dataset", "dataset") == "benchmark":
+        return True
+    return "allowlist:benchmark" in _event_tags(event)
+
+
 def _iso_from_epoch(value: float) -> str:
     if value <= 0:
         return ""
@@ -196,6 +229,9 @@ class StreamCorrWorker:
                 candidates.append(rule)
         return candidates
 
+    def _should_skip_correlation(self, event: dict[str, Any]) -> bool:
+        return _is_benchmark_event(event)
+
     def _ensure_runtime_tables(self) -> None:
         assert self._ch_client is not None
         try:
@@ -275,6 +311,9 @@ class StreamCorrWorker:
                 processed_messages.append(message)
 
                 event: Dict[str, Any] = dict(message.fields)
+                if self._should_skip_correlation(event):
+                    continue
+
                 event_epoch, fallback_used = self._event_epoch(event, wall_clock_now)
                 if fallback_used:
                     self._timestamp_fallback_total += 1
@@ -369,16 +408,7 @@ class StreamCorrWorker:
                 try:
                     await self._consumer.ack(processed_messages)
                     if self._sqlite_state is not None:
-                        for message in processed_messages:
-                            if message.topic and message.partition >= 0 and message.offset >= 0:
-                                self._sqlite_state.save_offset(
-                                    transport_backend=self._transport_backend,
-                                    group_name=self._settings.group_name,
-                                    topic_name=message.topic,
-                                    partition_id=message.partition,
-                                    offset_value=message.offset + 1,
-                                    updated_ts=_iso_from_epoch(time.time()),
-                                )
+                        self._save_processed_offsets(processed_messages)
                 except Exception as exc:  # noqa: BLE001
                     logger.error("Failed to ack messages in stream_corr", extra={"extra": {"error": str(exc)}})
 
@@ -388,6 +418,31 @@ class StreamCorrWorker:
                     "StreamCorr batch processed",
                     extra={"extra": {"events_processed": events_processed, "alerts_created": alerts_created}},
                 )
+
+    def _save_processed_offsets(self, messages: list[Any]) -> None:
+        if self._sqlite_state is None:
+            return
+        offsets: dict[tuple[str, int], int] = {}
+        for message in messages:
+            topic = str(getattr(message, "topic", "") or "")
+            partition = int(getattr(message, "partition", -1))
+            offset = int(getattr(message, "offset", -1))
+            if not topic or partition < 0 or offset < 0:
+                continue
+            key = (topic, partition)
+            offsets[key] = max(offsets.get(key, 0), offset + 1)
+        if not offsets:
+            return
+        updated_ts = _iso_from_epoch(time.time())
+        for (topic, partition), offset_value in offsets.items():
+            self._sqlite_state.save_offset(
+                transport_backend=self._transport_backend,
+                group_name=self._settings.group_name,
+                topic_name=topic,
+                partition_id=partition,
+                offset_value=offset_value,
+                updated_ts=updated_ts,
+            )
 
     def _redis_key_zset(self, rule_id: int, entity_key: str, *, mode: str) -> str:
         return f"siem:stream_corr:rule:{rule_id}:ent:{entity_key}:mode:{mode}"

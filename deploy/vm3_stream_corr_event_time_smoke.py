@@ -51,7 +51,7 @@ def main() -> int:
     user = _required_env("SIEM_VM3_USER")
     password = _required_env("SIEM_VM3_PASSWORD")
     expected_mode = str(os.getenv("SIEM_STREAM_CORR_TIME_MODE", "event") or "event").strip().lower()
-    expected_shadow = str(os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "true") or "true").strip().lower() in {"1", "true", "yes", "on"}
+    expected_shadow = str(os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
     expected_state_backend = str(os.getenv("SIEM_STREAM_STATE_BACKEND", "sqlite") or "sqlite").strip().lower()
     expected_sqlite_path = str(os.getenv("SIEM_STREAM_STATE_SQLITE_PATH", "/var/lib/siem-stream-corr/runtime-state.db") or "/var/lib/siem-stream-corr/runtime-state.db").strip()
     expected_writer_scaleout = tuple(
