@@ -63,7 +63,13 @@ def _compression_codec_available(codec: str | None) -> bool:
     }.get(selected)
     if not required_modules:
         return False
-    return any(importlib.util.find_spec(module_name) is not None for module_name in required_modules)
+    for module_name in required_modules:
+        try:
+            if importlib.util.find_spec(module_name) is not None:
+                return True
+        except ModuleNotFoundError:
+            continue
+    return False
 
 
 def effective_kafka_compression_type(codec: str | None) -> str | None:

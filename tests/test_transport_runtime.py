@@ -205,6 +205,10 @@ class TransportRuntimeTests(unittest.TestCase):
             transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
             transport_module.AIOKafkaProducer = original_producer
 
+    def test_compression_codec_check_treats_missing_parent_package_as_unavailable(self) -> None:
+        with mock.patch.object(transport_module.importlib.util, "find_spec", side_effect=ModuleNotFoundError("lz4")):
+            self.assertIsNone(transport_module.effective_kafka_compression_type("lz4"))
+
     def test_dual_backend_uses_kafka_topics_and_kafka_consumer_by_default(self) -> None:
         settings = transport_settings_from_object(
             None,
