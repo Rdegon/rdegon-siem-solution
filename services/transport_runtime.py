@@ -4,10 +4,14 @@ import json
 import os
 import asyncio
 import inspect
+import importlib.util
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from services.redis_runtime import RedisConnectionSettings, connection_settings_from_object, create_resilient_async_redis_client
+
+logger = logging.getLogger(__name__)
 
 try:
     from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -27,6 +31,7 @@ __all__ = [
     "TransportSettings",
     "create_transport_consumer",
     "create_transport_producer",
+    "effective_kafka_compression_type",
     "transport_cutover_stage",
     "transport_health_snapshot",
     "transport_settings_from_object",
@@ -43,6 +48,27 @@ def _transport_field_value(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return str(value)
+
+
+def _compression_codec_available(codec: str | None) -> bool:
+    selected = str(codec or "").strip().lower()
+    if not selected:
+        return False
+    if selected == "gzip":
+        return True
+    required_modules = {
+        "lz4": ("lz4", "lz4.frame"),
+        "snappy": ("snappy",),
+        "zstd": ("zstandard",),
+    }.get(selected)
+    if not required_modules:
+        return False
+    return any(importlib.util.find_spec(module_name) is not None for module_name in required_modules)
+
+
+def effective_kafka_compression_type(codec: str | None) -> str | None:
+    selected = str(codec or "").strip().lower()
+    return selected if _compression_codec_available(selected) else None
 
 
 @dataclass(frozen=True)
@@ -290,6 +316,10 @@ def transport_health_snapshot(settings: object | None = None) -> dict[str, Any]:
         "kafka_min_insync_replicas": int(resolved.kafka.min_insync_replicas),
         "kafka_producer_linger_ms": int(resolved.kafka.producer_linger_ms),
         "kafka_producer_compression_type": resolved.kafka.producer_compression_type or "",
+        "kafka_producer_compression_effective": effective_kafka_compression_type(
+            resolved.kafka.producer_compression_type
+        )
+        or "",
         "kafka_producer_max_batch_size": int(resolved.kafka.producer_max_batch_size),
         "kafka_producer_max_request_size": int(resolved.kafka.producer_max_request_size),
         "configured_topics": configured_topics,
@@ -357,8 +387,15 @@ class KafkaProducerRuntime:
                     "request_timeout_ms": 120_000,
                     "retry_backoff_ms": 500,
                 }
-                if self._settings.kafka.producer_compression_type:
-                    kwargs["compression_type"] = self._settings.kafka.producer_compression_type
+                requested_compression = self._settings.kafka.producer_compression_type
+                effective_compression = effective_kafka_compression_type(requested_compression)
+                if requested_compression and not effective_compression:
+                    logger.warning(
+                        "Kafka producer compression codec is not available; publishing without compression",
+                        extra={"extra": {"requested_compression_type": requested_compression}},
+                    )
+                if effective_compression:
+                    kwargs["compression_type"] = effective_compression
                 if self._settings.kafka.producer_max_batch_size > 0:
                     kwargs["max_batch_size"] = self._settings.kafka.producer_max_batch_size
                 if self._settings.kafka.producer_max_request_size > 0:

@@ -38,7 +38,6 @@ BALANCED_PROFILE: tuple[HostProfile, ...] = (
         env={
             "SIEM_INGEST_HTTP_PUBLISH_BATCH_SIZE": "500",
             "SIEM_KAFKA_PRODUCER_LINGER_MS": "10",
-            "SIEM_KAFKA_PRODUCER_COMPRESSION_TYPE": "lz4",
             "SIEM_KAFKA_PRODUCER_MAX_BATCH_SIZE": "65536",
             "SIEM_KAFKA_PRODUCER_MAX_REQUEST_SIZE": "4194304",
         },
