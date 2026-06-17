@@ -21,6 +21,11 @@ class VM2ProcessingRemoteDeployTests(unittest.TestCase):
 
         self.assertEqual(path, "/etc/systemd/system/siem-filter@.service")
 
+    def test_strip_sudo_echo_removes_password_lines(self) -> None:
+        cleaned = vm2_deploy._strip_sudo_echo("secret\r\nactive\r\nsecret\r\n", "secret")
+
+        self.assertEqual(cleaned, "active\n")
+
 
 if __name__ == "__main__":
     unittest.main()

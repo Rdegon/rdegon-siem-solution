@@ -61,6 +61,11 @@ class StockPerformanceProfileTests(unittest.TestCase):
         self.assertIn("sudo -S -p '' install", rendered)
         self.assertNotIn("super-secret", rendered)
 
+    def test_strip_sudo_echo_removes_password_lines(self) -> None:
+        cleaned = profile._strip_sudo_echo("secret\r\nok\r\nsecret\r\n", "secret")
+
+        self.assertEqual(cleaned, "ok\n")
+
 
 if __name__ == "__main__":
     unittest.main()

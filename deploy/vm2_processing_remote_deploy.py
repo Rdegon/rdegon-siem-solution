@@ -115,6 +115,18 @@ def _run(client: Any, command: str, *, sudo_password: str = "", use_sudo: bool =
     return stdout.channel.recv_exit_status(), out, err
 
 
+def _strip_sudo_echo(text: str, sudo_password: str) -> str:
+    if not sudo_password:
+        return text
+    cleaned: list[str] = []
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    for raw_line in normalized.split("\n"):
+        if raw_line.strip().strip("\x00") == sudo_password:
+            continue
+        cleaned.append(raw_line)
+    return "\n".join(cleaned)
+
+
 def _mkdir_remote(sftp: Any, path: str) -> None:
     parts = [part for part in path.split("/") if part]
     current = ""
@@ -178,8 +190,9 @@ def main() -> int:
             use_sudo=True,
             timeout_sec=180,
         )
-        if out.strip():
-            print(out, end="")
+        clean_out = _strip_sudo_echo(out, password)
+        if clean_out.strip():
+            print(clean_out, end="")
         if code != 0:
             raise RuntimeError(f"VM2 py_compile failed: {err.strip()}")
 
@@ -190,8 +203,9 @@ def main() -> int:
             f"systemctl is-active {units} || true"
         )
         code, out, err = _run(client, restart_cmd, sudo_password=password, use_sudo=True, timeout_sec=180)
-        if out.strip():
-            print(out, end="")
+        clean_out = _strip_sudo_echo(out, password)
+        if clean_out.strip():
+            print(clean_out, end="")
         if code != 0:
             raise RuntimeError(f"VM2 processing restart failed: {err.strip()}")
         print("vm2_processing_remote_deploy=success")

@@ -167,6 +167,18 @@ def _run(client: Any, command: str, *, timeout_sec: float = 60.0, sudo_password:
     return stdout.channel.recv_exit_status(), out, err
 
 
+def _strip_sudo_echo(text: str, sudo_password: str) -> str:
+    if not sudo_password:
+        return text
+    cleaned: list[str] = []
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    for raw_line in normalized.split("\n"):
+        if raw_line.strip().strip("\x00") == sudo_password:
+            continue
+        cleaned.append(raw_line)
+    return "\n".join(cleaned)
+
+
 def _install_dropin_command(unit: str, payload: str, *, sudo_prefix: str) -> str:
     remote_tmp = f"/tmp/siem-stock-eps-{unit.replace('/', '_').replace('@', '_')}.conf"
     target = f"/etc/systemd/system/{unit}.d/50-stock-eps.conf"
@@ -238,7 +250,14 @@ def apply_profile(args: argparse.Namespace) -> dict[str, Any]:
                         timeout_sec=max(30.0, float(args.command_timeout_sec)),
                         sudo_password=sudo_password,
                     )
-                    executed.append({"command": command, "code": code, "out": out.strip(), "err": err.strip()})
+                    executed.append(
+                        {
+                            "command": command,
+                            "code": code,
+                            "out": _strip_sudo_echo(out, sudo_password).strip(),
+                            "err": _strip_sudo_echo(err, sudo_password).strip(),
+                        }
+                    )
                     if code != 0:
                         host_result["status"] = "failed"
                         break
