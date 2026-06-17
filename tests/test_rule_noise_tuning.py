@@ -87,6 +87,7 @@ def test_windows_defender_rule_matches_tamper_settings_not_update_churn() -> Non
 
 def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
     linux_rule = _pack_rule("linux_activity_v1.json", 2706)
+    tmp_exec_rule = _pack_rule("linux_activity_v1.json", 2711)
     openclaw_rule = _pack_rule("openclaw_behavior_v1.json", 2303)
     dpkg_path_event = {
         "event.provider": "linux.auditd",
@@ -107,6 +108,28 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
     assert "dpkg-tmp" in str(linux_rule["expr"])
     assert not _matches(str(linux_rule["expr"]), dpkg_path_event)
     assert _matches(str(linux_rule["expr"]), direct_unit_change)
+    assert "sigma_yaml" not in tmp_exec_rule
+    assert "apt-dpkg-install" in str(tmp_exec_rule["expr"])
+    assert not _matches(
+        str(tmp_exec_rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_exec_from_tmp",
+            "process.command_line": "/usr/bin/dpkg --status-fd 11 --recursive /tmp/apt-dpkg-install-c0Qr1W",
+            "user.target.name": "/tmp/apt-dpkg-install-c0Qr1W",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(tmp_exec_rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_exec_from_tmp",
+            "process.command_line": "/tmp/.x/payload --connect 198.51.100.9",
+            "user.target.name": "/tmp/.x/payload",
+            "tags": "",
+        },
+    )
     assert "sigma_yaml" not in openclaw_rule
     assert not _matches(str(openclaw_rule["expr"]), dpkg_path_event)
     assert _matches(str(openclaw_rule["expr"]), direct_unit_change)
@@ -214,7 +237,7 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "mongodb_connections" in str(overrides["MET-018"]["sql_template"])
     assert "events_24h" in str(overrides["CORR-S-002"]["sql_template"])
     assert "auto-discovered" in str(overrides["HB-001"]["sql_template"])
-    assert "baseline_10m" in str(overrides["HB-012"]["sql_template"])
+    assert "baseline_30m" in str(overrides["HB-012"]["sql_template"])
     assert "linux.kafka" in str(overrides["KFK-004"]["expr"])
     assert "linux.kernel" in str(overrides["SVC-007"]["expr"])
     assert "clickhouse.query_log" in str(overrides["CH-007"]["expr"])
@@ -239,6 +262,62 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "host.name == 'siem-web'" in str(overrides["WEB-007"]["expr"])
     assert "host.name == 'pilot-cache-01'" in str(overrides["PILOT-015"]["expr"])
     assert "docker_container_metrics" in str(overrides["DCK-024"]["expr"])
+    assert "host.name == 'siem-web'" in str(overrides["WEB-001"]["expr"])
+    assert "host.name == 'pilot-web-01'" in str(overrides["PILOT-001"]["expr"])
+    assert "host.name == 'pilot-cache-01'" in str(overrides["PILOT-016"]["expr"])
+    assert "host.name == 'navidrome-01'" in str(overrides["NAV-003"]["expr"])
+    assert "host.name == 'nextcloud-siem'" in str(overrides["NC-004"]["expr"])
+    assert "host.name == 'vuln-mgr-01'" in str(overrides["DCK-018"]["expr"])
+    assert "host.name == 'openclaw-gateway'" in str(overrides["DCK-019"]["expr"])
+    assert "host.name == 'gamepanel-01'" in str(overrides["DCK-021"]["expr"])
+    assert "event.provider == 'linux.docker'" in str(overrides["DCK-004"]["expr"])
+    assert "host.name == 'pve'" in str(overrides["PVE-009"]["expr"])
+    assert "assignment-full" in str(overrides["EDGE-004"]["sql_template"])
+    assert "baseline_hits >= 1000" in str(overrides["EDGE-004"]["sql_template"])
+    assert "baseline_last >= now() - INTERVAL 2 HOUR" in str(overrides["EDGE-004"]["sql_template"])
+    assert "other_edge_hits" in str(overrides["EDGE-004"]["sql_template"])
+    assert "lower(status) IN ('open', 'false_positive', 'suppressed')" in str(overrides["EDGE-004"]["sql_template"])
+    assert int(overrides["HB-012"]["window_s"]) == 1800
+    assert "baseline_30m >= 300" in str(overrides["HB-012"]["sql_template"])
+    assert "b.baseline_30m * 0.05" in str(overrides["HB-012"]["sql_template"])
+    assert "lower(status) IN ('open', 'false_positive', 'suppressed')" in str(overrides["HB-012"]["sql_template"])
+    assert int(overrides["AUTH-005"]["window_s"]) == 3600
+    assert "192.168.1.38" in str(overrides["AUTH-005"]["sql_template"])
+    assert "WITH recent AS" in str(overrides["AUTH-005"]["sql_template"])
+    assert "known AS" in str(overrides["AUTH-005"]["sql_template"])
+    assert "k.src_ip_text = ''" in str(overrides["AUTH-005"]["sql_template"])
+    assert "lower(status) IN ('open', 'false_positive', 'suppressed')" in str(overrides["AUTH-005"]["sql_template"])
+
+
+def test_ssh_batch_rules_ignore_trusted_admin_source_ip() -> None:
+    seed_sql = (ROOT / "sql_13_batch_corr_seed.sql").read_text(encoding="utf-8")
+
+    assert "''192.168.1.25'', ''192.168.1.29'', ''192.168.1.102''" in seed_sql
+    assert "lower(status) IN (''open'', ''false_positive'', ''suppressed'')" in seed_sql
+
+
+def test_restart_loop_rules_ignore_lxc_container_getty_noise() -> None:
+    overrides = json.loads(
+        (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1_active_overrides.json").read_text(encoding="utf-8")
+    )
+    getty_restart = {
+        "event.provider": "linux.systemd",
+        "event.original": "container-getty@1.service: Scheduled restart job, restart counter is at 33908.",
+        "host.name": "nextcloud-siem",
+        "log_source": "nextcloud-siem",
+        "tags": "",
+    }
+    real_container_loop = {
+        "event.provider": "linux.docker",
+        "event.original": "docker container nextcloud-app start request repeated too quickly; Back-off restarting failed container",
+        "host.name": "nextcloud-siem",
+        "log_source": "nextcloud-siem",
+        "tags": "",
+    }
+
+    assert not _matches(str(overrides["SVC-003"]["expr"]), getty_restart)
+    assert not _matches(str(overrides["DCK-010"]["expr"]), getty_restart)
+    assert _matches(str(overrides["DCK-010"]["expr"]), real_container_loop)
 
 
 def test_assignment_overrides_do_not_match_observed_service_and_auth_noise() -> None:
@@ -268,11 +347,47 @@ def test_assignment_overrides_do_not_match_observed_service_and_auth_noise() -> 
         "log_source": "pilot-db-01",
         "tags": "",
     }
+    broad_nextcloud_stop = {
+        "event.provider": "linux.systemd",
+        "event.original": "Stopped nginx service during normal maintenance window.",
+        "host.name": "nextcloud-siem",
+        "log_source": "nextcloud-siem",
+        "tags": "",
+    }
+    real_web_failure = {
+        "event.provider": "linux.systemd",
+        "event.original": "siem-web.service: Main process exited, status=1/FAILURE; Failed with result 'exit-code'.",
+        "host.name": "siem-web",
+        "log_source": "siem-web",
+        "tags": "",
+    }
 
     assert not _matches(str(overrides["AUTH-010"]["expr"]), dpkg_systemd_event)
     assert not _matches(str(overrides["AUTH-011"]["expr"]), dpkg_systemd_event)
     assert not _matches(str(overrides["PILOT-007"]["expr"]), normal_postgres_stop)
     assert _matches(str(overrides["PILOT-007"]["expr"]), failed_postgres)
+    assert not _matches(str(overrides["WEB-001"]["expr"]), broad_nextcloud_stop)
+    assert _matches(str(overrides["WEB-001"]["expr"]), real_web_failure)
+    assert not _matches(
+        str(overrides["DCK-019"]["expr"]),
+        {
+            "event.provider": "linux.systemd",
+            "event.original": "container down on nextcloud",
+            "host.name": "nextcloud-siem",
+            "log_source": "nextcloud-siem",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(overrides["DCK-019"]["expr"]),
+        {
+            "event.provider": "linux.docker",
+            "event.original": "openclaw gateway container die exited",
+            "host.name": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+            "tags": "",
+        },
+    )
 
 
 def test_remaining_service_scope_rules_do_not_match_openclaw_reboot_noise() -> None:

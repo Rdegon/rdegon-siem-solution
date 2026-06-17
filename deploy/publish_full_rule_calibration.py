@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from deploy import publish_rule_noise_tuning  # noqa: E402
+from deploy import publish_assignment_detection_pack, publish_rule_noise_tuning  # noqa: E402
 from tools.full_rule_audit import build_audit, render_markdown  # noqa: E402
 
 
@@ -31,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     _write_report(output_dir, "full_rule_audit_before", before)
 
     publish_rc = 0
+    assignment_publish_rc = 0
     if not args.skip_publish:
+        assignment_publish_rc = publish_assignment_detection_pack.main()
         publish_rc = publish_rule_noise_tuning.main()
 
     after = build_audit(args.days, live=True)
@@ -41,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "output_dir": str(output_dir),
+                "assignment_publish_rc": assignment_publish_rc,
                 "publish_rc": publish_rc,
                 "before": before.get("summary", {}),
                 "after": after.get("summary", {}),
@@ -48,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
             ensure_ascii=False,
         )
     )
-    return int(publish_rc)
+    return int(assignment_publish_rc or publish_rc)
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ FROM
         FROM siem.events
         WHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
           AND positionCaseInsensitiveUTF8(toString(tags), ''allowlist:'') = 0
-          AND if(src_ip = 0, '''', IPv4NumToString(src_ip)) NOT IN (''192.168.1.29'', ''192.168.1.102'')
+          AND if(src_ip = 0, '''', IPv4NumToString(src_ip)) NOT IN (''192.168.1.25'', ''192.168.1.29'', ''192.168.1.102'')
         GROUP BY src_ip_text, source_name
     )
     WHERE src_ip_text != ''''
@@ -67,6 +67,7 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = 4001
       AND ts_last >= now() - INTERVAL {WINDOW_S} SECOND
+      AND lower(status) IN (''open'', ''false_positive'', ''suppressed'')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key
@@ -124,7 +125,7 @@ FROM
         FROM siem.events
         WHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
           AND positionCaseInsensitiveUTF8(toString(tags), ''allowlist:'') = 0
-          AND if(src_ip = 0, '''', IPv4NumToString(src_ip)) NOT IN (''192.168.1.29'', ''192.168.1.102'')
+          AND if(src_ip = 0, '''', IPv4NumToString(src_ip)) NOT IN (''192.168.1.25'', ''192.168.1.29'', ''192.168.1.102'')
         GROUP BY src_ip_text
     )
     WHERE src_ip_text != ''''
@@ -138,6 +139,7 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = 4002
       AND ts_last >= now() - INTERVAL {WINDOW_S} SECOND
+      AND lower(status) IN (''open'', ''false_positive'', ''suppressed'')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key

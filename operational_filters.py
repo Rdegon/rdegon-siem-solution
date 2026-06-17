@@ -13,6 +13,14 @@ NON_OPERATIONAL_MARKERS: tuple[str, ...] = (
     "benchmark",
     "eps-bench",
     "eps-benchmark",
+    "e2e",
+    "e2e-correlation",
+    "full-batch-e2e",
+    "full-stream-e2e",
+    "assignment-full",
+    "assignment-full-batch",
+    "assignment-full-stream",
+    "validation",
     "codex-smoke",
     "cleanup-smoke",
     "host-runtime-smoke",
@@ -34,6 +42,9 @@ NON_OPERATIONAL_MARKERS: tuple[str, ...] = (
     "smoke approval gate",
     "smoke token",
     "smoke-runtime-",
+    "e2e-",
+    "-validation",
+    " validation",
     "unit-test",
     "ci-test",
     "test-ioc",
@@ -65,6 +76,7 @@ NON_OPERATIONAL_PREFIXES: tuple[str, ...] = (
     "dummy-",
     "sample-",
     "demo-",
+    "e2e-",
 )
 
 

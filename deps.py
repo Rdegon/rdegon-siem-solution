@@ -553,6 +553,11 @@ SQL_NON_OPERATIONAL_DASHBOARD_TOKENS = (
     "synthetic",
     "benchmark",
     "eps-bench",
+    "e2e",
+    "assignment-full",
+    "full-batch-e2e",
+    "full-stream-e2e",
+    "validation",
     "generic-http",
     "127.0.0.1",
     "::1",
@@ -607,7 +612,13 @@ def _alert_raw_operational_filter_sql() -> str:
 
 
 def _alert_agg_operational_filter_sql() -> str:
-    haystack = "concat(toString(rule_name), ' ', toString(entity_key), ' ', toString(status), ' ', toString(assignee))"
+    haystack = (
+        "concat("
+        "toString(rule_name), ' ', toString(entity_key), ' ', toString(source), ' ', "
+        "toString(group_key_json), ' ', toString(samples_json), ' ', "
+        "toString(status), ' ', toString(assignee)"
+        ")"
+    )
     return _sql_not_contains_any(haystack, NON_OPERATIONAL_DASHBOARD_TOKENS)
 
 

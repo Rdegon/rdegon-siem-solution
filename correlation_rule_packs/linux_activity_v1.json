@@ -79,7 +79,8 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect the changed unit file, recent restarts, and whether the modification aligns with approved deployment activity or persistence attempts.",
-      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_systemd_unit_modified' and (event.original icontains '/etc/systemd/system/' or event.original icontains '/lib/systemd/system/' or event.original icontains '/usr/lib/systemd/system/') and not event.original icontains '.dpkg-' and not event.original icontains 'dpkg-tmp' and not event.original icontains 'dpkg-new' and not event.original icontains 'dpkg-old' and not event.original icontains 'nametype=PARENT' and not event.original icontains 'apt.systemd.daily' and not event.original icontains 'unattended-upgrade' and not tags icontains 'allowlist:')"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_systemd_unit_modified' and (event.original icontains '/etc/systemd/system/' or event.original icontains '/lib/systemd/system/' or event.original icontains '/usr/lib/systemd/system/') and not event.original icontains '.dpkg-' and not event.original icontains 'dpkg-tmp' and not event.original icontains 'dpkg-new' and not event.original icontains 'dpkg-old' and not event.original icontains 'nametype=PARENT' and not event.original icontains 'apt.systemd.daily' and not event.original icontains 'unattended-upgrade' and not event.original icontains '/tmp/apt-dpkg-install' and not process.command_line icontains 'apt-dpkg-install' and not process.command_line icontains '/usr/bin/dpkg' and not process.command_line icontains '/usr/bin/apt' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2707,
@@ -139,7 +140,8 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect command line, parent process, and recent downloads. Execution from temporary paths often indicates staging of ad hoc tooling or malware.",
-      "sigma_yaml": "title: Linux Execution From Temporary Paths\nid: sigma-linux-execution-from-temporary-paths\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.provider: linux.auditd\n    event.type: linux_exec_from_tmp\n  condition: selection\nlevel: high\n"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_exec_from_tmp' and not event.original icontains '/tmp/apt-dpkg-install' and not event.original icontains 'apt-dpkg-install' and not event.original icontains 'dpkg --status-fd' and not process.command_line icontains '/tmp/apt-dpkg-install' and not process.command_line icontains 'apt-dpkg-install' and not process.command_line icontains '/usr/bin/dpkg' and not process.command_line icontains '/usr/bin/apt' and not user.target.name icontains '/tmp/apt-dpkg-install' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2712,

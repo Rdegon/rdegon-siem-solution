@@ -15,6 +15,9 @@ class QueryOperationalFilterTests(unittest.TestCase):
         filters = importlib.import_module("operational_filters")
 
         self.assertTrue(filters.is_non_operational_record({"source": "vm1-smoke"}))
+        self.assertTrue(filters.is_non_operational_record({"source": "e2e-correlation-assignment-full-batch-e2e-20260515"}))
+        self.assertTrue(filters.is_non_operational_record({"entity_key": "openclaw-gateway-e2e-assignment-full-batch-e2e"}))
+        self.assertTrue(filters.is_non_operational_record({"title": "pve validation"}))
         self.assertTrue(filters.is_non_operational_record({"indicator": "203.0.113.44", "tags": ["lab"]}))
         self.assertTrue(filters.is_non_operational_record({"connector_id": "demo-router"}))
         self.assertFalse(filters.is_non_operational_record({"source": "siem-web", "message": "production audit event"}))
@@ -29,6 +32,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
                 return [
                     {"source_name": "linux-prod-01", "events": 24},
                     {"source_name": "vm1-smoke", "events": 3},
+                    {"source_name": "siem-storage-e2e-assignment-full-batch-e2e", "events": 3},
                     {"source_name": "kafka-cutover-smoke", "events": 2},
                     {"source_name": "generic-http-refresh", "events": 2},
                     {"source_name": "127.0.0.1", "events": 1},
@@ -72,6 +76,8 @@ class QueryOperationalFilterTests(unittest.TestCase):
             )
         )
         self.assertTrue(shared_module.is_non_operational_inventory_record({"source_name": "vm4-smoke"}))
+        self.assertTrue(shared_module.is_non_operational_inventory_record({"source_name": "pve-validation"}))
+        self.assertTrue(shared_module.is_non_operational_inventory_record({"source_name": "e2e-host-assignment-full"}))
         self.assertTrue(shared_module.is_non_operational_inventory_record({"source_name": "generic-http-refresh"}))
         self.assertTrue(shared_module.is_non_operational_inventory_record({"source_name": "127.0.0.1"}))
 
@@ -137,6 +143,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
                     {"asset": "siem-web", "events": 120},
                     {"asset": "vm1-kafka-cutover", "events": 12},
                     {"asset": "vm1-smoke", "events": 3},
+                    {"asset": "pilot-db-01-validation", "events": 3},
                     {"asset": "scanner-01", "aliases": ["synthetic-benchmark"], "events": 9},
                     {"asset": "127.0.0.1", "events": 1},
                     {"asset": "generic-http-refresh", "events": 2},
