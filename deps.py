@@ -552,6 +552,8 @@ SQL_NON_OPERATIONAL_DASHBOARD_TOKENS = (
     "smoke",
     "synthetic",
     "benchmark",
+    "collector-bench",
+    "bench-syslog",
     "eps-bench",
     "e2e",
     "assignment-full",
@@ -935,6 +937,27 @@ def _extract_ip_candidates(value: Any) -> List[str]:
         except ValueError:
             continue
     return _unique_texts(resolved)
+
+
+def _is_ip_literal(value: Any) -> bool:
+    try:
+        ipaddress.ip_address(str(value or "").strip())
+        return True
+    except ValueError:
+        return False
+
+
+def _is_observed_cmdb_autocreate_candidate(*, asset_name: str, host_name: str, ip_value: str) -> bool:
+    identity = str(host_name or asset_name or "").strip()
+    if not identity:
+        return False
+    if identity.lower() in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    if _is_ip_literal(identity):
+        return False
+    if not any(char.isalpha() for char in identity):
+        return False
+    return not is_non_operational_record({"source_name": identity, "hostname": host_name, "ip": ip_value})
 
 
 def _incident_actor_ips(context: Any, *, row: Dict[str, Any] | None = None) -> List[str]:
@@ -7152,6 +7175,8 @@ def sync_observed_assets_to_cmdb(hours: int = 72, limit: int = 200) -> Dict[str,
         asset_name = str(row["asset_name"] or "").strip()
         host_name = str(row["host_name"] or "").strip()
         ip_value = str(row["src_ip_text"] or "").strip()
+        if not _is_observed_cmdb_autocreate_candidate(asset_name=asset_name, host_name=host_name, ip_value=ip_value):
+            continue
         if asset_name in known or host_name in known or ip_value in known:
             continue
         seed = host_name or asset_name or ip_value

@@ -15,6 +15,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
         filters = importlib.import_module("operational_filters")
 
         self.assertTrue(filters.is_non_operational_record({"source": "vm1-smoke"}))
+        self.assertTrue(filters.is_non_operational_record({"source": "collector-bench-syslog-app-siem-vm1-w1"}))
         self.assertTrue(filters.is_non_operational_record({"source": "e2e-correlation-assignment-full-batch-e2e-20260515"}))
         self.assertTrue(filters.is_non_operational_record({"entity_key": "openclaw-gateway-e2e-assignment-full-batch-e2e"}))
         self.assertTrue(filters.is_non_operational_record({"title": "pve validation"}))
@@ -32,6 +33,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
                 return [
                     {"source_name": "linux-prod-01", "events": 24},
                     {"source_name": "vm1-smoke", "events": 3},
+                    {"source_name": "collector-bench-syslog-linux-auth-siem-vm1-w1", "events": 10},
                     {"source_name": "siem-storage-e2e-assignment-full-batch-e2e", "events": 3},
                     {"source_name": "kafka-cutover-smoke", "events": 2},
                     {"source_name": "generic-http-refresh", "events": 2},
@@ -143,6 +145,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
                     {"asset": "siem-web", "events": 120},
                     {"asset": "vm1-kafka-cutover", "events": 12},
                     {"asset": "vm1-smoke", "events": 3},
+                    {"asset": "collector-bench-syslog-network-siem-vm4-w2", "events": 10},
                     {"asset": "pilot-db-01-validation", "events": 3},
                     {"asset": "scanner-01", "aliases": ["synthetic-benchmark"], "events": 9},
                     {"asset": "127.0.0.1", "events": 1},
@@ -171,6 +174,14 @@ class QueryOperationalFilterTests(unittest.TestCase):
             rows = assets_module.fetch_cmdb_assets(limit=20)
 
         self.assertEqual(["asset-siem-web"], [row["asset_id"] for row in rows])
+
+    def test_cmdb_autocreate_has_ip_only_guard(self) -> None:
+        deps_text = (ROOT / "deps.py").read_text(encoding="utf-8")
+
+        self.assertIn("_is_observed_cmdb_autocreate_candidate", deps_text)
+        self.assertIn("_is_ip_literal(identity)", deps_text)
+        self.assertIn("is_non_operational_record", deps_text)
+        self.assertIn("sync_observed_assets_to_cmdb", deps_text)
 
 
 if __name__ == "__main__":

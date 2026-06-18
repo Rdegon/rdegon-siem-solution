@@ -11,6 +11,8 @@ NON_OPERATIONAL_MARKERS: tuple[str, ...] = (
     "synthetic",
     "synthetic-benchmark",
     "benchmark",
+    "collector-bench",
+    "bench-syslog",
     "eps-bench",
     "eps-benchmark",
     "e2e",

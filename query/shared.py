@@ -7,6 +7,8 @@ except ImportError:  # pragma: no cover - local test fallback
 
 NON_OPERATIONAL_INVENTORY_MARKERS = (
     "generic-http",
+    "collector-bench",
+    "bench-syslog",
     "http refresh job",
     "задача http-обновления",
     "127.0.0.1",
