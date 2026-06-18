@@ -26,6 +26,11 @@ from deploy.publish_batch_rules import (  # noqa: E402
     _ensure_batch_rule_table,
     _split_sql_statements,
 )
+from deploy.publish_assignment_detection_pack import (  # noqa: E402
+    PACK_PATH as ASSIGNMENT_PACK_PATH,
+    _placeholder_row,
+    _publish_batch_rule,
+)
 
 
 REPUBLISH_STREAM_RULE_IDS = {
@@ -79,6 +84,7 @@ RETIRE_STREAM_RULE_IDS = {
     2723,
 }
 REFRESH_BATCH_RULE_IDS = {4001, 4002, 4003, 4004, 4005}
+REFRESH_ASSIGNMENT_BATCH_RULE_IDS = {8012, 8431, 8432, 8481}
 RETIRE_OPEN_ALERT_RULE_IDS = {
     *REPUBLISH_STREAM_RULE_IDS,
     *RETIRE_STREAM_RULE_IDS,
@@ -295,6 +301,42 @@ def _refresh_batch_rules() -> int:
     return executed
 
 
+def _refresh_assignment_batch_rules() -> int:
+    if not REFRESH_ASSIGNMENT_BATCH_RULE_IDS:
+        return 0
+    deps.ensure_detection_support_tables()
+    _ensure_batch_rule_table()
+    payload = json.loads(ASSIGNMENT_PACK_PATH.read_text(encoding="utf-8"))
+    pack_id = str(payload.get("pack_id") or "siem-detection-pack-v1")
+    found: dict[int, dict[str, Any]] = {}
+    for item in payload.get("batch_rules") or []:
+        if not isinstance(item, dict):
+            continue
+        rule_id = int(item.get("id") or 0)
+        if rule_id in REFRESH_ASSIGNMENT_BATCH_RULE_IDS:
+            found[rule_id] = item
+    missing = sorted(REFRESH_ASSIGNMENT_BATCH_RULE_IDS - set(found))
+    if missing:
+        raise RuntimeError(f"Assignment batch rules not found: {missing}")
+
+    ids = _id_list(REFRESH_ASSIGNMENT_BATCH_RULE_IDS)
+    deps.get_ch_client().command(
+        f"ALTER TABLE {deps.DETECTION_RULE_TABLE} DELETE WHERE id IN ({ids}) SETTINGS mutations_sync = 1"
+    )
+    deps.get_ch_client().command(
+        f"ALTER TABLE siem.correlation_rules_batch DELETE WHERE id IN ({ids}) SETTINGS mutations_sync = 1"
+    )
+    placeholders = [_placeholder_row(found[rule_id], pack_id=pack_id) for rule_id in sorted(found)]
+    rows = [_publish_batch_rule(found[rule_id]) for rule_id in sorted(found)]
+    deps._insert_detection_rule_rows(placeholders, sync_stream=False)  # type: ignore[attr-defined]
+    deps.get_ch_client().insert(
+        "siem.correlation_rules_batch",
+        rows,
+        column_names=["id", "name", "description", "enabled", "severity", "window_s", "sql_template"],
+    )
+    return len(rows)
+
+
 def _retire_open_alerts(rule_ids: set[int]) -> dict[str, int]:
     if not rule_ids:
         return {}
@@ -356,6 +398,7 @@ def main() -> int:
     deps.ensure_detection_support_tables()
     target_rules = _load_target_stream_rules()
     batch_refresh_statements = _refresh_batch_rules()
+    assignment_batch_rules = _refresh_assignment_batch_rules()
     _delete_runtime_rules(REPUBLISH_STREAM_RULE_IDS | RETIRE_STREAM_RULE_IDS)
     _insert_detection_rules(target_rules)
     _insert_stream_rules(target_rules)
@@ -368,7 +411,9 @@ def main() -> int:
                 "republished_stream_rules": sorted(REPUBLISH_STREAM_RULE_IDS),
                 "retired_stream_rules": sorted(RETIRE_STREAM_RULE_IDS),
                 "refreshed_batch_rules": sorted(REFRESH_BATCH_RULE_IDS),
+                "refreshed_assignment_batch_rules": sorted(REFRESH_ASSIGNMENT_BATCH_RULE_IDS),
                 "batch_refresh_statements": batch_refresh_statements,
+                "assignment_batch_rules": assignment_batch_rules,
                 "retired_open_alerts": retired_alerts,
                 "remaining_open_alerts": remaining_open_alerts,
                 "published_stream_ids_present": sorted(stream_ids),

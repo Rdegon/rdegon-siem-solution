@@ -1,0 +1,1 @@
+"""Alert aggregation worker package."""

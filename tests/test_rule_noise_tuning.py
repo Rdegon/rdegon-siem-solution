@@ -214,10 +214,12 @@ def test_batch_rules_exclude_internal_edge_and_emit_valid_numeric_json() -> None
 def test_rule_noise_publisher_refreshes_second_layer_targets() -> None:
     publish_text = (ROOT / "deploy" / "publish_rule_noise_tuning.py").read_text(encoding="utf-8")
 
-    for rule_id in ("2303", "2605", "2607", "2612", "2616", "2701", "2702", "2703", "2706", "2708", "8070", "8071", "8091", "8093", "8134", "8213", "8224", "8225", "8226", "8227", "8228", "8263", "8286", "8308", "8331", "8339", "1001", "1003", "1013", "1018", "1019", "1020", "1021", "2000", "2302", "2718", "2723", "4002", "4003", "4004"):
+    for rule_id in ("2303", "2605", "2607", "2612", "2616", "2701", "2702", "2703", "2706", "2708", "8070", "8071", "8091", "8093", "8134", "8213", "8224", "8225", "8226", "8227", "8228", "8263", "8286", "8308", "8331", "8339", "1001", "1003", "1013", "1018", "1019", "1020", "1021", "2000", "2302", "2718", "2723", "4002", "4003", "4004", "8012", "8431", "8432", "8481"):
         assert rule_id in publish_text
     assert "REFRESH_BATCH_RULE_IDS" in publish_text
+    assert "REFRESH_ASSIGNMENT_BATCH_RULE_IDS" in publish_text
     assert "_refresh_batch_rules" in publish_text
+    assert "_refresh_assignment_batch_rules" in publish_text
 
 
 def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semantics() -> None:
@@ -280,7 +282,20 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert int(overrides["HB-012"]["window_s"]) == 1800
     assert "baseline_30m >= 300" in str(overrides["HB-012"]["sql_template"])
     assert "b.baseline_30m * 0.05" in str(overrides["HB-012"]["sql_template"])
+    assert "dropped_entities <= 2" in str(overrides["HB-012"]["sql_template"])
     assert "lower(status) IN ('open', 'false_positive', 'suppressed')" in str(overrides["HB-012"]["sql_template"])
+    assert "siem-storage" in str(overrides["MET-014"]["sql_template"])
+    assert "usage_percent|disk_pct|used_pct" in str(overrides["MET-014"]["sql_template"])
+    assert "nextcloud-siem" not in str(overrides["MET-014"]["sql_template"])
+    assert "siem-transport" in str(overrides["MET-015"]["sql_template"])
+    assert "usage_percent|disk_pct|used_pct" in str(overrides["MET-015"]["sql_template"])
+    assert "openclaw-gateway" not in str(overrides["MET-015"]["sql_template"])
+    assert "rsyslog" in str(overrides["CORR-034"]["sql_template"])
+    assert "heartbeat" in str(overrides["CORR-034"]["sql_template"])
+    assert "dependent senders" in str(overrides["CORR-034"]["sql_template"])
+    assert "host runtime snapshot" in str(overrides["CORR-034"]["sql_template"])
+    assert "toString(normalized_json), 'rsyslog'" not in str(overrides["CORR-034"]["sql_template"])
+    assert "HAVING hits >= 3" in str(overrides["CORR-034"]["sql_template"])
     assert int(overrides["AUTH-005"]["window_s"]) == 3600
     assert "192.168.1.38" in str(overrides["AUTH-005"]["sql_template"])
     assert "WITH recent AS" in str(overrides["AUTH-005"]["sql_template"])
@@ -318,6 +333,37 @@ def test_restart_loop_rules_ignore_lxc_container_getty_noise() -> None:
     assert not _matches(str(overrides["SVC-003"]["expr"]), getty_restart)
     assert not _matches(str(overrides["DCK-010"]["expr"]), getty_restart)
     assert _matches(str(overrides["DCK-010"]["expr"]), real_container_loop)
+
+
+def test_docker_api_exposure_ignores_systemd_numeric_noise() -> None:
+    overrides = json.loads(
+        (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1_active_overrides.json").read_text(encoding="utf-8")
+    )
+    systemd_resolved_transaction = {
+        "event.provider": "linux.systemd-resolved",
+        "event.original": "Freeing transaction 23750.",
+        "host.name": "openclaw-gateway",
+        "log_source": "openclaw-gateway",
+        "tags": "",
+    }
+    container_getty = {
+        "event.provider": "linux.systemd",
+        "event.original": "container-getty@1.service: Scheduled restart job, restart counter is at 34337.",
+        "host.name": "nextcloud-siem",
+        "log_source": "nextcloud-siem",
+        "tags": "",
+    }
+    exposed_dockerd = {
+        "event.provider": "linux.docker",
+        "event.original": "dockerd started with -H tcp://0.0.0.0:2375",
+        "host.name": "openclaw-gateway",
+        "log_source": "openclaw-gateway",
+        "tags": "",
+    }
+
+    assert not _matches(str(overrides["DCK-014"]["expr"]), systemd_resolved_transaction)
+    assert not _matches(str(overrides["DCK-014"]["expr"]), container_getty)
+    assert _matches(str(overrides["DCK-014"]["expr"]), exposed_dockerd)
 
 
 def test_assignment_overrides_do_not_match_observed_service_and_auth_noise() -> None:
