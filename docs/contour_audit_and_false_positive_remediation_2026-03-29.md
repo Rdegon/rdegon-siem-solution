@@ -46,9 +46,9 @@ Files updated for this layer:
 
 - `normalizer_core.py`
 - `services/normalizer/normalizer_core.py`
-- `sql_12_filter_rule_seed.sql`
-- `sql_13_batch_corr_seed.sql`
-- `sql_15_batch_corr_soc_seed.sql`
+- `sql/12_filter_rule_seed.sql`
+- `sql/13_batch_corr_seed.sql`
+- `sql/15_batch_corr_seed.sql`
 
 ### Telegram delivery hardening
 

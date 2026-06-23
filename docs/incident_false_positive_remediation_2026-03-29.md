@@ -64,7 +64,7 @@
 
 ### 4. Filter rules
 
-В `sql_12_filter_rule_seed.sql` добавлены дополнительные filter rules для подавления событий с allowlist-тегами:
+В `sql/12_filter_rule_seed.sql` добавлены дополнительные filter rules для подавления событий с allowlist-тегами:
 
 - `allowlist:openclaw_research_activity`
 - `allowlist:openclaw_expected_dns`

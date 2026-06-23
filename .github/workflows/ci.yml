@@ -16,6 +16,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest fastapi starlette pydantic clickhouse-driver redis paramiko python-dotenv
+      - name: Repository hygiene
+        run: python tools/repo_hygiene_check.py
       - name: Run focused runtime tests
         run: |
           python -m pytest tests/test_transport_runtime.py tests/test_ingest_fabric.py tests/test_stream_worker.py tests/test_full_rule_audit.py tests/test_event_incident_query_stability.py tests/test_deploy_rollout_regressions.py tests/test_vm5_transport_wave.py tests/test_vm5_transport_provision.py tests/test_host_runtime_delivery.py

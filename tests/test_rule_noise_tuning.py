@@ -191,10 +191,10 @@ def test_linux_sudo_and_openclaw_proxy_rules_have_operational_noise_guards() -> 
 
 
 def test_batch_rules_exclude_internal_edge_and_emit_valid_numeric_json() -> None:
-    ssh_batch = (ROOT / "sql_13_batch_corr_seed.sql").read_text(encoding="utf-8")
-    soc_batch = (ROOT / "sql_15_batch_corr_soc_seed.sql").read_text(encoding="utf-8")
+    ssh_batch = (ROOT / "sql" / "13_batch_corr_seed.sql").read_text(encoding="utf-8")
+    soc_batch = (ROOT / "sql" / "15_batch_corr_soc_seed.sql").read_text(encoding="utf-8")
     assignment_overrides = (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1_active_overrides.json").read_text(encoding="utf-8")
-    cmdb_seed = (ROOT / "sql_16_lab_cmdb_seed.sql").read_text(encoding="utf-8")
+    cmdb_seed = (ROOT / "sql" / "16_lab_cmdb_seed.sql").read_text(encoding="utf-8")
 
     assert "''192.168.1.29'', ''192.168.1.102''" in ssh_batch
     assert "''10.20.30.122'', ''192.168.1.102''" in soc_batch
@@ -305,7 +305,7 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
 
 
 def test_ssh_batch_rules_ignore_trusted_admin_source_ip() -> None:
-    seed_sql = (ROOT / "sql_13_batch_corr_seed.sql").read_text(encoding="utf-8")
+    seed_sql = (ROOT / "sql" / "13_batch_corr_seed.sql").read_text(encoding="utf-8")
 
     assert "''192.168.1.25'', ''192.168.1.29'', ''192.168.1.102''" in seed_sql
     assert "lower(status) IN (''open'', ''false_positive'', ''suppressed'')" in seed_sql

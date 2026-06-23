@@ -13,7 +13,7 @@ from deploy.runtime_imports import import_app_module  # noqa: E402
 deps = import_app_module("deps")
 
 
-FILTER_RULES_SQL = ROOT / "sql_12_filter_rule_seed.sql"
+FILTER_RULES_SQL = ROOT / "sql" / "12_filter_rule_seed.sql"
 
 
 def _ensure_filter_rule_table() -> None:

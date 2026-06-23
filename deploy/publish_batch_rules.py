@@ -14,8 +14,8 @@ deps = import_app_module("deps")
 
 
 BATCH_SQL_FILES = (
-    ROOT / "sql_13_batch_corr_seed.sql",
-    ROOT / "sql_15_batch_corr_soc_seed.sql",
+    ROOT / "sql" / "13_batch_corr_seed.sql",
+    ROOT / "sql" / "15_batch_corr_soc_seed.sql",
 )
 
 
