@@ -62,4 +62,3 @@ Run on `SIEM-Storage`:
 ```bash
 clickhouse-client --query "SELECT count(), max(ts) FROM siem.events WHERE ts >= now() - INTERVAL 10 MINUTE"
 ```
-

@@ -20,4 +20,3 @@ the internal operator channel. Include:
 - exploit path or operational impact
 - minimum reproduction steps
 - suggested fix or mitigation, if known
-

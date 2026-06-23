@@ -18,4 +18,3 @@ Publishing utilities that consume these files:
 - `deploy/publish_filter_rules.py`
 - `deploy/publish_batch_rules.py`
 - `deploy/publish_rule_noise_tuning.py`
-

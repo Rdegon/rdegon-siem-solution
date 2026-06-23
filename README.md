@@ -66,4 +66,3 @@ python tools/repo_hygiene_check.py
 - The root Python layout is preserved for deployment compatibility. Do not move
   root runtime modules into a package without updating deploy scripts, tests,
   service units, and import shims in the same change.
-
