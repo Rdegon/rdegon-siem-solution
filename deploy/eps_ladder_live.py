@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -92,6 +92,20 @@ def _split_stage_target(total_eps: int, workers: int) -> list[int]:
     return [base + (1 if idx < remainder else 0) for idx in range(max(1, workers))]
 
 
+def _ssh_control_retry(label: str, operation: Callable[[], Any], *, attempts: int = 4, delay_sec: float = 2.0) -> Any:
+    last_error: BaseException | None = None
+    retryable = (TimeoutError, OSError, EOFError, paramiko.SSHException)
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            return operation()
+        except retryable as exc:
+            last_error = exc
+            if attempt >= attempts:
+                break
+            time.sleep(max(0.1, float(delay_sec)) * attempt)
+    raise RuntimeError(f"{label} failed after {attempts} SSH attempts: {last_error}") from last_error
+
+
 def _clickhouse_count(*, vm3: HostSpec, key_path: str, run_id: str, stage: int) -> int:
     marker = f"{run_id}:{int(stage)}".replace("'", "''")
     query = (
@@ -99,14 +113,18 @@ def _clickhouse_count(*, vm3: HostSpec, key_path: str, run_id: str, stage: int) 
         f"WHERE ts >= now() - INTERVAL 2 HOUR AND message LIKE '{marker}:%' FORMAT TabSeparated"
     )
     command = f"clickhouse-client --query {shlex.quote(query)}"
-    client = _connect(vm3.host, vm3.user, key_path)
-    try:
-        code, out, err = _run(client, command, timeout_sec=30)
-    finally:
-        client.close()
-    if code != 0:
-        raise RuntimeError(f"ClickHouse count failed: {err.strip()}")
-    return int(str(out or "0").strip().splitlines()[-1] or 0)
+
+    def query_count() -> int:
+        client = _connect(vm3.host, vm3.user, key_path)
+        try:
+            code, out, err = _run(client, command, timeout_sec=30)
+        finally:
+            client.close()
+        if code != 0:
+            raise RuntimeError(f"ClickHouse count failed: {err.strip()}")
+        return int(str(out or "0").strip().splitlines()[-1] or 0)
+
+    return int(_ssh_control_retry("ClickHouse count", query_count))
 
 
 def _clickhouse_stage_eps(*, vm3: HostSpec, key_path: str, run_id: str, stage: int) -> dict[str, Any]:
@@ -117,15 +135,21 @@ def _clickhouse_stage_eps(*, vm3: HostSpec, key_path: str, run_id: str, stage: i
         "FROM siem.events "
         f"WHERE ts >= now() - INTERVAL 2 HOUR AND message LIKE '{marker}:%' FORMAT JSONEachRow"
     )
-    client = _connect(vm3.host, vm3.user, key_path)
+    def query_stage_eps() -> dict[str, Any]:
+        client = _connect(vm3.host, vm3.user, key_path)
+        try:
+            code, out, err = _run(client, f"clickhouse-client --query {shlex.quote(query)}", timeout_sec=30)
+        finally:
+            client.close()
+        if code != 0:
+            return {"error": err.strip()}
+        line = str(out or "").strip().splitlines()
+        return json.loads(line[-1]) if line else {}
+
     try:
-        code, out, err = _run(client, f"clickhouse-client --query {shlex.quote(query)}", timeout_sec=30)
-    finally:
-        client.close()
-    if code != 0:
-        return {"error": err.strip()}
-    line = str(out or "").strip().splitlines()
-    return json.loads(line[-1]) if line else {}
+        return dict(_ssh_control_retry("ClickHouse stage EPS", query_stage_eps))
+    except RuntimeError as exc:
+        return {"error": str(exc)}
 
 
 def _kafka_lag(*, kafka: HostSpec, key_path: str) -> dict[str, Any]:
@@ -133,11 +157,17 @@ def _kafka_lag(*, kafka: HostSpec, key_path: str) -> dict[str, Any]:
         "/opt/siem/kafka_2.13-3.7.1/bin/kafka-consumer-groups.sh "
         "--bootstrap-server 127.0.0.1:9092 --all-groups --describe 2>/dev/null"
     )
-    client = _connect(kafka.host, kafka.user, key_path)
+    def query_lag() -> tuple[int, str, str]:
+        client = _connect(kafka.host, kafka.user, key_path)
+        try:
+            return _run(client, command, timeout_sec=45)
+        finally:
+            client.close()
+
     try:
-        code, out, err = _run(client, command, timeout_sec=45)
-    finally:
-        client.close()
+        code, out, err = _ssh_control_retry("Kafka lag", query_lag)
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc), "max_primary_lag": None, "max_all_lag": None}
     if code != 0:
         return {"ok": False, "error": err.strip(), "max_primary_lag": None, "max_all_lag": None}
     rows: list[dict[str, Any]] = []
@@ -214,11 +244,14 @@ def _service_snapshot(*, key_path: str, hosts: list[HostSpec]) -> dict[str, Any]
     for host in hosts:
         command = checks.get(host.name, "hostname; df -h /")
         try:
-            client = _connect(host.host, host.user, key_path)
-            try:
-                code, out, err = _run(client, command, timeout_sec=20)
-            finally:
-                client.close()
+            def query_service() -> tuple[int, str, str]:
+                client = _connect(host.host, host.user, key_path)
+                try:
+                    return _run(client, command, timeout_sec=20)
+                finally:
+                    client.close()
+
+            code, out, err = _ssh_control_retry(f"{host.name} service snapshot", query_service, attempts=3)
             snapshot[host.name] = {"host": host.host, "code": code, "out": out.strip(), "err": err.strip()}
         except Exception as exc:  # noqa: BLE001
             snapshot[host.name] = {"host": host.host, "error": str(exc)}

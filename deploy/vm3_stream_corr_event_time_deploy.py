@@ -199,9 +199,10 @@ def main() -> int:
     password = _required_env("SIEM_VM3_PASSWORD")
     remote_root = _required_env("SIEM_VM3_BASE_DIR", default=DEFAULT_REMOTE_ROOT)
     time_mode = str(os.getenv("SIEM_STREAM_CORR_TIME_MODE", "event") or "event").strip().lower()
-    shadow_compare = str(os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "true") or "true").strip().lower()
+    shadow_compare = str(os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "false") or "false").strip().lower()
     allowed_lateness_sec = str(int(os.getenv("SIEM_STREAM_CORR_ALLOWED_LATENESS_SEC", "600") or "600"))
     watermark_lag_sec = str(int(os.getenv("SIEM_STREAM_CORR_WATERMARK_LAG_SEC", "300") or "300"))
+    batch_size = str(int(os.getenv("SIEM_STREAM_CORR_BATCH_SIZE", "1000") or "1000"))
     state_backend = str(os.getenv("SIEM_STREAM_STATE_BACKEND", "sqlite") or "sqlite").strip().lower()
     sqlite_path = str(os.getenv("SIEM_STREAM_STATE_SQLITE_PATH", "/var/lib/siem-stream-corr/runtime-state.db") or "/var/lib/siem-stream-corr/runtime-state.db").strip()
     service_user = str(os.getenv("SIEM_VM3_SERVICE_USER", "rdegon") or "rdegon").strip()
@@ -255,6 +256,7 @@ def main() -> int:
                 "SIEM_STREAM_CORR_SHADOW_COMPARE": shadow_compare,
                 "SIEM_STREAM_CORR_ALLOWED_LATENESS_SEC": allowed_lateness_sec,
                 "SIEM_STREAM_CORR_WATERMARK_LAG_SEC": watermark_lag_sec,
+                "SIEM_STREAM_CORR_BATCH_SIZE": batch_size,
                 "SIEM_STREAM_STATE_BACKEND": state_backend,
                 "SIEM_STREAM_STATE_SQLITE_PATH": sqlite_path,
             },

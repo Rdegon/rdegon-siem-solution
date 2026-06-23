@@ -66,6 +66,14 @@ class _FakeClickHouseClient:
         return []
 
 
+class _FakeSQLiteOffsetState:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def save_offset(self, **kwargs) -> None:
+        self.calls.append(dict(kwargs))
+
+
 def _load_worker_module():
     for name in [MODULE_NAME, PACKAGE_NAME, f"{PACKAGE_NAME}.config", f"{PACKAGE_NAME}.logging_conf", f"{PACKAGE_NAME}.rules", "clickhouse_driver", "redis", "redis.asyncio"]:
         sys.modules.pop(name, None)
@@ -221,6 +229,45 @@ class StreamWorkerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual({rule.id for rule in candidates}, {2618, 9000})
+
+    async def test_benchmark_events_are_skipped_before_rule_evaluation(self) -> None:
+        module, Settings, _ = _load_worker_module()
+        worker = module.StreamCorrWorker(Settings())
+
+        self.assertTrue(worker._should_skip_correlation({"event.category": "benchmark"}))
+        self.assertTrue(worker._should_skip_correlation({"event.dataset": "benchmark"}))
+        self.assertTrue(worker._should_skip_correlation({"tags": '["distributed", "allowlist:benchmark"]'}))
+        self.assertTrue(worker._should_skip_correlation({"event.tags": ["benchmark", "allowlist:benchmark"]}))
+        self.assertFalse(
+            worker._should_skip_correlation(
+                {
+                    "event.provider": "linux.sshd",
+                    "event.type": "ssh_login_failure",
+                    "source.ip": "10.0.0.5",
+                }
+            )
+        )
+
+    async def test_processed_offsets_are_checkpointed_once_per_partition(self) -> None:
+        module, Settings, _ = _load_worker_module()
+        worker = module.StreamCorrWorker(Settings())
+        fake_state = _FakeSQLiteOffsetState()
+        worker._sqlite_state = fake_state
+
+        worker._save_processed_offsets(
+            [
+                types.SimpleNamespace(topic="siem.filtered", partition=0, offset=10),
+                types.SimpleNamespace(topic="siem.filtered", partition=0, offset=11),
+                types.SimpleNamespace(topic="siem.filtered", partition=1, offset=3),
+                types.SimpleNamespace(topic="siem.filtered", partition=1, offset=4),
+                types.SimpleNamespace(topic="siem.filtered", partition=1, offset=2),
+            ]
+        )
+
+        self.assertEqual(len(fake_state.calls), 2)
+        offsets = {(call["topic_name"], call["partition_id"]): call["offset_value"] for call in fake_state.calls}
+        self.assertEqual(offsets[("siem.filtered", 0)], 12)
+        self.assertEqual(offsets[("siem.filtered", 1)], 5)
 
     async def test_sqlite_state_backend_tracks_threshold_hits(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

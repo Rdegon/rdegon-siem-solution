@@ -38,6 +38,11 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         command = vm1_smoke._curl_json("/health/sources?limit=200")
         self.assertIn("'http://127.0.0.1:8443/health/sources?limit=200'", command)
 
+    def test_vm1_ingest_override_uses_eight_http_workers(self) -> None:
+        override_text = (ROOT / "deploy" / "vm1" / "siem-ingest.override.conf").read_text(encoding="utf-8")
+
+        self.assertIn("--workers 8", override_text)
+
     def test_vm1_deploy_uses_staging_and_sudo_install(self) -> None:
         import deploy.vm1_ingest_fabric_deploy as vm1_deploy
 
@@ -167,6 +172,17 @@ class DeployRolloutRegressionTests(unittest.TestCase):
             vm3_deploy._upload_text = original_upload  # type: ignore[assignment]
             vm3_deploy._run_command = original_run  # type: ignore[assignment]
             vm3_deploy._set_remote_env_values = original_set_env  # type: ignore[assignment]
+
+    def test_vm3_stream_corr_shadow_compare_defaults_to_production_off(self) -> None:
+        deploy_text = (ROOT / "deploy" / "vm3_stream_corr_event_time_deploy.py").read_text(encoding="utf-8")
+        smoke_text = (ROOT / "deploy" / "vm3_stream_corr_event_time_smoke.py").read_text(encoding="utf-8")
+        runbook_text = (ROOT / "docs" / "deployment_runbook_vm3_stream_corr_event_time.md").read_text(encoding="utf-8")
+
+        self.assertIn('os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "false") or "false"', deploy_text)
+        self.assertIn('os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "false") or "false"', smoke_text)
+        self.assertIn("SIEM_STREAM_CORR_SHADOW_COMPARE=false", runbook_text)
+        self.assertIn('os.getenv("SIEM_STREAM_CORR_BATCH_SIZE", "1000") or "1000"', deploy_text)
+        self.assertIn("SIEM_STREAM_CORR_BATCH_SIZE=1000", runbook_text)
 
     def test_vm4_smoke_waits_for_backend_warmup(self) -> None:
         import deploy.vm4_enterprise_foundation_smoke as vm4_smoke

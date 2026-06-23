@@ -28,6 +28,7 @@ outputs/
 work_artifacts/
 backups/
 runtime-state/
+runtime-control-plane/
 *.db
 *.sqlite
 *.sqlite3
