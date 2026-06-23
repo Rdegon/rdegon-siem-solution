@@ -6,7 +6,7 @@ Date: 2026-06-23
 
 Move the physical Proxmox host without breaking SIEM, service access, or VPN access.
 
-The safest relocation model is:
+The safest relocation model when the new place can provide `192.168.1.0/24` is:
 
 - keep the SIEM/Proxmox infrastructure subnet on `192.168.1.0/24`;
 - treat `192.168.3.0/24` as an operator/client LAN segment;
@@ -17,6 +17,16 @@ The safest relocation model is:
 - keep remote VPN access through the existing Proxmox WireGuard client `10.10.10.2/24`.
 
 This avoids changing Kafka, ClickHouse, rsyslog collector targets, CMDB inventory, certificates, and most service URLs.
+
+If the physical Proxmox uplink can only be connected to `192.168.3.0/24`, use the prepared `site3` cutover mode:
+
+- Proxmox external management becomes `192.168.3.101/24`, gateway `192.168.3.1`;
+- Proxmox keeps `192.168.1.1/24` as the old guest default gateway;
+- Proxmox keeps `192.168.1.101/24` as the legacy Proxmox address for internal SIEM integrations;
+- existing VM/LXC service IPs stay unchanged on `192.168.1.x` and `10.20.x`;
+- Proxmox performs NAT/port-forwarding between `192.168.3.0/24`, the old `192.168.1.0/24`, internal `10.20.x`, and VPN.
+
+This is the preferred fallback if the new site does not expose `192.168.1.0/24` at all.
 
 ## Current fixed addresses
 
@@ -36,7 +46,7 @@ This avoids changing Kafka, ClickHouse, rsyslog collector targets, CMDB inventor
 
 ## Router requirements at the new site
 
-Recommended:
+Preferred, if the router can expose `192.168.1.0/24`:
 
 1. Connect Proxmox to the `192.168.1.0/24` infrastructure segment.
 2. Reserve these static leases or exclusions on the router:
@@ -49,6 +59,17 @@ Recommended:
 
 If the router cannot hold static routes to `10.20.*`, use the SIEM Web/UI and public-facing service entry points on `192.168.1.*`; internal `10.20.*` direct access will be limited.
 
+Fallback, if Proxmox must live in `192.168.3.0/24`:
+
+1. Reserve `192.168.3.101` for Proxmox.
+2. Confirm the gateway is `192.168.3.1`.
+3. Allow outbound UDP from Proxmox to `176.108.251.109:51820` for WireGuard.
+4. Optional but recommended on the site router:
+   - `192.168.1.0/24 via 192.168.3.101`
+   - `10.20.20.0/24 via 192.168.3.101`
+   - `10.20.30.0/24 via 192.168.3.101`
+5. If the router cannot add these routes, use the port-forward entrypoints on `192.168.3.101` listed below.
+
 ## Already prepared changes
 
 Two scripts were added:
@@ -56,7 +77,7 @@ Two scripts were added:
 - `deploy/network_relocation/proxmox_post_move_network.sh`
   - installs persistent Proxmox routes to `10.20.*` via `192.168.1.102`;
   - installs NAT for VPN clients from `10.10.10.0/24`;
-  - can rewrite the Proxmox management IP only when explicitly confirmed from console.
+  - can stage and apply the `192.168.3.0/24` fallback cutover only when explicitly confirmed from console.
 - `deploy/network_relocation/lab_edge_new_site_acl.sh`
   - allows `192.168.3.0/24` and `10.10.10.0/24` through `lab-edge-01` where `192.168.1.0/24` was already allowed;
   - updates Unbound DNS ACLs for the new operator/VPN networks.
@@ -101,17 +122,40 @@ Fallback case, the server must move to `192.168.3.0/24`:
 Use local Proxmox console, not SSH:
 
 ```bash
-SIEM_MGMT_IP=192.168.3.101/24 \
-SIEM_MGMT_GW=192.168.3.1 \
-SIEM_SECONDARY_IP=192.168.1.101/24 \
-/usr/local/sbin/siem-post-move-network apply-address --confirm-apply-address
+/usr/local/sbin/siem-post-move-network apply-site3 --confirm-site3-cutover
 
 ifreload -a
+systemctl restart siem-site3-edge.service
+/usr/local/sbin/siem-post-move-network status
 ```
 
 Then access Proxmox at `https://192.168.3.101:8006`.
 
-This fallback only changes Proxmox management. SIEM VM static addresses remain `192.168.1.*`, so use it only if the new network actually bridges/routes `192.168.1.0/24` to the Proxmox VM bridge or after you intentionally re-address the VM fleet.
+In this mode SIEM VM static addresses remain `192.168.1.*`, but they continue to work because Proxmox becomes their old gateway `192.168.1.1`.
+
+### Port-forward entrypoints in `192.168.3.0/24` mode
+
+Use these if the new router cannot route `192.168.1.0/24` to `192.168.3.101`:
+
+| Entry point | Target |
+| --- | --- |
+| `https://192.168.3.101:8006` | Proxmox UI |
+| `https://192.168.3.101/` | SIEM Web `192.168.1.39:443` |
+| `http://192.168.3.101:8443/health` | SIEM Ingest `192.168.1.35:8443` |
+| `192.168.3.101:1514-1518/tcp,udp` | SIEM syslog ingest ports |
+| `192.168.3.101:25565` | Minecraft |
+| `http://192.168.3.101:8100` | Minecraft admin console |
+| `https://192.168.3.101:9443` | Nextcloud |
+| `https://192.168.3.101:9444` | Navidrome |
+| `https://192.168.3.101:9445` | Gamepanel |
+
+If you want direct old IP access from a Windows workstation in `192.168.3.0/24`, add temporary persistent routes:
+
+```powershell
+route -p add 192.168.1.0 mask 255.255.255.0 192.168.3.101
+route -p add 10.20.20.0 mask 255.255.255.0 192.168.3.101
+route -p add 10.20.30.0 mask 255.255.255.0 192.168.3.101
+```
 
 ## VPN access
 
