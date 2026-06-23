@@ -27,7 +27,7 @@ def _install_stubs() -> None:
 
 
 def _load_oidc_module():
-    spec = importlib.util.spec_from_file_location(f"{PACKAGE_NAME}.oidc_runtime", ROOT / "oidc_runtime.py")
+    spec = importlib.util.spec_from_file_location(f"{PACKAGE_NAME}.oidc_runtime", ROOT / "services" / "web" / "app" / "oidc_runtime.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     module.__package__ = PACKAGE_NAME

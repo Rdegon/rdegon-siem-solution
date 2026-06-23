@@ -155,9 +155,13 @@ def _install_stubs() -> None:
     ui_text_module.resolve_ui_lang = lambda request: "ru"  # noqa: E731
     sys.modules[f"{APP_PACKAGE}.ui_text"] = ui_text_module
 
+    templates_module = types.ModuleType(f"{APP_PACKAGE}.templates")
+    templates_module.templates = object()
+    sys.modules[f"{APP_PACKAGE}.templates"] = templates_module
+
 
 def _load_auth_module():
-    spec = importlib.util.spec_from_file_location(f"{ROUTES_PACKAGE}.auth", ROOT / "auth.py")
+    spec = importlib.util.spec_from_file_location(f"{ROUTES_PACKAGE}.auth", ROOT / "services" / "web" / "app" / "routes" / "auth.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     module.__package__ = ROUTES_PACKAGE

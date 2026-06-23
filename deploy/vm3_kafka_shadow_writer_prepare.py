@@ -18,7 +18,7 @@ SHADOW_SYNC_PATHS = [
     Path("services/__init__.py"),
     Path("services/redis_runtime.py"),
     Path("services/transport_runtime.py"),
-    Path("writer_worker.py"),
+    Path("services/writer/worker.py"),
 ]
 
 
@@ -143,7 +143,7 @@ def main() -> int:
         f"mkdir -p {shlex.quote(backup_root)} && "
         f"if [ -f {shlex.quote(str(SHADOW_ENV))} ]; then cp {shlex.quote(str(SHADOW_ENV))} {shlex.quote(backup_root + '/storage-kafka-shadow.env')}; fi && "
         f"if [ -f {shlex.quote(str(SHADOW_SERVICE))} ]; then cp {shlex.quote(str(SHADOW_SERVICE))} {shlex.quote(backup_root + '/siem-writer-shadow.service')}; fi && "
-        f"cp {shlex.quote(str(LIVE_REPO_DIR / 'writer_worker.py'))} {shlex.quote(backup_root + '/writer_worker.py')}"
+        f"cp {shlex.quote(str(LIVE_REPO_DIR / 'services/writer/worker.py'))} {shlex.quote(backup_root + '/writer_worker.py')}"
     )
     code, out, err = _run(backup_cmd, sudo_password=sudo_password, use_sudo=True)
     if code != 0:
@@ -197,7 +197,7 @@ def main() -> int:
         f"cd {shlex.quote(str(LIVE_REPO_DIR))} && "
         + render_shadow_dependency_install_command()
         + " && "
-        + "/opt/siem/venv-storage/bin/python -m py_compile writer_worker.py services/__init__.py services/redis_runtime.py services/transport_runtime.py"
+        + "/opt/siem/venv-storage/bin/python -m py_compile services/writer/worker.py services/__init__.py services/redis_runtime.py services/transport_runtime.py"
     )
     code, out, err = _run(dependency_cmd, sudo_password=sudo_password, use_sudo=True, timeout=900)
     cleaned = _strip_sudo_echo(out, sudo_password)

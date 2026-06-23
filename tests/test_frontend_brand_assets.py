@@ -10,7 +10,7 @@ class FrontendBrandAssetsTests(unittest.TestCase):
         build_script = (ROOT / "frontend-react" / "build.cjs").read_text(encoding="utf-8")
         source_index = (ROOT / "frontend-react" / "index.html").read_text(encoding="utf-8")
         built_index_path = ROOT / "frontend-react" / "dist" / "index.html"
-        login_html = (ROOT / "login.html").read_text(encoding="utf-8")
+        login_html = (ROOT / "services" / "web" / "app" / "templates" / "login.html").read_text(encoding="utf-8")
 
         self.assertIn('/app/favicon.ico', build_script)
         self.assertIn('/app/favicon.svg', build_script)
@@ -24,7 +24,7 @@ class FrontendBrandAssetsTests(unittest.TestCase):
         self.assertIn('/favicon.svg', login_html)
 
     def test_main_routes_expose_root_and_app_favicon_paths(self) -> None:
-        main_py = (ROOT / "main.py").read_text(encoding="utf-8")
+        main_py = (ROOT / "services" / "web" / "main.py").read_text(encoding="utf-8")
 
         self.assertIn("def _resolve_frontend_dist_dir()", main_py)
         self.assertIn('root.parent / "frontend-react" / "dist"', main_py)

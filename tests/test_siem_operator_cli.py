@@ -10,13 +10,18 @@ from unittest.mock import patch
 from tools import siem_operator_cli
 
 
+def _write_minimal_repo(root: Path) -> None:
+    (root / "services" / "web").mkdir(parents=True)
+    (root / "services" / "web" / "main.py").write_text("print('ok')\n", encoding="utf-8")
+    (root / "deploy").mkdir()
+    (root / "docs").mkdir()
+
+
 class SiemOperatorCliTests(unittest.TestCase):
     def test_users_create_calls_access_module_with_permission_bundles(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
-            (root / "deploy").mkdir()
-            (root / "docs").mkdir()
+            _write_minimal_repo(root)
             captured: list[dict] = []
 
             class FakeAccessModule:
@@ -54,9 +59,7 @@ class SiemOperatorCliTests(unittest.TestCase):
     def test_bundle_export_clean_routes_to_bundle_module(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
-            (root / "deploy").mkdir()
-            (root / "docs").mkdir()
+            _write_minimal_repo(root)
             stdout = io.StringIO()
 
             class FakeBundleModule:
@@ -90,9 +93,7 @@ class SiemOperatorCliTests(unittest.TestCase):
     def test_distribution_export_routes_to_distribution_module(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
-            (root / "deploy").mkdir()
-            (root / "docs").mkdir()
+            _write_minimal_repo(root)
             stdout = io.StringIO()
 
             class FakeDistributionModule:
@@ -134,9 +135,7 @@ class SiemOperatorCliTests(unittest.TestCase):
     def test_performance_distributed_eps_routes_to_module_main(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
-            (root / "deploy").mkdir()
-            (root / "docs").mkdir()
+            _write_minimal_repo(root)
 
             class FakePerfModule:
                 @staticmethod

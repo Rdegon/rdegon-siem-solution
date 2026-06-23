@@ -37,7 +37,8 @@ class DistributionToolkitTests(unittest.TestCase):
             root = Path(temp_dir)
             project_root = root / "repo"
             project_root.mkdir()
-            (project_root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            (project_root / "services" / "web").mkdir(parents=True)
+            (project_root / "services" / "web" / "main.py").write_text("print('ok')\n", encoding="utf-8")
             (project_root / "deploy").mkdir()
             (project_root / "docs").mkdir()
             (project_root / "docs" / "README.md").write_text("# Docs\n", encoding="utf-8")

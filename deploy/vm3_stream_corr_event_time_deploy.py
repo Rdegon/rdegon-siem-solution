@@ -32,8 +32,13 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/redis_runtime.py", "services/redis_runtime.py"),
     FileMapping("services/transport_runtime.py", "services/transport_runtime.py"),
     FileMapping("services/stream_state.py", "services/stream_state.py"),
-    FileMapping("writer_worker.py", "services/writer/worker.py"),
-    FileMapping("stream_worker.py", "services/stream_corr/worker.py"),
+    FileMapping("services/writer/__init__.py", "services/writer/__init__.py"),
+    FileMapping("services/writer/worker.py", "services/writer/worker.py"),
+    FileMapping("services/stream_corr/__init__.py", "services/stream_corr/__init__.py"),
+    FileMapping("services/stream_corr/config.py", "services/stream_corr/config.py"),
+    FileMapping("services/stream_corr/logging_conf.py", "services/stream_corr/logging_conf.py"),
+    FileMapping("services/stream_corr/rules.py", "services/stream_corr/rules.py"),
+    FileMapping("services/stream_corr/worker.py", "services/stream_corr/worker.py"),
     FileMapping("docs/architecture.md", "docs/architecture.md"),
     FileMapping("docs/README.md", "docs/README.md"),
 )
@@ -280,7 +285,9 @@ def main() -> int:
             f"cd {shlex.quote(remote_root)} && "
             "/opt/siem/venv-storage/bin/python -m py_compile "
             "services/redis_runtime.py services/transport_runtime.py services/stream_state.py "
-            "services/writer/worker.py services/stream_corr/worker.py"
+            "services/writer/__init__.py services/writer/worker.py "
+            "services/stream_corr/__init__.py services/stream_corr/config.py "
+            "services/stream_corr/logging_conf.py services/stream_corr/rules.py services/stream_corr/worker.py"
         )
         code, out, err = _run_command(client, compile_cmd)
         if out.strip():

@@ -13,7 +13,7 @@ ROUTES_PACKAGE = f"{APP_PACKAGE}.routes"
 
 
 def _clear_fake_modules() -> None:
-    for name in ("fastapi", "fastapi.responses", "fastapi.templating"):
+    for name in ("fastapi", "fastapi.responses", "fastapi.templating", "operational_filters"):
         sys.modules.pop(name, None)
     for name in list(sys.modules):
         if name == ROOT_PACKAGE or name.startswith(f"{ROOT_PACKAGE}."):
@@ -116,6 +116,14 @@ def _install_alert_stubs() -> None:
     incident_ai_module.run_incident_host_action = lambda *args, **kwargs: {}  # noqa: E731
     sys.modules[f"{APP_PACKAGE}.incident_ai_runtime"] = incident_ai_module
 
+    from services.web.app.operational_filters import contains_non_operational_marker, is_non_operational_record
+
+    operational_filters_module = types.ModuleType(f"{APP_PACKAGE}.operational_filters")
+    operational_filters_module.contains_non_operational_marker = contains_non_operational_marker
+    operational_filters_module.is_non_operational_record = is_non_operational_record
+    sys.modules[f"{APP_PACKAGE}.operational_filters"] = operational_filters_module
+    sys.modules["operational_filters"] = operational_filters_module
+
     templates_module = types.ModuleType(f"{APP_PACKAGE}.templates")
     templates_module.templates = object()
     sys.modules[f"{APP_PACKAGE}.templates"] = templates_module
@@ -126,7 +134,7 @@ def _install_alert_stubs() -> None:
 
 
 def _load_alerts_module():
-    spec = importlib.util.spec_from_file_location(f"{ROUTES_PACKAGE}.alerts", ROOT / "alerts.py")
+    spec = importlib.util.spec_from_file_location(f"{ROUTES_PACKAGE}.alerts", ROOT / "services" / "web" / "app" / "routes" / "alerts.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     module.__package__ = ROUTES_PACKAGE

@@ -26,7 +26,7 @@ class RedisHaResilienceDeployTests(unittest.TestCase):
 
     def test_vm3_writer_mapping_targets_live_service_path(self) -> None:
         mapping = {item.local_rel: item.remote_rel for item in VM3_FILE_MAPPINGS}
-        self.assertEqual(mapping["writer_worker.py"], "services/writer/worker.py")
+        self.assertEqual(mapping["services/writer/worker.py"], "services/writer/worker.py")
 
 
 if __name__ == "__main__":

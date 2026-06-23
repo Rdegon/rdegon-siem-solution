@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = ROOT / "services" / "web" / "app"
 
 
 def _load_deps_module():
@@ -23,9 +24,9 @@ def _load_deps_module():
         if name == package_name or name.startswith(f"{package_name}."):
             sys.modules.pop(name, None)
     package = types.ModuleType(package_name)
-    package.__path__ = [str(ROOT)]  # type: ignore[attr-defined]
+    package.__path__ = [str(APP_ROOT)]  # type: ignore[attr-defined]
     sys.modules[package_name] = package
-    spec = importlib.util.spec_from_file_location(f"{package_name}.deps", ROOT / "deps.py")
+    spec = importlib.util.spec_from_file_location(f"{package_name}.deps", APP_ROOT / "deps.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     module.__package__ = package_name

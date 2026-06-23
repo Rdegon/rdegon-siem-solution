@@ -11,7 +11,7 @@ from typing import Any
 
 
 def _is_repo_root(path: Path) -> bool:
-    return (path / "main.py").exists() and (path / "deploy").exists() and (path / "docs").exists()
+    return (path / "services" / "web" / "main.py").exists() and (path / "deploy").exists() and (path / "docs").exists()
 
 
 def _resolve_repo_root(explicit: str = "") -> Path:
@@ -38,9 +38,10 @@ def _bootstrap_repo_paths(repo_root: Path) -> None:
         if text not in sys.path:
             sys.path.insert(0, text)
     if "app" not in sys.modules:
+        app_root = repo_root / "services" / "web" / "app"
         app_module = types.ModuleType("app")
-        app_module.__path__ = [str(repo_root)]  # type: ignore[attr-defined]
-        app_module.__file__ = str(repo_root / "__init__.py")
+        app_module.__path__ = [str(app_root)]  # type: ignore[attr-defined]
+        app_module.__file__ = str(app_root / "__init__.py")
         sys.modules["app"] = app_module
 
 

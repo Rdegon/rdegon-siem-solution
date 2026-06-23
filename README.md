@@ -12,7 +12,8 @@ benchmark output.
 
 | Path | Purpose |
 | --- | --- |
-| `services/` | Runtime workers: ingest, normalizer, filter, alert aggregation, transport helpers. |
+| `services/web/` | FastAPI web control plane, app runtime modules, route handlers and server-rendered fallback templates. |
+| `services/` | Runtime workers: ingest, normalizer, filter, writer, stream correlation, alert aggregation and transport helpers. |
 | `frontend-react/` | React operator shell used by `/app/*`. |
 | `correlation_rule_packs/` | Source-controlled detection and correlation rule packs. |
 | `sql/` | ClickHouse schema/rule/catalog seed SQL. |
@@ -22,7 +23,7 @@ benchmark output.
 | `tools/` | Developer and validation tools. |
 | `tests/` | Unit and contract tests for runtime, deploy scripts, rules, and UI helpers. |
 | `docs/` | Architecture, runbooks, operation records, and historical wave notes. |
-| root `*.py` and `*.html` | Legacy web/control-plane runtime modules and templates. Keep in place until the packaging refactor is done. |
+| root | Repository metadata only: README, git policy files and import bootstrap. Runtime code lives under service folders. |
 
 ## Read First
 
@@ -63,6 +64,5 @@ python tools/repo_hygiene_check.py
   benchmark artifacts.
 - Historical docs may mention old local paths as context. Current entry points
   are the files linked from this README and `docs/README.md`.
-- The root Python layout is preserved for deployment compatibility. Do not move
-  root runtime modules into a package without updating deploy scripts, tests,
-  service units, and import shims in the same change.
+- The web/control-plane runtime source of truth is `services/web`. Compatibility
+  for old flat imports is handled by `sitecustomize.py` and test/bootstrap path setup.

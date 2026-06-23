@@ -142,7 +142,7 @@ def test_linux_system_recon_replacement_excludes_openclaw_health_checks() -> Non
     assert "openclaw_send" in str(rule["expr"])
     assert "/usr/lib/node_modules/openclaw" in str(rule["expr"])
 
-    deps_text = (ROOT / "deps.py").read_text(encoding="utf-8")
+    deps_text = (ROOT / "services" / "web" / "app" / "deps.py").read_text(encoding="utf-8")
     retired_block = deps_text.split("DEFAULT_SIGMA_RETIRED_DUPLICATE_IDS", 1)[1].split("}", 1)[0]
     for rule_id in ("1002", "1004", "1005", "1006", "1007", "1008", "1012", "1013", "1014", "1017", "1018", "1019", "1020", "1021", "1026", "1027", "1028", "1029"):
         assert rule_id in retired_block

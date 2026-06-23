@@ -58,8 +58,13 @@ VM2_FILE_MAPPINGS: tuple[FileMapping, ...] = (
 
 VM3_FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/redis_runtime.py", "services/redis_runtime.py"),
-    FileMapping("writer_worker.py", "services/writer/worker.py"),
-    FileMapping("stream_worker.py", "services/stream_corr/worker.py"),
+    FileMapping("services/writer/__init__.py", "services/writer/__init__.py"),
+    FileMapping("services/writer/worker.py", "services/writer/worker.py"),
+    FileMapping("services/stream_corr/__init__.py", "services/stream_corr/__init__.py"),
+    FileMapping("services/stream_corr/config.py", "services/stream_corr/config.py"),
+    FileMapping("services/stream_corr/logging_conf.py", "services/stream_corr/logging_conf.py"),
+    FileMapping("services/stream_corr/rules.py", "services/stream_corr/rules.py"),
+    FileMapping("services/stream_corr/worker.py", "services/stream_corr/worker.py"),
 )
 
 

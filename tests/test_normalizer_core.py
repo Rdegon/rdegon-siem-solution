@@ -13,7 +13,7 @@ PACKAGE = "test_normalizer_pkg"
 def _load_normalizer():
     if PACKAGE not in sys.modules:
         package = types.ModuleType(PACKAGE)
-        package.__path__ = [str(ROOT)]
+        package.__path__ = [str(ROOT / "services" / "normalizer")]
         sys.modules[PACKAGE] = package
     config_name = f"{PACKAGE}.config"
     if config_name not in sys.modules:
@@ -25,7 +25,7 @@ def _load_normalizer():
     full_name = f"{PACKAGE}.normalizer_core"
     if full_name in sys.modules:
         return sys.modules[full_name]
-    spec = importlib.util.spec_from_file_location(full_name, ROOT / "normalizer_core.py")
+    spec = importlib.util.spec_from_file_location(full_name, ROOT / "services" / "normalizer" / "normalizer_core.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("Unable to load normalizer_core.py")
     module = importlib.util.module_from_spec(spec)

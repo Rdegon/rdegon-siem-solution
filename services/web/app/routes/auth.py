@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 
 from ..config import CONFIG
 from ..oidc_runtime import build_authorize_redirect, finalize_callback, oidc_enabled, provider_status, providers_inventory
@@ -20,10 +19,10 @@ from ..security import (
     record_auth_failure,
     record_auth_success,
 )
+from ..templates import templates
 from ..ui_text import UI_TEXT, resolve_ui_lang
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
 
 LEGACY_UI_ROUTE_MAP = {
     "/": "/app/dashboards",

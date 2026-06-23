@@ -22,7 +22,7 @@ from deploy.vm3_stream_corr_event_time_deploy import (
 class Vm3WriterScaleoutTests(unittest.TestCase):
     def test_writer_mapping_targets_live_service_path(self) -> None:
         mapping = {item.local_rel: item.remote_rel for item in FILE_MAPPINGS}
-        self.assertEqual(mapping["writer_worker.py"], "services/writer/worker.py")
+        self.assertEqual(mapping["services/writer/worker.py"], "services/writer/worker.py")
 
     def test_writer_scaleout_template_metadata_is_stable(self) -> None:
         self.assertEqual(SYSTEMD_WRITER_TEMPLATE, "/etc/systemd/system/siem-writer@.service")

@@ -3,7 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+CURRENT_FILE = Path(__file__).resolve()
+BASE_DIR = next((parent for parent in CURRENT_FILE.parents if (parent / "services").is_dir()), CURRENT_FILE.parent)
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 

@@ -33,6 +33,7 @@ NON_OPERATIONAL_MARKERS: tuple[str, ...] = (
     "eps-benchmark-smoke",
     "vm1-smoke",
     "vm4-smoke",
+    "win-rtx-test",
     "vm4 foundation smoke",
     "vm1-kafka-cutover",
     "kafka-cutover-smoke",

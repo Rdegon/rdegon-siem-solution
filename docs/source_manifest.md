@@ -3,8 +3,8 @@
 This repository is the clean production source for the SIEM system.
 
 Included:
-- backend/API/runtime Python modules;
-- `services/` ingest, normalizer, filter and transport workers;
+- `services/web/` backend/API/control-plane runtime modules, routes and templates;
+- `services/` ingest, normalizer, filter, writer, stream-correlation and transport workers;
 - `correlation_rule_packs/`, SQL seeds and rule publishing scripts;
 - `deploy/`, `ops/`, `tools/`, `tests/`;
 - `frontend-react/` source, tests and package manifests;

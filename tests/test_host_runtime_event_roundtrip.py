@@ -5,7 +5,7 @@ from host_runtime_pipeline import build_snapshot_event
 from services.filter.worker import FilterWorker
 from services.normalizer.normalizer_core import apply_rules
 from services.normalizer.worker import _transport_field_value
-from writer_worker import WriterSettings, WriterWorker
+from services.writer.worker import WriterSettings, WriterWorker
 
 
 class HostRuntimeEventRoundtripTests(unittest.TestCase):

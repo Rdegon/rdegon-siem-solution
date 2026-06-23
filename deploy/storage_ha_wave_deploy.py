@@ -60,7 +60,7 @@ OPTIONAL_BOOTSTRAP_TABLES = {
 }
 DEFAULT_EVENTS_BOOTSTRAP_LOOKBACK_HOURS = 6
 REMOTE_VM5_FILES = (
-    ("writer_worker.py", "/opt/siem/siem-solution/services/writer/worker.py", "0644"),
+    ("services/writer/worker.py", "/opt/siem/siem-solution/services/writer/worker.py", "0644"),
     ("services/__init__.py", "/opt/siem/siem-solution/services/__init__.py", "0644"),
     ("services/redis_runtime.py", "/opt/siem/siem-solution/services/redis_runtime.py", "0644"),
     ("services/transport_runtime.py", "/opt/siem/siem-solution/services/transport_runtime.py", "0644"),

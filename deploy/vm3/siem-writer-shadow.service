@@ -8,7 +8,7 @@ User=rdegon
 WorkingDirectory=/opt/siem/siem-solution
 EnvironmentFile=/etc/siem/storage.env
 EnvironmentFile=-/etc/siem/storage-kafka-shadow.env
-ExecStart=/opt/siem/venv-storage/bin/python /opt/siem/siem-solution/writer_worker.py
+ExecStart=/opt/siem/venv-storage/bin/python /opt/siem/siem-solution/services/writer/worker.py
 Restart=always
 RestartSec=5
 

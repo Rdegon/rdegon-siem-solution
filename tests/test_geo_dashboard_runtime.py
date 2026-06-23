@@ -8,13 +8,14 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = ROOT / "services" / "web" / "app"
 
 
 def _load_deps_module():
     package_name = "testrepo_geo"
     if package_name not in sys.modules:
         package = types.ModuleType(package_name)
-        package.__path__ = [str(ROOT)]  # type: ignore[attr-defined]
+        package.__path__ = [str(APP_ROOT)]  # type: ignore[attr-defined]
         sys.modules[package_name] = package
     module_name = f"{package_name}.deps"
     for stale in (
@@ -30,7 +31,7 @@ def _load_deps_module():
         f"{package_name}.secret_runtime",
     ):
         sys.modules.pop(stale, None)
-    spec = importlib.util.spec_from_file_location(module_name, ROOT / "deps.py")
+    spec = importlib.util.spec_from_file_location(module_name, APP_ROOT / "deps.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module

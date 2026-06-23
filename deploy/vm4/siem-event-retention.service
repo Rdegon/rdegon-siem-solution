@@ -9,7 +9,7 @@ Type=oneshot
 User=rdegon
 WorkingDirectory=/opt/siem/siem-solution
 EnvironmentFile=/etc/siem/web.env
-ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/retention_runner.py
+ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/services/web/maintenance/retention_runner.py
 
 [Install]
 WantedBy=multi-user.target

@@ -176,7 +176,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
         self.assertEqual(["asset-siem-web"], [row["asset_id"] for row in rows])
 
     def test_cmdb_autocreate_has_ip_only_guard(self) -> None:
-        deps_text = (ROOT / "deps.py").read_text(encoding="utf-8")
+        deps_text = (ROOT / "services" / "web" / "app" / "deps.py").read_text(encoding="utf-8")
 
         self.assertIn("_is_observed_cmdb_autocreate_candidate", deps_text)
         self.assertIn("_is_ip_literal(identity)", deps_text)
