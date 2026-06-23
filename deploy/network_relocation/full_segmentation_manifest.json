@@ -1,0 +1,90 @@
+{
+  "version": "2026-06-23-full-segmentation-v2",
+  "segments": {
+    "mgmt": {
+      "cidr": "192.168.3.0/24",
+      "bridge": "vmbr0",
+      "purpose": "Physical uplink and management access",
+      "gateway": "192.168.3.1",
+      "hosts": {
+        "pve": "192.168.3.101",
+        "lab-edge-01": "192.168.3.102"
+      }
+    },
+    "sec": {
+      "cidr": "10.20.10.0/24",
+      "bridge": "vmbr2",
+      "gateway": "10.20.10.1",
+      "purpose": "SIEM core services",
+      "hosts": {
+        "lab-edge-01": "10.20.10.1",
+        "siem-ingest": "10.20.10.104",
+        "siem-processing": "10.20.10.105",
+        "siem-storage": "10.20.10.106",
+        "siem-web": "10.20.10.107",
+        "siem-transport": "10.20.10.108"
+      }
+    },
+    "servers_games": {
+      "cidr": "10.20.20.0/24",
+      "bridge": "vmbr3",
+      "gateway": "10.20.20.1",
+      "purpose": "Public services and game services",
+      "hosts": {
+        "lab-edge-01": "10.20.20.1",
+        "minecraft-01": "10.20.20.100",
+        "nextcloud-siem": "10.20.20.120",
+        "navidrome-01": "10.20.20.121",
+        "gamepanel-01": "10.20.20.130"
+      }
+    },
+    "lab": {
+      "cidr": "10.20.30.0/24",
+      "bridge": "vmbr1",
+      "gateway": "10.20.30.1",
+      "purpose": "Pilot, vulnerability and lab workloads",
+      "hosts": {
+        "lab-edge-01": "10.20.30.1",
+        "vuln-mgr-01": "10.20.30.122",
+        "pilot-web-01": "10.20.30.123",
+        "pilot-db-01": "10.20.30.124",
+        "pilot-cache-01": "10.20.30.125",
+        "openclaw-gateway": "10.20.30.126"
+      }
+    },
+    "users": {
+      "cidr": "10.20.40.0/24",
+      "bridge": "vmbr4",
+      "gateway": "10.20.40.1",
+      "purpose": "Reserved internal user/client segment",
+      "hosts": {
+        "lab-edge-01": "10.20.40.1"
+      }
+    }
+  },
+  "legacy_service_ips": {
+    "siem-ingest": ["192.168.1.35"],
+    "siem-processing": ["192.168.1.37"],
+    "siem-storage": ["192.168.1.38"],
+    "siem-web": ["192.168.1.39"],
+    "siem-transport": ["192.168.1.40"],
+    "lab-edge-01": ["192.168.1.102"],
+    "minecraft-01": ["192.168.1.32"],
+    "gamepanel-01": ["192.168.1.30", "192.168.1.43", "192.168.1.44", "192.168.1.45"]
+  },
+  "proxmox_vm_bridge_plan": {
+    "102": {"name": "lab-edge-01", "bridges": {"net0": "vmbr0", "net1": "vmbr1", "net2": "vmbr2", "net3": "vmbr3", "net4": "vmbr4"}},
+    "104": {"name": "siem-ingest", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
+    "105": {"name": "siem-processing", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
+    "106": {"name": "siem-storage", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
+    "107": {"name": "siem-web", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
+    "108": {"name": "siem-transport", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
+    "130": {"name": "gamepanel-01", "primary_bridge": "vmbr3"},
+    "100": {"name": "minecraft-01", "primary_bridge": "vmbr3"}
+  },
+  "notes": [
+    "192.168.1.0/24 is not used as a physical/client segment in this plan.",
+    "Old 192.168.1.x service addresses are preserved as /32 service aliases and routed by lab-edge-01.",
+    "If the new site must use 192.168.1.0/24 as a real users LAN, exact preservation of old 192.168.1.x service IPs is not possible without NAT/proxy."
+  ]
+}

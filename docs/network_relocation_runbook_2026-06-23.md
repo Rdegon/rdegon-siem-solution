@@ -2,6 +2,13 @@
 
 Date: 2026-06-23
 
+Superseded target: for the real segmented relocation, use
+`docs/full_segmentation_plan_2026-06-23.md` and
+`deploy/network_relocation/stage_full_segmentation.py`.
+The `site3` mode below is only a temporary compatibility fallback with NAT and
+port forwards; it is not the target design for the `sec`, `mgmt`, `users`,
+`lab`, `servers/games` segmentation.
+
 ## Goal
 
 Move the physical Proxmox host without breaking SIEM, service access, or VPN access.
