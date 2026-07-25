@@ -29,6 +29,8 @@ current references unless noted otherwise.
   Suricata coverage and staged OPNsense/SOC target design.
 - `vulnerability_exposure_management_2026-07-26.md` - non-duplicating vulnerability
   management, exposure prioritization, remediation and safe-validation runbook.
+- `home_soc_platform_target_2026-07-26.md` - current home SOC inventory,
+  non-duplicating target stack, service map and phased delivery order.
 - `network_relocation_runbook_2026-06-23.md` - legacy relocation fallback notes.
 - `live_service_placement_and_network_topology_2026-04-01.md` - service placement and topology.
 - `network_segmentation_rollout_2026-04-01.md` - previous segmentation rollout record.

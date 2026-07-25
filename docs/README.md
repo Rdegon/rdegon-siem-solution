@@ -17,6 +17,8 @@ and dated delivery records for the SIEM platform.
    and target NGFW/IPS/SOC design.
 10. `vulnerability_exposure_management_2026-07-26.md` - current Greenbone,
     KEV/EPSS, remediation and safe-validation architecture.
+11. `home_soc_platform_target_2026-07-26.md` - current home SOC capabilities,
+    missing analysis layers, target service map and rollout order.
 
 ## Current Runtime Truth
 
