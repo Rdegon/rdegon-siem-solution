@@ -130,7 +130,7 @@ class BotConfig:
 
 
 def load_config() -> BotConfig:
-    siem_base_url = _env("SIEM_BOT_BASE_URL", _env("SIEM_WEB_BASE_URL", "https://192.168.1.39")).rstrip("/")
+    siem_base_url = _env("SIEM_BOT_BASE_URL", _env("SIEM_WEB_BASE_URL", "https://192.168.3.102")).rstrip("/")
     open_base_url = _env("SIEM_BOT_OPEN_BASE_URL", siem_base_url).rstrip("/")
     return BotConfig(
         siem_base_url=siem_base_url,

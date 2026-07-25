@@ -12,6 +12,7 @@ and dated delivery records for the SIEM platform.
 5. `rules_audit_runbook.md` - rule audit and false-positive workflow.
 6. `power_recovery_autostart_2026-06-23.md` - current autostart/power recovery state.
 7. `full_segmentation_plan_2026-06-23.md` - target segmented network design.
+8. `network_cutover_2026-07-25.md` - deployed addresses, OPNsense status and validation.
 
 ## Current Runtime Truth
 

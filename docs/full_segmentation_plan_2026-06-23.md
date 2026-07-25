@@ -14,6 +14,10 @@ Validated after the site move on 2026-07-25:
 - traffic from `192.168.3.0/24` to internal segments is routed without source NAT so logs retain the real management-client IP;
 - only remote VPN source ranges are masqueraded toward internal segments.
 
+The deployed VM102 is Ubuntu 24.04 with nftables and Unbound. Despite stale
+historical labels, it is not OPNsense. No recoverable OPNsense image or
+configuration was found on the Proxmox host.
+
 Local management entry points:
 
 | Service | URL/address |
@@ -47,7 +51,9 @@ The previous `site3` mode was a compatibility bridge with NAT/port forwards. The
 | `lab` | `10.20.30.0/24` | `vmbr1` | `10.20.30.1` | Pilot, vuln, OpenClaw |
 | `users` | `10.20.40.0/24` | `vmbr4` | `10.20.40.1` | reserved internal users/client segment |
 
-`192.168.1.0/24` is no longer used as a physical segment in this plan. It becomes a legacy service-address space with host routes.
+`192.168.1.0/24` is no longer used as a physical segment in this plan. It is a
+temporary rollback address space only. Active SIEM service communication uses
+the `10.20.10.0/24` addresses.
 
 ## Service IP preservation
 

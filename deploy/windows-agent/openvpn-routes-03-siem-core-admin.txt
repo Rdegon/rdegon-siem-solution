@@ -1,6 +1,4 @@
 # Split-tunnel access to the core SIEM nodes for operator-assisted rollout.
 route-nopull
-route 192.168.1.35 255.255.255.255 vpn_gateway
-route 192.168.1.37 255.255.255.255 vpn_gateway
-route 192.168.1.38 255.255.255.255 vpn_gateway
-route 192.168.1.39 255.255.255.255 vpn_gateway
+route 10.20.10.0 255.255.255.0 vpn_gateway
+route 192.168.3.102 255.255.255.255 vpn_gateway

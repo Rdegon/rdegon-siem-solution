@@ -13,8 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-BASE_URL = os.getenv("RDEGON_SIEM_BASE_URL", "https://192.168.1.35")
-INGEST_URL = os.getenv("RDEGON_SIEM_VULN_INGEST_URL", "https://192.168.1.35:9445/")
+BASE_URL = os.getenv("RDEGON_SIEM_BASE_URL", "https://192.168.3.102")
+INGEST_URL = os.getenv("RDEGON_SIEM_VULN_INGEST_URL", "https://192.168.3.102:8443/")
 TARGETS_FILE = Path(os.getenv("RDEGON_VULN_TARGETS_FILE", "/opt/rdegon-siem-vuln/targets.txt"))
 REPORT_DIR = Path(os.getenv("RDEGON_VULN_REPORT_DIR", "/opt/rdegon-siem-vuln/reports"))
 NMAP_ARGS = os.getenv("RDEGON_VULN_NMAP_ARGS", "-Pn -sV -T4").split()

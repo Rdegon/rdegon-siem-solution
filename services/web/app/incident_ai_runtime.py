@@ -52,7 +52,7 @@ INCIDENT_AI_COLLECTION = "incident_ai_assessments"
 _OPENCLAW_VMID = 126
 _OPENCLAW_GUEST_TYPE = "qemu"
 _SEARCH_PROXY_ENV = ("SIEM_OPENCLAW_PROXY_URL", "SIEM_TELEGRAM_PROXY_URL")
-_SEARCH_USER_AGENT = "Mozilla/5.0 (compatible; RdegonSIEM/2026.03; +https://192.168.1.39)"
+_SEARCH_USER_AGENT = "Mozilla/5.0 (compatible; RdegonSIEM/2026.07; +https://192.168.3.102)"
 _ASSESSMENT_LOCK = threading.Lock()
 _RUNNING_ASSESSMENTS: set[str] = set()
 

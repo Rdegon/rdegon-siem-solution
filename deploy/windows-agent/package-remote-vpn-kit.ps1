@@ -76,7 +76,7 @@ OpenVPN path for remote Windows sources
 1. Import one of the .ovpn files from openvpn\shared-lab into OpenVPN Connect.
 2. Connect the tunnel.
 3. Verify access to the ingest edge:
-   Test-NetConnection 192.168.1.35 -Port 443
+   Test-NetConnection 192.168.3.102 -Port 8443
 4. Choose a profile from agent-profiles\ and install the agent:
    .\Rdegon.WindowsEventAgent.Setup-win-x64.exe doctor --profile .\agent-profiles\<profile>.json
    .\Rdegon.WindowsEventAgent.Setup-win-x64.exe install-service --profile .\agent-profiles\<profile>.json --start

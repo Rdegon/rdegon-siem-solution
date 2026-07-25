@@ -201,7 +201,7 @@ OPENCLAW_EXPECTED_RECON_PROCESSES = {
 OPENCLAW_AUDIT_SOCKET_KEYS = {"openclaw_send", "openclaw_connect"}
 GREENBONE_SCANNER_HOST = "vuln-mgr-01"
 GREENBONE_SCANNER_IPS = {"10.20.30.122"}
-SIEM_INTERNAL_SYSLOG_SOURCE_IP = "192.168.1.35"
+SIEM_INTERNAL_SYSLOG_INGEST_IPS = {"10.20.10.104", "192.168.1.35"}
 SIEM_INTERNAL_SYSLOG_TARGET_IP = "10.20.30.126"
 SIEM_INTERNAL_SYSLOG_PORT = "1514"
 SIEM_OPERATIONAL_SUDO_HOSTS = {
@@ -632,11 +632,16 @@ def _looks_like_internal_syslog_reconnect_noise(host_name: str, source_ip: str, 
     safe_message = str(message or "").strip().lower()
     if safe_host != OPENCLAW_EXPECTED_HOST:
         return False
-    if safe_source_ip == SIEM_INTERNAL_SYSLOG_SOURCE_IP and safe_source_port == SIEM_INTERNAL_SYSLOG_PORT:
+    if safe_source_ip in SIEM_INTERNAL_SYSLOG_INGEST_IPS and safe_source_port == SIEM_INTERNAL_SYSLOG_PORT:
         return True
-    if safe_source_ip == SIEM_INTERNAL_SYSLOG_SOURCE_IP and safe_destination_ip == SIEM_INTERNAL_SYSLOG_TARGET_IP:
+    if safe_source_ip in SIEM_INTERNAL_SYSLOG_INGEST_IPS and safe_destination_ip == SIEM_INTERNAL_SYSLOG_TARGET_IP:
         return True
-    return f"{SIEM_INTERNAL_SYSLOG_SOURCE_IP}:{SIEM_INTERNAL_SYSLOG_PORT}" in safe_message and (
+    if safe_destination_ip in SIEM_INTERNAL_SYSLOG_INGEST_IPS and safe_destination_port == SIEM_INTERNAL_SYSLOG_PORT:
+        return True
+    return any(
+        f"{ingest_ip}:{SIEM_INTERNAL_SYSLOG_PORT}" in safe_message
+        for ingest_ip in SIEM_INTERNAL_SYSLOG_INGEST_IPS
+    ) and (
         "connection refused" in safe_message or "closed connection" in safe_message or "omfwd" in safe_message
     )
 

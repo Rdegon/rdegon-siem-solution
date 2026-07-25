@@ -317,6 +317,16 @@ def _source_alias(source_key: str) -> str:
     return SOURCE_ALIAS_OVERRIDES.get(str(source_key or "").strip(), str(source_key or "").strip())
 
 
+def _canonicalize_source_health_row(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row or {})
+    canonical = _source_alias(str(payload.get("id") or payload.get("source") or ""))
+    if canonical:
+        payload["id"] = canonical
+        payload["source"] = _source_alias(str(payload.get("source") or canonical))
+        payload["source_alias"] = canonical
+    return payload
+
+
 def _guess_runtime_source_type(source_key: str, current_type: str) -> str:
     explicit_type = str(current_type or "").strip()
     if explicit_type and explicit_type not in {"unknown", "http_json", "syslog"}:
@@ -1051,7 +1061,10 @@ async def _load_replay_records(redis: Redis) -> dict[str, dict[str, Any]]:
 
 
 async def list_source_health(redis: Redis, *, limit: int = 200, include_excluded: bool = False) -> dict[str, Any]:
-    rows = [_health_row_with_runtime(_safe_json_loads(value, default={})) for value in await redis.hvals(SOURCE_HEALTH_HASH_KEY)]
+    rows = [
+        _health_row_with_runtime(_canonicalize_source_health_row(_safe_json_loads(value, default={})))
+        for value in await redis.hvals(SOURCE_HEALTH_HASH_KEY)
+    ]
     rows = [row for row in rows if row]
     rows.sort(key=lambda item: str(item.get("last_seen_ts") or ""), reverse=True)
     rows = _annotate_health_gating(rows)
@@ -1086,7 +1099,10 @@ async def list_collector_health(redis: Redis, *, limit: int = 200, include_exclu
     rows = [_health_row_with_runtime(_safe_json_loads(value, default={})) for value in await redis.hvals(COLLECTOR_HEALTH_HASH_KEY)]
     rows = [row for row in rows if row]
     rows.sort(key=lambda item: str(item.get("last_seen_ts") or ""), reverse=True)
-    source_rows = [_health_row_with_runtime(_safe_json_loads(value, default={})) for value in await redis.hvals(SOURCE_HEALTH_HASH_KEY)]
+    source_rows = [
+        _health_row_with_runtime(_canonicalize_source_health_row(_safe_json_loads(value, default={})))
+        for value in await redis.hvals(SOURCE_HEALTH_HASH_KEY)
+    ]
     source_rows = [row for row in source_rows if row]
     rows = _annotate_collector_gating(rows, source_rows=source_rows)
     operational_rows = [row for row in rows if not bool(row.get("health_gating_excluded"))]

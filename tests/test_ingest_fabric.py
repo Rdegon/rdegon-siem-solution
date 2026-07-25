@@ -309,6 +309,23 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(source_id=source_id):
                 self.assertEqual(alias, self.redis_client._source_alias(source_id))
 
+    async def test_source_health_hides_legacy_core_address(self) -> None:
+        await self.redis_client.push_raw_event(
+            self.fake_redis,
+            {
+                "source": "192.168.1.35",
+                "source_type": "Platform",
+                "collector": "host-runtime",
+                "collector_profile": "host-runtime",
+                "event.dataset": "host-runtime",
+            },
+        )
+
+        sources = await self.redis_client.list_source_health(self.fake_redis)
+
+        self.assertEqual(sources["items"][0]["id"], "siem-ingest")
+        self.assertEqual(sources["items"][0]["source_alias"], "siem-ingest")
+
     async def test_record_ingest_acceptance_batch_defers_runtime_bookkeeping(self) -> None:
         accepted_events: list[dict[str, object]] = []
         for suffix in ("42", "43"):

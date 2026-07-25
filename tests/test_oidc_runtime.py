@@ -50,11 +50,26 @@ class OidcRuntimeTests(unittest.TestCase):
         for name in (
             "SIEM_OIDC_ENABLED",
             "SIEM_OIDC_ISSUER_URL",
+            "SIEM_OIDC_BACKCHANNEL_DISCOVERY_URL",
             "SIEM_OIDC_CLIENT_ID",
             "SIEM_OIDC_STATUS_CACHE_SECONDS",
         ):
             os.environ.pop(name, None)
         _clear_fake_modules()
+
+    def test_provider_probe_can_use_internal_discovery_endpoint(self) -> None:
+        os.environ["SIEM_OIDC_BACKCHANNEL_DISCOVERY_URL"] = (
+            "http://127.0.0.1:8081/realms/siem/.well-known/openid-configuration"
+        )
+
+        self.assertEqual(
+            self.module._probe_discovery_endpoint(),
+            "http://127.0.0.1:8081/realms/siem/.well-known/openid-configuration",
+        )
+        self.assertEqual(
+            self.module._discovery_endpoint(),
+            "https://idp.example.test/realms/siem/.well-known/openid-configuration",
+        )
 
     def test_provider_status_uses_cache_between_calls(self) -> None:
         calls: list[int] = []

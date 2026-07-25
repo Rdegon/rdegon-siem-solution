@@ -240,6 +240,23 @@ class ServiceNormalizerCoreTests(unittest.TestCase):
         assert normalized is not None
         self.assertIn("allowlist:siem_internal_syslog_reconnect", normalized.get("tags") or [])
 
+    def test_segmented_internal_syslog_reconnect_noise_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": "omfwd: connection to 10.20.10.104:1514 closed connection",
+            "source": "openclaw-gateway",
+            "log_source": "openclaw-gateway",
+            "source.ip": "10.20.30.126",
+            "destination.ip": "10.20.10.104",
+            "destination.port": "1514",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertIn("allowlist:siem_internal_syslog_reconnect", normalized.get("tags") or [])
+
     def test_greenbone_expected_ssh_probe_is_allowlisted(self) -> None:
         raw_event = {
             "source_type": "syslog",

@@ -24,7 +24,7 @@ This directory contains the deployment scripts for the native Windows service ag
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\deploy\windows-agent\build-windows-event-agent.ps1 -CreateZip
-powershell.exe -ExecutionPolicy Bypass -File .\deploy\windows-agent\install-windows-event-agent.ps1 -BaseUrl "https://192.168.1.35" -StartAfterInstall
+powershell.exe -ExecutionPolicy Bypass -File .\deploy\windows-agent\install-windows-event-agent.ps1 -BaseUrl "https://192.168.3.102:8443" -StartAfterInstall
 powershell.exe -ExecutionPolicy Bypass -File .\deploy\windows-agent\get-windows-event-agent-status.ps1 -Detailed
 ```
 

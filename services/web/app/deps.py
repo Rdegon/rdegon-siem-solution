@@ -48,6 +48,7 @@ from .inventory_catalog import (
     CORE_PLATFORM_SOURCES,
     SOURCE_ALIAS_OVERRIDES,
     SOURCE_FRESHNESS_THRESHOLDS,
+    canonicalize_core_ip,
 )
 from .clickhouse_runtime import clickhouse_failover_status, clickhouse_replication_snapshot, get_clickhouse_client
 try:
@@ -616,7 +617,7 @@ def _alert_raw_operational_filter_sql() -> str:
 def _alert_agg_operational_filter_sql() -> str:
     haystack = (
         "concat("
-        "toString(rule_name), ' ', toString(entity_key), ' ', toString(source), ' ', "
+        "toString(rule_name), ' ', toString(entity_key), ' ', "
         "toString(group_key_json), ' ', toString(samples_json), ' ', "
         "toString(status), ' ', toString(assignee)"
         ")"
@@ -2299,7 +2300,6 @@ def _incident_selected_record(view: str, record_id: str, *, window: str = "24h",
 
 
 def _incident_raw_alert_rows(selected: Dict[str, Any], view: str, limit: int = 500) -> List[Dict[str, Any]]:
-    ensure_incident_workflow_support()
     if view == "raw":
         alert_id = str(selected.get("alert_id") or "").strip()
         alert_ids = [alert_id] if alert_id else []
@@ -2768,10 +2768,36 @@ INCIDENT_DETAIL_QUERY_SETTINGS = {
 }
 
 
-INCIDENT_DETAIL_COMMAND_QUERY_SETTINGS = {
-    "max_execution_time": 3,
-    "max_threads": 2,
-}
+INCIDENT_EVIDENCE_RADIUS_MINUTES = 45
+
+
+def _incident_evidence_time_clause(start_ts: str, end_ts: str) -> str:
+    if not start_ts or not end_ts:
+        return "ts >= now() - INTERVAL 24 HOUR"
+    safe_start = _clean_datetime_input(start_ts)
+    safe_end = _clean_datetime_input(end_ts)
+    start_dt = _parse_ts(safe_start)
+    end_dt = _parse_ts(safe_end)
+    if start_dt is None or end_dt is None:
+        return "ts >= now() - INTERVAL 24 HOUR"
+    if end_dt < start_dt:
+        start_dt, end_dt = end_dt, start_dt
+        safe_start, safe_end = safe_end, safe_start
+    radius = INCIDENT_EVIDENCE_RADIUS_MINUTES
+    if end_dt - start_dt <= timedelta(minutes=radius * 2):
+        return (
+            f"ts >= parseDateTimeBestEffort({_sql_quote(safe_start)}) - INTERVAL {radius} MINUTE "
+            f"AND ts <= parseDateTimeBestEffort({_sql_quote(safe_end)}) + INTERVAL {radius} MINUTE"
+        )
+    return (
+        "("
+        f"(ts >= parseDateTimeBestEffort({_sql_quote(safe_start)}) - INTERVAL {radius} MINUTE "
+        f"AND ts <= parseDateTimeBestEffort({_sql_quote(safe_start)}) + INTERVAL {radius} MINUTE) "
+        "OR "
+        f"(ts >= parseDateTimeBestEffort({_sql_quote(safe_end)}) - INTERVAL {radius} MINUTE "
+        f"AND ts <= parseDateTimeBestEffort({_sql_quote(safe_end)}) + INTERVAL {radius} MINUTE)"
+        ")"
+    )
 
 
 def _incident_should_run_command_priority_query(
@@ -2837,12 +2863,7 @@ def _incident_related_events(selected: Dict[str, Any], raw_alerts: List[Dict[str
     candidates = _incident_event_candidates(selected, raw_alerts)
     start_ts, end_ts = _incident_time_bounds(selected, raw_alerts)
     safe_limit = max(1, min(int(limit or 200), 500))
-    time_clause = "ts >= now() - INTERVAL 24 HOUR"
-    if start_ts and end_ts:
-        time_clause = (
-            f"ts >= parseDateTimeBestEffort({_sql_quote(start_ts)}) - INTERVAL 45 MINUTE "
-            f"AND ts <= parseDateTimeBestEffort({_sql_quote(end_ts)}) + INTERVAL 45 MINUTE"
-        )
+    time_clause = _incident_evidence_time_clause(start_ts, end_ts)
     entity_clauses: List[str] = []
     category_clauses: List[str] = []
     for value in candidates["hosts"]:
@@ -2867,24 +2888,9 @@ def _incident_related_events(selected: Dict[str, Any], raw_alerts: List[Dict[str
         where_scope = " OR ".join(category_clauses)
     else:
         where_scope = "1"
-    command_scope = " OR ".join(entity_clauses) if entity_clauses else where_scope
     event_sql = _incident_event_select_sql()
-    command_event_sql = _incident_event_select_sql()
     operational_filter = _event_operational_filter_sql()
     evidence_errors: List[str] = []
-    base_sql = f"""
-        SELECT *
-        FROM ({event_sql}) AS incident_events
-        WHERE {_combine_sql_filters(time_clause, operational_filter)}
-          AND ({where_scope})
-        ORDER BY ts DESC
-        LIMIT {safe_limit}
-    """
-    try:
-        result = _rows_from_query(base_sql, settings=INCIDENT_DETAIL_QUERY_SETTINGS)
-    except Exception as exc:  # noqa: BLE001
-        result = {"columns": [], "rows": []}
-        evidence_errors.append(f"related events query failed: {type(exc).__name__}: {str(exc)[:240]}")
     command_terms = (
         "positionCaseInsensitiveUTF8(concat(message, ' ', process_name, ' ', process_executable, ' ', process_command), 'powershell') > 0 "
         "OR positionCaseInsensitiveUTF8(concat(message, ' ', process_name, ' ', process_executable, ' ', process_command), 'cmd.exe') > 0 "
@@ -2895,24 +2901,24 @@ def _incident_related_events(selected: Dict[str, Any], raw_alerts: List[Dict[str
         "OR positionCaseInsensitiveUTF8(concat(message, ' ', process_name, ' ', process_executable, ' ', process_command), 'sudo') > 0 "
         "OR positionCaseInsensitiveUTF8(concat(message, ' ', process_name, ' ', process_executable, ' ', process_command), 'execve') > 0"
     )
-    command_sql = f"""
+    prioritize_commands = _incident_should_run_command_priority_query(selected, raw_alerts, candidates)
+    order_clause = f"({command_terms}) DESC, ts DESC" if prioritize_commands else "ts DESC"
+    base_sql = f"""
         SELECT *
-        FROM ({command_event_sql}) AS incident_command_events
+        FROM ({event_sql}) AS incident_events
         WHERE {_combine_sql_filters(time_clause, operational_filter)}
-          AND ({command_scope})
-          AND ({command_terms})
-        ORDER BY ts DESC
-        LIMIT 80
+          AND ({where_scope})
+        ORDER BY {order_clause}
+        LIMIT {safe_limit}
     """
-    command_result = {"columns": result.get("columns", []), "rows": []}
-    if _incident_should_run_command_priority_query(selected, raw_alerts, candidates):
-        try:
-            command_result = _rows_from_query(command_sql, settings=INCIDENT_DETAIL_COMMAND_QUERY_SETTINGS)
-        except Exception as exc:  # noqa: BLE001
-            evidence_errors.append(f"command evidence query failed: {type(exc).__name__}: {str(exc)[:240]}")
+    try:
+        result = _rows_from_query(base_sql, settings=INCIDENT_DETAIL_QUERY_SETTINGS)
+    except Exception as exc:  # noqa: BLE001
+        result = {"columns": [], "rows": []}
+        evidence_errors.append(f"related events query failed: {type(exc).__name__}: {str(exc)[:240]}")
     merged_rows: List[Dict[str, Any]] = []
     seen_event_ids: set[str] = set()
-    for row in [*command_result["rows"], *result["rows"]]:
+    for row in result["rows"]:
         event_id = str(row.get("event_id") or f"{row.get('ts')}:{row.get('message')}")
         if event_id in seen_event_ids:
             continue
@@ -2929,7 +2935,7 @@ def _incident_related_events(selected: Dict[str, Any], raw_alerts: List[Dict[str
         "row_count": len(merged_rows),
         "query_scope": candidates,
         "time_bounds": {"from": start_ts, "to": end_ts},
-        "sql": f"{base_sql}\n\n-- command-priority query\n{command_sql}",
+        "sql": base_sql,
         "partial": bool(evidence_errors),
         "errors": evidence_errors[:4],
     }
@@ -3873,7 +3879,6 @@ def fetch_alert_metrics() -> Dict[str, Any]:
     now_ts = time()
     if _ALERT_METRICS_CACHE and now_ts - _ALERT_METRICS_CACHE[0] < 15:
         return dict(_ALERT_METRICS_CACHE[1])
-    ensure_incident_workflow_support()
     operational_filter = _alert_raw_operational_filter_sql()
     metrics_query = f"""
         SELECT
@@ -4636,16 +4641,22 @@ def fetch_source_inventory(limit: int = 200, hours: int = 24) -> List[Dict[str, 
         entry["products"].update(item for item in products if item)
         entry["environments"].update(str(item) for item in row["environments"] if str(item or "").strip())
         entry["services"].update(str(item) for item in row["services"] if str(item or "").strip())
-        entry["observed_ips"].update(str(item) for item in row["observed_src_ips"] if str(item or "").strip())
-        entry["observed_ips"].update(str(item) for item in row["observed_dst_ips"] if str(item or "").strip())
+        entry["observed_ips"].update(
+            canonicalize_core_ip(item) for item in row["observed_src_ips"] if str(item or "").strip()
+        )
+        entry["observed_ips"].update(
+            canonicalize_core_ip(item) for item in row["observed_dst_ips"] if str(item or "").strip()
+        )
         raw_row_name = str(row["source_name"] or "").strip()
-        entry["source_ips"].update(_extract_ip_candidates(raw_row_name))
+        entry["source_ips"].update(canonicalize_core_ip(item) for item in _extract_ip_candidates(raw_row_name))
         if raw_row_name and raw_row_name != source_name:
             entry["aliases"].add(raw_row_name)
         if cmdb and not entry["cmdb_asset_id"]:
             entry["cmdb_asset_id"] = str((cmdb or {}).get("asset_id") or "")
             entry["cmdb_ip"] = str((cmdb or {}).get("ip") or "")
-            entry["source_ips"].update(_extract_ip_candidates(entry["cmdb_ip"]))
+            entry["source_ips"].update(
+                canonicalize_core_ip(item) for item in _extract_ip_candidates(entry["cmdb_ip"])
+            )
             entry["cmdb_owner"] = str((cmdb or {}).get("owner") or "")
             entry["cmdb_criticality"] = str((cmdb or {}).get("criticality") or "")
             entry["cmdb_environment"] = str((cmdb or {}).get("environment") or "")
@@ -7368,7 +7379,6 @@ def enforce_event_retention(older_than_hours: int, cold_retention_days: int) -> 
 
 
 def fetch_alert_history(view: str, record_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    ensure_incident_workflow_support()
     safe_limit = max(1, min(int(limit or 50), 200))
     cache_key = json.dumps([view, record_id, safe_limit], ensure_ascii=False, sort_keys=True)
     now_ts = time()

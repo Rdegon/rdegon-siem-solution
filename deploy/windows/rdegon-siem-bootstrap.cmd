@@ -4,7 +4,7 @@ setlocal
 set "SCRIPT=%USERPROFILE%\Documents\RdegonSIEM\rdegon-siem-collector.ps1"
 set "STATE=%LOCALAPPDATA%\RdegonSIEM\collector-state.json"
 set "TASK=RdegonSIEMCollector"
-set "BASEURL=https://192.168.1.35"
+set "BASEURL=https://192.168.3.102:8443"
 set "ROUTINGMODE=ports"
 set "SHAREDSECRET=%~1"
 

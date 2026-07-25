@@ -235,7 +235,7 @@ def _default_openvas_fleet_assets() -> list[dict[str, Any]]:
         {
             "asset_id": "siem-vm1",
             "hostname": "siem-ingest",
-            "ip": "192.168.1.35",
+            "ip": "10.20.10.104",
             "asset_type": "server",
             "owner": "platform",
             "criticality": "high",
@@ -250,7 +250,7 @@ def _default_openvas_fleet_assets() -> list[dict[str, Any]]:
         {
             "asset_id": "siem-vm2",
             "hostname": "siem-processing",
-            "ip": "192.168.1.37",
+            "ip": "10.20.10.105",
             "asset_type": "server",
             "owner": "platform",
             "criticality": "high",
@@ -265,7 +265,7 @@ def _default_openvas_fleet_assets() -> list[dict[str, Any]]:
         {
             "asset_id": "siem-vm3",
             "hostname": "siem-storage",
-            "ip": "192.168.1.38",
+            "ip": "10.20.10.106",
             "asset_type": "server",
             "owner": "platform",
             "criticality": "critical",
@@ -280,7 +280,7 @@ def _default_openvas_fleet_assets() -> list[dict[str, Any]]:
         {
             "asset_id": "siem-vm4",
             "hostname": "siem-web",
-            "ip": "192.168.1.39",
+            "ip": "10.20.10.107",
             "asset_type": "server",
             "owner": "platform",
             "criticality": "high",
@@ -295,7 +295,7 @@ def _default_openvas_fleet_assets() -> list[dict[str, Any]]:
         {
             "asset_id": "siem-vm5",
             "hostname": "siem-transport",
-            "ip": "192.168.1.40",
+            "ip": "10.20.10.108",
             "asset_type": "server",
             "owner": "platform",
             "criticality": "high",

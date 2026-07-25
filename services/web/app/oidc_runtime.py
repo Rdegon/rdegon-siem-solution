@@ -97,10 +97,14 @@ def _discovery_endpoint() -> str:
     return f"{issuer}/.well-known/openid-configuration"
 
 
+def _probe_discovery_endpoint() -> str:
+    return _string(os.getenv("SIEM_OIDC_BACKCHANNEL_DISCOVERY_URL")) or _discovery_endpoint()
+
+
 def _probe_provider() -> tuple[bool, list[str]]:
     if not oidc_enabled():
         return False, []
-    discovery = _discovery_endpoint()
+    discovery = _probe_discovery_endpoint()
     if not discovery:
         return False, ["oidc_discovery_missing"]
     try:

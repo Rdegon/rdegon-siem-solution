@@ -49,6 +49,86 @@ class EventIncidentQueryStabilityTests(unittest.TestCase):
         self.assertIn("normalized_json", command_sql)
         self.assertIn("asset_service", command_sql)
 
+    def test_aggregate_alert_filter_uses_only_aggregate_table_columns(self) -> None:
+        filter_sql = self.deps._alert_agg_operational_filter_sql()
+
+        self.assertNotIn("toString(source)", filter_sql)
+        self.assertIn("toString(group_key_json)", filter_sql)
+        self.assertIn("toString(samples_json)", filter_sql)
+
+    def test_short_incident_uses_one_contiguous_evidence_window(self) -> None:
+        clause = self.deps._incident_evidence_time_clause(
+            "2026-07-25 16:00:00",
+            "2026-07-25 16:30:00",
+        )
+
+        self.assertNotIn(" OR ", clause)
+        self.assertIn("2026-07-25 16:00:00", clause)
+        self.assertIn("2026-07-25 16:30:00", clause)
+
+    def test_long_incident_bounds_evidence_to_first_and_last_activity(self) -> None:
+        clause = self.deps._incident_evidence_time_clause(
+            "2026-07-25 01:00:00",
+            "2026-07-25 19:00:00",
+        )
+
+        self.assertIn(" OR ", clause)
+        self.assertEqual(4, clause.count("INTERVAL 45 MINUTE"))
+        self.assertNotIn(
+            "ts >= parseDateTimeBestEffort('2026-07-25 01:00:00') - INTERVAL 45 MINUTE "
+            "AND ts <= parseDateTimeBestEffort('2026-07-25 19:00:00') + INTERVAL 45 MINUTE",
+            clause,
+        )
+
+    def test_command_incident_uses_one_priority_query(self) -> None:
+        captured: list[str] = []
+
+        original_rows = self.deps._rows_from_query
+        original_filter = self.deps._event_operational_filter_sql
+        try:
+            self.deps._rows_from_query = lambda sql, **_: captured.append(sql) or {"columns": [], "rows": []}
+            self.deps._event_operational_filter_sql = lambda: "1"
+            self.deps._incident_related_events(
+                {
+                    "rule_name": "PowerShell execution",
+                    "entity_key": "test-host",
+                    "ts_first": "2026-07-25 16:00:00",
+                    "ts_last": "2026-07-25 16:05:00",
+                },
+                [],
+                limit=50,
+            )
+        finally:
+            self.deps._rows_from_query = original_rows
+            self.deps._event_operational_filter_sql = original_filter
+
+        self.assertEqual(1, len(captured))
+        self.assertIn("positionCaseInsensitiveUTF8", captured[0])
+        self.assertIn("DESC, ts DESC", captured[0])
+
+    def test_incident_history_read_does_not_run_schema_ddl(self) -> None:
+        class Result:
+            def named_results(self):
+                return []
+
+        class Client:
+            def query(self, _sql):
+                return Result()
+
+        original_client = self.deps.get_ch_client
+        original_ensure = self.deps.ensure_incident_workflow_support
+        try:
+            self.deps._ALERT_HISTORY_CACHE.clear()
+            self.deps.get_ch_client = lambda: Client()
+            self.deps.ensure_incident_workflow_support = lambda: (_ for _ in ()).throw(
+                AssertionError("read path must not execute schema DDL")
+            )
+
+            self.assertEqual([], self.deps.fetch_alert_history("agg", "agg:test"))
+        finally:
+            self.deps.get_ch_client = original_client
+            self.deps.ensure_incident_workflow_support = original_ensure
+
     def test_materialized_incident_key_ignores_volatile_storage_uuid(self) -> None:
         first = {
             "agg_id": "5c60de3f-2295-4ad1-b6a7-aee0a58d83b7",

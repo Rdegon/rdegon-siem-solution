@@ -101,7 +101,7 @@ $($package.Scenario)
 1. Import remote-vpn-access.ovpn into OpenVPN Connect.
 2. Connect the tunnel.
 3. Verify access:
-   Test-NetConnection 192.168.1.35 -Port 443
+   Test-NetConnection 192.168.3.102 -Port 8443
 4. Install the agent:
    .\Rdegon.WindowsEventAgent.Setup-win-x64.exe doctor --profile .\windows-agent-profile.current-install.json
    .\Rdegon.WindowsEventAgent.Setup-win-x64.exe install-service --profile .\windows-agent-profile.current-install.json --start

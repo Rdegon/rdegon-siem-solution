@@ -10,7 +10,7 @@ from typing import Any
 
 
 def _base_url() -> str:
-    return str(os.getenv("SIEM_INGEST_BASE_URL", "https://192.168.1.35") or "https://192.168.1.35").rstrip("/")
+    return str(os.getenv("SIEM_INGEST_BASE_URL", "https://10.20.10.104") or "https://10.20.10.104").rstrip("/")
 
 
 def _timeout_seconds() -> float:

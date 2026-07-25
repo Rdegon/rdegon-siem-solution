@@ -686,8 +686,16 @@ def scan_source_candidates(
     return payload
 
 
+def _public_ingest_forward_host() -> str:
+    return str(
+        os.getenv("SIEM_PUBLIC_INGEST_FORWARD_HOST")
+        or os.getenv("SIEM_INGEST_FORWARD_HOST")
+        or "192.168.3.102"
+    ).strip()
+
+
 def _linux_rsyslog_config() -> str:
-    ingest_host = str(os.getenv("SIEM_INGEST_FORWARD_HOST", "192.168.1.35") or "192.168.1.35").strip()
+    ingest_host = _public_ingest_forward_host()
     ingest_port = max(1, min(65535, _safe_int(os.getenv("SIEM_INGEST_FORWARD_PORT", "1514"), 1514)))
     return (
         "*.* action(type=\"omfwd\" "
@@ -716,7 +724,11 @@ def _windows_package_root() -> Path:
 
 
 def _public_ingest_base_url() -> str:
-    return str(os.getenv("SIEM_INGEST_BASE_URL", "https://192.168.1.35") or "https://192.168.1.35").rstrip("/")
+    return str(
+        os.getenv("SIEM_PUBLIC_INGEST_BASE_URL")
+        or os.getenv("SIEM_INGEST_BASE_URL")
+        or "https://192.168.3.102:8443"
+    ).rstrip("/")
 
 
 def _shared_secret_required() -> bool:
@@ -864,7 +876,7 @@ def _prepare_job_payload(candidate: dict[str, Any], actor: str, requested_teleme
         base["command_preview"] = [
             "upload /etc/rsyslog.d/90-rdegon-siem.conf",
             "restart rsyslog",
-            "verify TCP forwarding to 192.168.1.35:1514",
+            f"verify TCP forwarding to {_public_ingest_forward_host()}:1514",
         ]
         base["command_preview"].append(f"enable telemetry profiles: {', '.join(telemetry_selection)}")
         base["summary"] = "Prepare Linux syslog forwarding over SSH"
@@ -884,7 +896,8 @@ def _prepare_job_payload(candidate: dict[str, Any], actor: str, requested_teleme
         base["package_spec"] = package_spec
         return base
     if method == "network_cli_ssh":
-        plan = build_network_onboarding_plan(candidate, ingest_host="192.168.1.35", ingest_port=1514)
+        ingest_host = _public_ingest_forward_host()
+        plan = build_network_onboarding_plan(candidate, ingest_host=ingest_host, ingest_port=1514)
         base["credential_requirements"] = list(plan.get("credential_requirements") or [])
         base["config_preview"] = str(plan.get("config_preview") or "")
         base["command_preview"] = list(plan.get("command_preview") or [])
@@ -894,11 +907,14 @@ def _prepare_job_payload(candidate: dict[str, Any], actor: str, requested_teleme
         base["network_commands"] = list(plan.get("commands") or [])
         return base
     if method == "network_syslog_snippet":
-        plan = build_network_onboarding_plan(candidate, ingest_host="192.168.1.35", ingest_port=1514)
-        base["config_preview"] = str(plan.get("config_preview") or "logging host 192.168.1.35 transport tcp port 1514")
+        ingest_host = _public_ingest_forward_host()
+        plan = build_network_onboarding_plan(candidate, ingest_host=ingest_host, ingest_port=1514)
+        base["config_preview"] = str(
+            plan.get("config_preview") or f"logging host {ingest_host} transport tcp port 1514"
+        )
         base["command_preview"] = [
             "apply the generated CLI snippet manually",
-            "point device syslog to 192.168.1.35:1514/tcp",
+            f"point device syslog to {ingest_host}:1514/tcp",
         ]
         base["command_preview"].append(f"enable telemetry profiles: {', '.join(telemetry_selection)}")
         base["summary"] = "Prepare manual network syslog forwarding snippet"
@@ -986,9 +1002,10 @@ def _execute_network_job(job: dict[str, Any], credentials: dict[str, Any]) -> di
     vendor = str(job.get("network_vendor") or "cisco_ios").strip() or "cisco_ios"
     commands = [str(item) for item in (job.get("network_commands") or []) if str(item).strip()]
     if not commands:
+        ingest_host = _public_ingest_forward_host()
         plan = build_network_onboarding_plan(
             {"hostname": job.get("hostname"), "open_ports": [{"port": int(credentials.get("port") or 22)}]},
-            ingest_host="192.168.1.35",
+            ingest_host=ingest_host,
             ingest_port=1514,
         )
         commands = [str(item) for item in (plan.get("commands") or []) if str(item).strip()]

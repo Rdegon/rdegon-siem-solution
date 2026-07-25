@@ -120,7 +120,7 @@
                 </div>
                 <h3 class="panel-title" style="margin-top:12px;">Windows collector</h3>
                 <p class="page-note">Use the prepared PowerShell collector to push Security, Sysmon, PowerShell and System/Application events into the ingest API.</p>
-                <div class="sql-box mono">powershell -ExecutionPolicy Bypass -File deploy/windows/rdegon-siem-collector.ps1 -BaseUrl https://192.168.1.35&#10;Security -&gt; :9441&#10;Sysmon -&gt; :9442&#10;PowerShell -&gt; :9443&#10;System/Application -&gt; :9440</div>
+                <div class="sql-box mono">powershell -ExecutionPolicy Bypass -File deploy/windows/rdegon-siem-collector.ps1 -BaseUrl https://192.168.3.102:8443&#10;Security -&gt; :9441&#10;Sysmon -&gt; :9442&#10;PowerShell -&gt; :9443&#10;System/Application -&gt; :9440</div>
             </article>
             <article class="onboarding-card">
                 <div class="chip-row">
@@ -129,7 +129,7 @@
                 </div>
                 <h3 class="panel-title" style="margin-top:12px;">Linux family collector</h3>
                 <p class="page-note">Forward <span class="mono">auth/authpriv</span> and <span class="mono">auditd</span> into dedicated collector ports on the SIEM ingest node.</p>
-                <div class="sql-box mono">auth,authpriv.* -&gt; 192.168.1.35:1514/tcp&#10;local6.* -&gt; 192.168.1.35:1515/tcp&#10;imfile /var/log/audit/audit.log tag=\"auditd:\"</div>
+                <div class="sql-box mono">auth,authpriv.* -&gt; 10.20.10.104:1514/tcp&#10;local6.* -&gt; 10.20.10.104:1515/tcp&#10;imfile /var/log/audit/audit.log tag=\"auditd:\"</div>
             </article>
             <article class="onboarding-card">
                 <div class="chip-row">
@@ -138,7 +138,7 @@
                 </div>
                 <h3 class="panel-title" style="margin-top:12px;">Cisco / network devices</h3>
                 <p class="page-note">Point Cisco syslog to the SIEM ingest collector and normalize by source type inside the network collector path.</p>
-                <div class="sql-box mono">logging host 192.168.1.35 transport tcp port 1516&#10;logging trap informational&#10;logging facility local7</div>
+                <div class="sql-box mono">logging host 10.20.10.104 transport tcp port 1516&#10;logging trap informational&#10;logging facility local7</div>
             </article>
             <article class="onboarding-card">
                 <div class="chip-row">
@@ -147,7 +147,7 @@
                 </div>
                 <h3 class="panel-title" style="margin-top:12px;">Nextcloud app telemetry</h3>
                 <p class="page-note">Ship <span class="mono">nextcloud.log</span>, web access logs and optional audit app events through the application collector path.</p>
-                <div class="sql-box mono">tail/imfile /var/www/nextcloud/data/nextcloud.log&#10;nginx access/error -&gt; 192.168.1.35:1518/tcp&#10;or JSON HTTPS -&gt; https://192.168.1.35:9444/</div>
+                <div class="sql-box mono">tail/imfile /var/www/nextcloud/data/nextcloud.log&#10;nginx access/error -&gt; 10.20.10.104:1518/tcp&#10;or JSON HTTPS -&gt; https://192.168.3.102:8443/</div>
             </article>
             <article class="onboarding-card">
                 <div class="chip-row">
@@ -156,7 +156,7 @@
                 </div>
                 <h3 class="panel-title" style="margin-top:12px;">Vuln findings import</h3>
                 <p class="page-note">Feed Greenbone/OpenVAS or similar findings into CMDB/enrichment so detections and incidents can pivot on vulnerable assets.</p>
-                <div class="sql-box mono">collector path: vulnerability-import&#10;HTTPS ingest -&gt; https://192.168.1.35:9445/&#10;format: JSON/CSV findings with asset_id, cve, severity, service, port</div>
+                <div class="sql-box mono">collector path: vulnerability-import&#10;HTTPS ingest -&gt; https://192.168.3.102:8443/&#10;format: JSON/CSV findings with asset_id, cve, severity, service, port</div>
             </article>
             <article class="onboarding-card">
                 <div class="chip-row">

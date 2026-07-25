@@ -97,6 +97,20 @@ SOURCE_ALIAS_OVERRIDES: dict[str, str] = {
     "176.108.250.215": "vpn-host-khanov",
 }
 
+CURRENT_CORE_IP_BY_LEGACY: dict[str, str] = {
+    "192.168.1.35": "10.20.10.104",
+    "192.168.1.37": "10.20.10.105",
+    "192.168.1.38": "10.20.10.106",
+    "192.168.1.39": "10.20.10.107",
+    "192.168.1.40": "10.20.10.108",
+}
+
+
+def canonicalize_core_ip(value: Any) -> str:
+    text = str(value or "").strip()
+    return CURRENT_CORE_IP_BY_LEGACY.get(text, text)
+
+
 CORE_PLATFORM_SOURCES: set[str] = {
     "siem-ingest",
     "siem-processing",

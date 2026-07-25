@@ -34,6 +34,7 @@ benchmark output.
 5. [Rule audit runbook](docs/rules_audit_runbook.md)
 6. [Power recovery autostart](docs/power_recovery_autostart_2026-06-23.md)
 7. [Full network segmentation plan](docs/full_segmentation_plan_2026-06-23.md)
+8. [Deployed network cutover](docs/network_cutover_2026-07-25.md)
 
 ## Local Checks
 

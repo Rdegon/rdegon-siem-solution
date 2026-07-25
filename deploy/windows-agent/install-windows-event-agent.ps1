@@ -4,7 +4,7 @@ param(
     [string]$StateDirectory = "$env:ProgramData\RdegonSIEM\WindowsEventAgent",
     [string]$ServiceName = "RdegonWindowsEventAgent",
     [string]$DisplayName = "Rdegon Windows Event Agent",
-    [string]$BaseUrl = "https://192.168.1.35",
+    [string]$BaseUrl = "https://192.168.3.102:8443",
     [string]$SharedSecret = "",
     [string]$InstanceName = "default",
     [switch]$AllowInvalidServerCertificate,

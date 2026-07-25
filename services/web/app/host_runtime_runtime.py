@@ -205,11 +205,11 @@ def host_runtime_targets_from_env(env: dict[str, str] | None = None) -> list[dic
                     continue
                 add_target(item)
     defaults = [
-        {"host_name": "siem-ingest", "host_role": "ingest", "host_ip": "192.168.1.35"},
-        {"host_name": "siem-processing", "host_role": "processing", "host_ip": "192.168.1.37"},
-        {"host_name": "siem-storage", "host_role": "storage", "host_ip": "192.168.1.38"},
-        {"host_name": "siem-web", "host_role": "control-plane", "host_ip": "192.168.1.39"},
-        {"host_name": "siem-transport", "host_role": "transport", "host_ip": "192.168.1.40"},
+        {"host_name": "siem-ingest", "host_role": "ingest", "host_ip": "10.20.10.104"},
+        {"host_name": "siem-processing", "host_role": "processing", "host_ip": "10.20.10.105"},
+        {"host_name": "siem-storage", "host_role": "storage", "host_ip": "10.20.10.106"},
+        {"host_name": "siem-web", "host_role": "control-plane", "host_ip": "10.20.10.107"},
+        {"host_name": "siem-transport", "host_role": "transport", "host_ip": "10.20.10.108"},
     ]
     include_fleet = str(env_map.get("SIEM_HOST_RUNTIME_INCLUDE_FLEET", "1") or "1").strip().lower() not in {"0", "false", "no", "off"}
     for item in defaults:
