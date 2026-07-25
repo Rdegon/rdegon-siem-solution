@@ -25,6 +25,8 @@ current references unless noted otherwise.
 - `power_recovery_autostart_2026-06-23.md` - current power recovery and guest autostart state.
 - `full_segmentation_plan_2026-06-23.md` - target network segmentation plan.
 - `network_cutover_2026-07-25.md` - deployed segmented-network cutover and validation.
+- `soc_security_inventory_and_target_architecture_2026-07-25.md` - live security inventory,
+  Suricata coverage and staged OPNsense/SOC target design.
 - `network_relocation_runbook_2026-06-23.md` - legacy relocation fallback notes.
 - `live_service_placement_and_network_topology_2026-04-01.md` - service placement and topology.
 - `network_segmentation_rollout_2026-04-01.md` - previous segmentation rollout record.

@@ -57,7 +57,7 @@ class HostRuntimeDeliveryTests(unittest.TestCase):
         spec = wave_deploy.HOSTS[0]
         env_text = wave_deploy._host_runtime_env(
             spec,
-            ingest_url="https://192.168.1.35/ingest/json",
+            ingest_url="https://10.20.10.104/ingest/json",
             tls_verify="disabled",
             timeout_seconds="20",
         )
@@ -68,13 +68,44 @@ class HostRuntimeDeliveryTests(unittest.TestCase):
     def test_vm1_uses_local_ingest_target(self) -> None:
         url, tls_verify = wave_deploy._agent_ingest_target(
             wave_deploy.HOSTS[0],
-            ingest_url="https://192.168.1.35/ingest/json",
+            ingest_url="https://10.20.10.104/ingest/json",
             tls_verify="disabled",
             local_ingest_url="http://127.0.0.1:8443/ingest/json",
         )
 
         self.assertEqual("http://127.0.0.1:8443/ingest/json", url)
         self.assertEqual("disabled", tls_verify)
+
+    def test_deploy_file_sources_exist_in_clean_repository(self) -> None:
+        mappings = [*wave_deploy.COMMON_FILES, *wave_deploy.VM4_ONLY_FILES]
+        for local_path, _remote_path, _mode in mappings:
+            self.assertTrue((REPO_ROOT / local_path).is_file(), local_path)
+
+    def test_runtime_defaults_use_segmented_ingest_address(self) -> None:
+        self.assertNotIn("192.168.1.35", (REPO_ROOT / "deploy" / "host_runtime_agent.py").read_text(encoding="utf-8"))
+        self.assertNotIn("192.168.1.35", (REPO_ROOT / "deploy" / "host_runtime_monitor.py").read_text(encoding="utf-8"))
+        self.assertIn(
+            "target=\"10.20.10.104\"",
+            (REPO_ROOT / "deploy" / "common" / "90-siem-forward.conf").read_text(encoding="utf-8"),
+        )
+        audit_forward = (REPO_ROOT / "deploy" / "common" / "91-siem-audit-imfile.conf").read_text(encoding="utf-8")
+        self.assertEqual(
+            'module(load="imfile")',
+            (REPO_ROOT / "deploy" / "common" / "10-siem-imfile.conf").read_text(encoding="utf-8").strip(),
+        )
+        self.assertIn('target="10.20.10.104"', audit_forward)
+        self.assertIn('port="1515"', audit_forward)
+        self.assertIn('Ruleset="siem_audit_forward"', audit_forward)
+
+    def test_gamepanel_profile_avoids_duplicate_host_telemetry(self) -> None:
+        profile = (REPO_ROOT / "deploy" / "common" / "60-gamepanel-siem.conf").read_text(encoding="utf-8")
+        deployer = (REPO_ROOT / "deploy" / "proxmox_fleet_wave_deploy.py").read_text(encoding="utf-8")
+
+        self.assertIn('Ruleset="gamepanel_app_forward"', profile)
+        self.assertNotIn("/var/log/auth.log", profile)
+        self.assertNotIn("/var/log/audit/audit.log", profile)
+        self.assertIn('observer.ip=\\"10.20.20.130\\"', profile)
+        self.assertIn("if spec.vmid == 130:", deployer)
 
 
 if __name__ == "__main__":

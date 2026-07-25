@@ -13,6 +13,8 @@ and dated delivery records for the SIEM platform.
 6. `power_recovery_autostart_2026-06-23.md` - current autostart/power recovery state.
 7. `full_segmentation_plan_2026-06-23.md` - target segmented network design.
 8. `network_cutover_2026-07-25.md` - deployed addresses, OPNsense status and validation.
+9. `soc_security_inventory_and_target_architecture_2026-07-25.md` - security inventory
+   and target NGFW/IPS/SOC design.
 
 ## Current Runtime Truth
 

@@ -3,7 +3,8 @@ param(
     [string]$SetupExePath = "C:\Users\lolol\Documents\Playground\remote-edit2\artifacts\windows-event-agent\releases\20260322-current-install-v2\Rdegon.WindowsEventAgent.Setup-20260322-current-install-v2-win-x64.exe",
     [string]$BundleZipPath = "C:\Users\lolol\Documents\Playground\remote-edit2\artifacts\windows-event-agent\releases\20260322-current-install-v2\Rdegon.WindowsEventAgent-20260322-current-install-v2-win-x64.zip",
     [string]$BaseOpenVpnProfilePath = "",
-    [string]$OutputRoot = ""
+    [string]$OutputRoot = "",
+    [string]$IngestSharedSecret = $env:SIEM_INGEST_API_SHARED_SECRET
 )
 
 Set-StrictMode -Version Latest
@@ -25,6 +26,23 @@ function Resolve-AbsolutePath {
     return [System.IO.Path]::GetFullPath((Join-Path $BaseDirectory $expanded))
 }
 
+function Copy-AgentProfileWithSecret {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SharedSecret
+    )
+
+    $profile = Get-Content -LiteralPath $SourcePath -Raw | ConvertFrom-Json
+    $profile.sharedSecret = $SharedSecret
+    $profile | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $DestinationPath -Encoding UTF8
+}
+
 $repoRoot = Resolve-AbsolutePath -PathValue (Join-Path $PSScriptRoot "..\..")
 $resolvedSetupExePath = Resolve-AbsolutePath -PathValue $SetupExePath -BaseDirectory $repoRoot
 $resolvedBundleZipPath = Resolve-AbsolutePath -PathValue $BundleZipPath -BaseDirectory $repoRoot
@@ -35,6 +53,9 @@ if (-not (Test-Path -LiteralPath $resolvedSetupExePath)) {
 
 if (-not (Test-Path -LiteralPath $resolvedBundleZipPath)) {
     throw "Bundle zip not found: $resolvedBundleZipPath"
+}
+if ([string]::IsNullOrWhiteSpace($IngestSharedSecret)) {
+    throw "Set SIEM_INGEST_API_SHARED_SECRET or pass -IngestSharedSecret when building a sensitive distribution artifact."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
@@ -66,7 +87,10 @@ Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter "openvpn-routes-*.txt" |
 
 Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter "remote-vpn-profile-*.json" |
     ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $profileOutputRoot $_.Name) -Force
+        Copy-AgentProfileWithSecret `
+            -SourcePath $_.FullName `
+            -DestinationPath (Join-Path $profileOutputRoot $_.Name) `
+            -SharedSecret $IngestSharedSecret
     }
 
 @'
@@ -96,7 +120,8 @@ Recommended long-term path:
 - rebuild the route-limited .ovpn files with openvpn\build-openvpn-route-profile.ps1
 - rotate client certificates if a package leaves your control
 
-The Windows agent profiles in this kit contain the current ingest shared secret and should be treated as sensitive.
+The generated Windows agent profiles contain an ingest shared secret injected
+from the build environment. Source profiles in Git never contain it.
 '@ | Set-Content -Path (Join-Path $packageRoot "SECURITY_NOTE.md") -Encoding ASCII
 
 if (-not [string]::IsNullOrWhiteSpace($BaseOpenVpnProfilePath)) {

@@ -104,7 +104,7 @@
       "window_s": 900,
       "threshold": 3,
       "entity_field": "source.ip",
-      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (destination.port == 22 or event.type icontains 'ssh' or event.category == 'authentication'))) and not tags icontains 'allowlist:'",
+      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (destination.port == '22' or event.type icontains 'ssh' or event.category == 'authentication'))) and not tags icontains 'allowlist:'",
       "operator_action": "Check whether the source is spraying SSH or auth endpoints, review related failures, and escalate if the address also appears in GeoIP/TI context.",
       "scenario": "Public SSH password spray"
     }

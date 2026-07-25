@@ -116,6 +116,10 @@ class StreamCorrWorker:
         self._runtime_table = "siem.stream_corr_runtime_status"
         self._runtime_status_interval_sec = max(5, int(os.getenv("SIEM_STREAM_CORR_RUNTIME_STATUS_INTERVAL_SEC", "30") or "30"))
         self._min_alert_cooldown_sec = max(0, int(os.getenv("SIEM_STREAM_CORR_MIN_ALERT_COOLDOWN_SEC", "3600") or "3600"))
+        self._heartbeat_yield_every = max(
+            1,
+            int(os.getenv("SIEM_STREAM_CORR_HEARTBEAT_YIELD_EVERY", "100") or "100"),
+        )
         self._max_event_epoch_seen = 0.0
         self._last_event_epoch = 0.0
         self._late_events_total = 0
@@ -382,6 +386,12 @@ class StreamCorrWorker:
                         )
                         alerts_created += 1
 
+                if events_processed % self._heartbeat_yield_every == 0:
+                    await asyncio.sleep(0)
+
+            if self._sqlite_state is not None:
+                self._sqlite_state.flush()
+
             if alerts_to_insert:
                 try:
                     ch.execute(
@@ -512,8 +522,8 @@ class StreamCorrWorker:
             retention_floor = min(retention_floor, watermark_epoch - self._allowed_lateness_sec - rule.window_s)
 
         if self._sqlite_state is not None:
-            self._sqlite_state.append_event(rule.id, entity_key, mode, msg_id, event_epoch)
-            self._sqlite_state.trim_events(rule.id, entity_key, mode, retention_floor)
+            self._sqlite_state.append_event(rule.id, entity_key, mode, msg_id, event_epoch, commit=False)
+            self._sqlite_state.trim_events(rule.id, entity_key, mode, retention_floor, commit=False)
             current_count = int(self._sqlite_state.count_events(rule.id, entity_key, mode, window_start, event_epoch))
             last_alert_ts = float(self._sqlite_state.get_last_alert(rule.id, entity_key, mode))
         else:
@@ -550,7 +560,7 @@ class StreamCorrWorker:
             }
 
         if self._sqlite_state is not None:
-            self._sqlite_state.set_last_alert(rule.id, entity_key, mode, event_epoch)
+            self._sqlite_state.set_last_alert(rule.id, entity_key, mode, event_epoch, commit=False)
         else:
             assert self._state_redis is not None
             await self._state_redis.set(self._redis_key_last_alert(rule.id, entity_key, mode=mode), str(event_epoch))

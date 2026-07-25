@@ -35,6 +35,7 @@ benchmark output.
 6. [Power recovery autostart](docs/power_recovery_autostart_2026-06-23.md)
 7. [Full network segmentation plan](docs/full_segmentation_plan_2026-06-23.md)
 8. [Deployed network cutover](docs/network_cutover_2026-07-25.md)
+9. [SOC security inventory and target architecture](docs/soc_security_inventory_and_target_architecture_2026-07-25.md)
 
 ## Local Checks
 

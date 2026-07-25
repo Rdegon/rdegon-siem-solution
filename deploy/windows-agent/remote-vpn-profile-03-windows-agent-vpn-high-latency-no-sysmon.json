@@ -5,7 +5,7 @@
   "displayName": "Rdegon Windows Event Agent",
   "instanceName": "AUTO_MACHINE_NAME",
   "baseUrl": "https://192.168.3.102:8443",
-  "sharedSecret": "2f7715c3f0d841ad8d2bce0d5d7a0f6e",
+  "sharedSecret": "",
   "allowInvalidServerCertificate": true,
   "pollIntervalSeconds": 120,
   "batchSize": 100,

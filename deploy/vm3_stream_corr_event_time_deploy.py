@@ -208,6 +208,8 @@ def main() -> int:
     allowed_lateness_sec = str(int(os.getenv("SIEM_STREAM_CORR_ALLOWED_LATENESS_SEC", "600") or "600"))
     watermark_lag_sec = str(int(os.getenv("SIEM_STREAM_CORR_WATERMARK_LAG_SEC", "300") or "300"))
     batch_size = str(int(os.getenv("SIEM_STREAM_CORR_BATCH_SIZE", "1000") or "1000"))
+    heartbeat_yield_every = str(int(os.getenv("SIEM_STREAM_CORR_HEARTBEAT_YIELD_EVERY", "100") or "100"))
+    max_poll_interval_ms = str(int(os.getenv("SIEM_KAFKA_MAX_POLL_INTERVAL_MS", "1800000") or "1800000"))
     state_backend = str(os.getenv("SIEM_STREAM_STATE_BACKEND", "sqlite") or "sqlite").strip().lower()
     sqlite_path = str(os.getenv("SIEM_STREAM_STATE_SQLITE_PATH", "/var/lib/siem-stream-corr/runtime-state.db") or "/var/lib/siem-stream-corr/runtime-state.db").strip()
     service_user = str(os.getenv("SIEM_VM3_SERVICE_USER", "rdegon") or "rdegon").strip()
@@ -262,6 +264,8 @@ def main() -> int:
                 "SIEM_STREAM_CORR_ALLOWED_LATENESS_SEC": allowed_lateness_sec,
                 "SIEM_STREAM_CORR_WATERMARK_LAG_SEC": watermark_lag_sec,
                 "SIEM_STREAM_CORR_BATCH_SIZE": batch_size,
+                "SIEM_STREAM_CORR_HEARTBEAT_YIELD_EVERY": heartbeat_yield_every,
+                "SIEM_KAFKA_MAX_POLL_INTERVAL_MS": max_poll_interval_ms,
                 "SIEM_STREAM_STATE_BACKEND": state_backend,
                 "SIEM_STREAM_STATE_SQLITE_PATH": sqlite_path,
             },

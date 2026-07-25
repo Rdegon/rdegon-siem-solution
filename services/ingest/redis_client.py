@@ -327,6 +327,50 @@ def _canonicalize_source_health_row(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _merge_canonical_source_health_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    counter_fields = (
+        "events_total",
+        "accepted_total",
+        "rejected_total",
+        "replayed_total",
+        "synthetic_total",
+    )
+    for raw_row in rows:
+        row = _canonicalize_source_health_row(raw_row)
+        canonical = str(row.get("id") or row.get("source") or "").strip()
+        if not canonical:
+            continue
+        existing = merged.get(canonical)
+        if existing is None:
+            merged[canonical] = row
+            continue
+
+        latest = max(
+            (existing, row),
+            key=lambda item: _parse_ts(item.get("last_seen_ts")),
+        )
+        combined = dict(latest)
+        for field in counter_fields:
+            combined[field] = _safe_int(existing.get(field)) + _safe_int(row.get(field))
+        first_seen = min(
+            (
+                value
+                for value in (str(existing.get("first_seen_ts") or ""), str(row.get("first_seen_ts") or ""))
+                if value
+            ),
+            key=_parse_ts,
+            default="",
+        )
+        if first_seen:
+            combined["first_seen_ts"] = first_seen
+        combined["id"] = canonical
+        combined["source"] = canonical
+        combined["source_alias"] = canonical
+        merged[canonical] = combined
+    return list(merged.values())
+
+
 def _guess_runtime_source_type(source_key: str, current_type: str) -> str:
     explicit_type = str(current_type or "").strip()
     if explicit_type and explicit_type not in {"unknown", "http_json", "syslog"}:
@@ -1062,10 +1106,11 @@ async def _load_replay_records(redis: Redis) -> dict[str, dict[str, Any]]:
 
 async def list_source_health(redis: Redis, *, limit: int = 200, include_excluded: bool = False) -> dict[str, Any]:
     rows = [
-        _health_row_with_runtime(_canonicalize_source_health_row(_safe_json_loads(value, default={})))
+        _safe_json_loads(value, default={})
         for value in await redis.hvals(SOURCE_HEALTH_HASH_KEY)
     ]
     rows = [row for row in rows if row]
+    rows = [_health_row_with_runtime(row) for row in _merge_canonical_source_health_rows(rows)]
     rows.sort(key=lambda item: str(item.get("last_seen_ts") or ""), reverse=True)
     rows = _annotate_health_gating(rows)
     operational_rows = [row for row in rows if not bool(row.get("health_gating_excluded"))]
@@ -1100,10 +1145,11 @@ async def list_collector_health(redis: Redis, *, limit: int = 200, include_exclu
     rows = [row for row in rows if row]
     rows.sort(key=lambda item: str(item.get("last_seen_ts") or ""), reverse=True)
     source_rows = [
-        _health_row_with_runtime(_canonicalize_source_health_row(_safe_json_loads(value, default={})))
+        _safe_json_loads(value, default={})
         for value in await redis.hvals(SOURCE_HEALTH_HASH_KEY)
     ]
     source_rows = [row for row in source_rows if row]
+    source_rows = [_health_row_with_runtime(row) for row in _merge_canonical_source_health_rows(source_rows)]
     rows = _annotate_collector_gating(rows, source_rows=source_rows)
     operational_rows = [row for row in rows if not bool(row.get("health_gating_excluded"))]
     visible_rows = rows if include_excluded else operational_rows

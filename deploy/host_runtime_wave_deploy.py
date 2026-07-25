@@ -28,19 +28,21 @@ class HostSpec:
 
 
 HOSTS: tuple[HostSpec, ...] = (
-    HostSpec("SIEM_VM1", "siem-ingest", "ingest", "192.168.1.35", ("siem-ingest", "nginx")),
-    HostSpec("SIEM_VM2", "siem-processing", "processing", "192.168.1.37", ("siem-normalizer", "siem-normalizer@2", "siem-filter", "siem-filter@2")),
-    HostSpec("SIEM_VM3", "siem-storage", "storage", "192.168.1.38", ("clickhouse-server", "siem-writer", "siem-writer@2", "siem-stream-corr", "siem-batch-corr", "siem-alert-agg")),
-    HostSpec("SIEM_VM4", "siem-web", "control-plane", "192.168.1.39", ("siem-web", "nginx", "openvpn-client@home-gateway", "siem-jump-tunnels")),
-    HostSpec("SIEM_VM5", "siem-transport", "transport", "192.168.1.40", ("siem-kafka", "siem-normalizer@1", "siem-normalizer@2", "siem-filter@1", "siem-filter@2")),
+    HostSpec("SIEM_VM1", "siem-ingest", "ingest", "10.20.10.104", ("siem-ingest", "nginx")),
+    HostSpec("SIEM_VM2", "siem-processing", "processing", "10.20.10.105", ("siem-normalizer", "siem-normalizer@2", "siem-filter", "siem-filter@2")),
+    HostSpec("SIEM_VM3", "siem-storage", "storage", "10.20.10.106", ("clickhouse-server", "siem-writer", "siem-writer@2", "siem-stream-corr", "siem-batch-corr", "siem-alert-agg")),
+    HostSpec("SIEM_VM4", "siem-web", "control-plane", "10.20.10.107", ("siem-web", "nginx", "openvpn-client@home-gateway", "siem-jump-tunnels")),
+    HostSpec("SIEM_VM5", "siem-transport", "transport", "10.20.10.108", ("siem-kafka", "siem-normalizer@1", "siem-normalizer@2", "siem-filter@1", "siem-filter@2")),
 )
 
 COMMON_FILES = (
-    ("host_runtime_pipeline.py", "host_runtime_pipeline.py", "0644"),
+    ("services/web/app/host_runtime_pipeline.py", "host_runtime_pipeline.py", "0644"),
     ("deploy/host_runtime_agent.py", "deploy/host_runtime_agent.py", "0755"),
     (POLICY_FILE, "correlation_rule_packs/host_runtime_policy_v1.json", "0644"),
     ("deploy/common/siem-host-runtime-agent.service", "/etc/systemd/system/siem-host-runtime-agent.service", "0644"),
     ("deploy/common/siem-host-runtime-agent.timer", "/etc/systemd/system/siem-host-runtime-agent.timer", "0644"),
+    ("deploy/common/10-siem-imfile.conf", "/etc/rsyslog.d/10-siem-imfile.conf", "0644"),
+    ("deploy/common/91-siem-audit-imfile.conf", "/etc/rsyslog.d/91-siem-audit-imfile.conf", "0644"),
     ("deploy/common/90-siem-memory.conf", "/etc/systemd/journald.conf.d/90-siem-memory.conf", "0644"),
     ("deploy/common/siem-log-maintenance.sh", "/usr/local/bin/siem-log-maintenance.sh", "0755"),
     ("deploy/common/siem-log-maintenance.service", "/etc/systemd/system/siem-log-maintenance.service", "0644"),
@@ -48,8 +50,8 @@ COMMON_FILES = (
 )
 
 VM4_ONLY_FILES = (
-    ("host_runtime_runtime.py", "host_runtime_runtime.py", "0644"),
-    ("host_runtime_runtime.py", "services/web/app/host_runtime_runtime.py", "0644"),
+    ("services/web/app/host_runtime_runtime.py", "host_runtime_runtime.py", "0644"),
+    ("services/web/app/host_runtime_runtime.py", "services/web/app/host_runtime_runtime.py", "0644"),
     ("deploy/host_runtime_monitor.py", "deploy/host_runtime_monitor.py", "0755"),
     ("deploy/publish_host_runtime_rules.py", "deploy/publish_host_runtime_rules.py", "0755"),
     ("deploy/vm4/siem-host-runtime-monitor.service", "/etc/systemd/system/siem-host-runtime-monitor.service", "0644"),
@@ -202,7 +204,7 @@ def _agent_ingest_target(spec: HostSpec, *, ingest_url: str, tls_verify: str, lo
 
 def main() -> int:
     remote_root = _required_env("SIEM_REMOTE_ROOT", default=DEFAULT_REMOTE_ROOT)
-    ingest_url = _required_env("SIEM_HOST_RUNTIME_INGEST_URL", default="https://192.168.1.35/ingest/json")
+    ingest_url = _required_env("SIEM_HOST_RUNTIME_INGEST_URL", default="https://10.20.10.104/ingest/json")
     tls_verify = _required_env("SIEM_HOST_RUNTIME_INGEST_TLS_VERIFY", default="disabled")
     timeout_seconds = _required_env("SIEM_HOST_RUNTIME_TIMEOUT_SECONDS", default="20")
     local_ingest_url = _required_env("SIEM_HOST_RUNTIME_LOCAL_INGEST_URL", default="http://127.0.0.1:8443/ingest/json")

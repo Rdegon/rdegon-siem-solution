@@ -28,7 +28,7 @@ class CertificationRuntimeTests(unittest.TestCase):
             client = production_certification._connect_client_with_retry(
                 "192.168.1.37",
                 "rdegon",
-                "314159King.",
+                "unit-fixture-password-not-runtime",
                 attempts=2,
                 delay_seconds=0.0,
             )

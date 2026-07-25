@@ -48,6 +48,8 @@ class GuestSpec:
 
 
 GUESTS: tuple[GuestSpec, ...] = (
+    GuestSpec(100, "lxc", "minecraft-01", "guest", ("minecraft", "minecraft-admin-console", "nftables", "rsyslog")),
+    GuestSpec(102, "qemu", "lab-edge-01", "edge-router", ("suricata", "unbound", "nftables", "auditd", "rsyslog")),
     GuestSpec(120, "lxc", "nextcloud-siem", "business-app", ("apache2", "mariadb", "redis-server", "fail2ban", "webmin", "ssh", "rsyslog")),
     GuestSpec(
         121,
@@ -63,15 +65,17 @@ GUESTS: tuple[GuestSpec, ...] = (
     GuestSpec(124, "qemu", "pilot-db-01", "pilot-db", ("postgresql@14-main", "auditd", "ssh", "rsyslog")),
     GuestSpec(125, "qemu", "pilot-cache-01", "pilot-cache", ("docker", "pilot-valkey", "auditd", "ssh", "rsyslog"), needs_docker=True),
     GuestSpec(126, "qemu", "openclaw-gateway", "openclaw-gateway", ("openclaw-gateway", "openclaw-vless", "auditd", "systemd-resolved", "ssh", "rsyslog"), needs_openclaw=True),
+    GuestSpec(130, "qemu", "gamepanel-01", "guest", ("docker", "wings", "nginx", "auditd", "rsyslog")),
 )
 
 
 COMMON_REMOTE_FILES: tuple[tuple[str, str, str], ...] = (
-    ("host_runtime_pipeline.py", f"{REMOTE_ROOT}/host_runtime_pipeline.py", "0644"),
+    ("services/web/app/host_runtime_pipeline.py", f"{REMOTE_ROOT}/host_runtime_pipeline.py", "0644"),
     ("deploy/host_runtime_agent.py", f"{REMOTE_ROOT}/deploy/host_runtime_agent.py", "0755"),
     ("correlation_rule_packs/host_runtime_policy_v1.json", f"{REMOTE_ROOT}/correlation_rule_packs/host_runtime_policy_v1.json", "0644"),
     ("deploy/common/siem-host-runtime-agent.service", "/etc/systemd/system/siem-host-runtime-agent.service", "0644"),
     ("deploy/common/siem-host-runtime-agent.timer", "/etc/systemd/system/siem-host-runtime-agent.timer", "0644"),
+    ("deploy/common/10-siem-imfile.conf", "/etc/rsyslog.d/10-siem-imfile.conf", "0644"),
     ("deploy/common/90-siem-memory.conf", "/etc/systemd/journald.conf.d/90-siem-memory.conf", "0644"),
     ("deploy/common/siem-log-maintenance.sh", "/usr/local/bin/siem-log-maintenance.sh", "0755"),
     ("deploy/common/siem-log-maintenance.service", "/etc/systemd/system/siem-log-maintenance.service", "0644"),
@@ -242,11 +246,19 @@ def _install_common_monitoring_bundle(proxmox: paramiko.SSHClient, spec: GuestSp
     )
     for local_rel, remote_path, mode in COMMON_REMOTE_FILES:
         _guest_write_text(proxmox, spec, remote_path, _repo_text(local_rel), mode=mode)
+    if spec.vmid == 130:
+        _guest_write_text(
+            proxmox,
+            spec,
+            "/etc/rsyslog.d/60-gamepanel-siem.conf",
+            _repo_text("deploy/common/60-gamepanel-siem.conf"),
+            mode="0644",
+        )
     env_text = (
         f"SIEM_HOST_RUNTIME_HOSTNAME={spec.name}\n"
         f"SIEM_HOST_RUNTIME_ROLE={spec.role}\n"
         f"SIEM_HOST_RUNTIME_SERVICES={','.join(spec.services)}\n"
-        "SIEM_HOST_RUNTIME_INGEST_URL=https://192.168.1.35/ingest/json\n"
+        "SIEM_HOST_RUNTIME_INGEST_URL=https://10.20.10.104/ingest/json\n"
         "SIEM_HOST_RUNTIME_INGEST_TLS_VERIFY=disabled\n"
         "SIEM_HOST_RUNTIME_TIMEOUT_SECONDS=20\n"
         "SIEM_HOST_RUNTIME_DELIVERY_ATTEMPTS=4\n"

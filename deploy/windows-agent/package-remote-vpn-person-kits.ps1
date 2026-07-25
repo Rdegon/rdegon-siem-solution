@@ -3,7 +3,8 @@ param(
     [string]$SetupExePath = "C:\Users\lolol\Documents\Playground\remote-edit2\artifacts\windows-event-agent\releases\20260322-current-install-v2\Rdegon.WindowsEventAgent.Setup-20260322-current-install-v2-win-x64.exe",
     [Parameter(Mandatory = $true)]
     [string]$BaseOpenVpnProfilePath,
-    [string]$OutputRoot = ""
+    [string]$OutputRoot = "",
+    [string]$IngestSharedSecret = $env:SIEM_INGEST_API_SHARED_SECRET
 )
 
 Set-StrictMode -Version Latest
@@ -25,6 +26,23 @@ function Resolve-AbsolutePath {
     return [System.IO.Path]::GetFullPath((Join-Path $BaseDirectory $expanded))
 }
 
+function Copy-AgentProfileWithSecret {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SharedSecret
+    )
+
+    $profile = Get-Content -LiteralPath $SourcePath -Raw | ConvertFrom-Json
+    $profile.sharedSecret = $SharedSecret
+    $profile | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $DestinationPath -Encoding UTF8
+}
+
 $repoRoot = Resolve-AbsolutePath -PathValue (Join-Path $PSScriptRoot "..\..")
 $resolvedSetupExePath = Resolve-AbsolutePath -PathValue $SetupExePath -BaseDirectory $repoRoot
 $resolvedBaseOpenVpnProfilePath = Resolve-AbsolutePath -PathValue $BaseOpenVpnProfilePath -BaseDirectory $repoRoot
@@ -35,6 +53,9 @@ if (-not (Test-Path -LiteralPath $resolvedSetupExePath)) {
 
 if (-not (Test-Path -LiteralPath $resolvedBaseOpenVpnProfilePath)) {
     throw "Base OpenVPN profile not found: $resolvedBaseOpenVpnProfilePath"
+}
+if ([string]::IsNullOrWhiteSpace($IngestSharedSecret)) {
+    throw "Set SIEM_INGEST_API_SHARED_SECRET or pass -IngestSharedSecret when building a sensitive person kit."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
@@ -86,7 +107,10 @@ foreach ($package in $packages) {
     [System.IO.Directory]::CreateDirectory($packageRoot) | Out-Null
 
     Copy-Item -LiteralPath $resolvedSetupExePath -Destination (Join-Path $packageRoot "Rdegon.WindowsEventAgent.Setup-win-x64.exe") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $package.AgentProfile) -Destination (Join-Path $packageRoot "windows-agent-profile.current-install.json") -Force
+    Copy-AgentProfileWithSecret `
+        -SourcePath (Join-Path $PSScriptRoot $package.AgentProfile) `
+        -DestinationPath (Join-Path $packageRoot "windows-agent-profile.current-install.json") `
+        -SharedSecret $IngestSharedSecret
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\windows_agent_remote_vpn.md") -Destination (Join-Path $packageRoot "REMOTE_VPN_WINDOWS_AGENT_GUIDE.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "get-windows-event-agent-status.ps1") -Destination (Join-Path $packageRoot "get-windows-event-agent-status.ps1") -Force
 
@@ -119,7 +143,7 @@ Security note
 
 This package contains:
 - a working inline OpenVPN client profile
-- the current Windows agent ingest profile with the current ingest shared secret
+- a Windows agent profile with an ingest shared secret injected at build time
 
 Treat the whole package as sensitive.
 If you distribute beyond a controlled lab, replace the OpenVPN profile with a per-user inline client profile.

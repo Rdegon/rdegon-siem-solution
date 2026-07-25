@@ -326,6 +326,26 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sources["items"][0]["id"], "siem-ingest")
         self.assertEqual(sources["items"][0]["source_alias"], "siem-ingest")
 
+    async def test_source_health_merges_legacy_and_segmented_alias_records(self) -> None:
+        for source in ("192.168.1.35", "10.20.10.104"):
+            await self.redis_client.push_raw_event(
+                self.fake_redis,
+                {
+                    "source": source,
+                    "source_type": "Platform",
+                    "collector": "syslog_tcp",
+                    "collector_profile": "linux-audit",
+                    "event.dataset": "linux-audit",
+                },
+            )
+
+        sources = await self.redis_client.list_source_health(self.fake_redis)
+
+        self.assertEqual(1, sources["metrics"]["total"])
+        self.assertEqual(2, sources["metrics"]["events_total"])
+        self.assertEqual("siem-ingest", sources["items"][0]["id"])
+        self.assertEqual(2, sources["items"][0]["accepted_total"])
+
     async def test_record_ingest_acceptance_batch_defers_runtime_bookkeeping(self) -> None:
         accepted_events: list[dict[str, object]] = []
         for suffix in ("42", "43"):

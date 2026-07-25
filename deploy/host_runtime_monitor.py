@@ -29,7 +29,7 @@ except Exception:  # noqa: BLE001
 
 
 def _ingest_url() -> str:
-    return str(os.getenv("SIEM_HOST_RUNTIME_INGEST_URL", "https://192.168.1.35/ingest/json") or "https://192.168.1.35/ingest/json").strip()
+    return str(os.getenv("SIEM_HOST_RUNTIME_INGEST_URL", "https://10.20.10.104/ingest/json") or "https://10.20.10.104/ingest/json").strip()
 
 
 def _timeout_seconds() -> float:

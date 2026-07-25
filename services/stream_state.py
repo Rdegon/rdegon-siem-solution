@@ -92,7 +92,16 @@ class SQLiteStreamState:
             )
             self._conn.commit()
 
-    def append_event(self, rule_id: int, entity_key: str, mode: str, message_id: str, event_epoch: float) -> None:
+    def append_event(
+        self,
+        rule_id: int,
+        entity_key: str,
+        mode: str,
+        message_id: str,
+        event_epoch: float,
+        *,
+        commit: bool = True,
+    ) -> None:
         with self._lock:
             self._conn.execute(
                 """
@@ -101,9 +110,18 @@ class SQLiteStreamState:
                 """,
                 (int(rule_id), str(entity_key), str(mode), str(message_id), float(event_epoch)),
             )
-            self._conn.commit()
+            if commit:
+                self._conn.commit()
 
-    def trim_events(self, rule_id: int, entity_key: str, mode: str, retention_floor: float) -> None:
+    def trim_events(
+        self,
+        rule_id: int,
+        entity_key: str,
+        mode: str,
+        retention_floor: float,
+        *,
+        commit: bool = True,
+    ) -> None:
         with self._lock:
             self._conn.execute(
                 """
@@ -112,7 +130,8 @@ class SQLiteStreamState:
                 """,
                 (int(rule_id), str(entity_key), str(mode), float(retention_floor)),
             )
-            self._conn.commit()
+            if commit:
+                self._conn.commit()
 
     def count_events(self, rule_id: int, entity_key: str, mode: str, window_start: float, event_epoch: float) -> int:
         with self._lock:
@@ -138,7 +157,15 @@ class SQLiteStreamState:
             ).fetchone()
         return float((row or [0.0])[0] or 0.0)
 
-    def set_last_alert(self, rule_id: int, entity_key: str, mode: str, event_epoch: float) -> None:
+    def set_last_alert(
+        self,
+        rule_id: int,
+        entity_key: str,
+        mode: str,
+        event_epoch: float,
+        *,
+        commit: bool = True,
+    ) -> None:
         with self._lock:
             self._conn.execute(
                 """
@@ -149,6 +176,11 @@ class SQLiteStreamState:
                 """,
                 (int(rule_id), str(entity_key), str(mode), float(event_epoch)),
             )
+            if commit:
+                self._conn.commit()
+
+    def flush(self) -> None:
+        with self._lock:
             self._conn.commit()
 
     def write_runtime_meta(self, payload: dict[str, Any]) -> None:

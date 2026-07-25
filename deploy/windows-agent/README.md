@@ -34,6 +34,11 @@ powershell.exe -ExecutionPolicy Bypass -File .\deploy\windows-agent\get-windows-
 powershell.exe -ExecutionPolicy Bypass -File .\deploy\windows-agent\package-windows-event-agent.ps1
 ```
 
+Remote VPN profile templates contain no ingest secret. Set
+`SIEM_INGEST_API_SHARED_SECRET` only in the packaging process; the remote-kit
+scripts inject it into the generated artifact under the ignored `artifacts`
+tree.
+
 This creates a self-contained release archive that already includes:
 
 - the native service executable

@@ -72,6 +72,8 @@ BALANCED_PROFILE: tuple[HostProfile, ...] = (
             "SIEM_CH_PORT": "9000",
             "SIEM_CH_TIMEOUT_SECS": "30",
             "SIEM_STREAM_CORR_RUNTIME_STATUS_INTERVAL_SEC": "15",
+            "SIEM_STREAM_CORR_HEARTBEAT_YIELD_EVERY": "100",
+            "SIEM_KAFKA_MAX_POLL_INTERVAL_MS": "1800000",
         },
         restart_units=("siem-writer.service", "siem-writer@2.service", "siem-stream-corr.service"),
     ),
