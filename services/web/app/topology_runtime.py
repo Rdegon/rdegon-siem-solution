@@ -42,7 +42,7 @@ SOURCE_IDENTITY_OVERRIDES: dict[str, dict[str, str]] = {
         "topology_lane": "inventory",
     },
     "opnsense-edge-01": {
-        "hostname": "opnsense-edge-01",
+        "hostname": "lab-edge-01",
         "ip": "192.168.3.102",
         "source_kind": "virtual_router",
         "entity_role": "edge-router",

@@ -299,7 +299,7 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         expected = {
             "192.168.3.81": "DESKTOP-5JMJVBH",
             "192.168.3.101": "pve",
-            "192.168.3.102": "opnsense-edge-01",
+            "192.168.3.102": "lab-edge-01",
             "10.20.10.104": "siem-ingest",
             "10.20.10.108": "siem-transport",
             "10.20.20.100": "minecraft-01",

@@ -28,15 +28,15 @@ _DEFAULT_PROXMOX_PORT = 8006
 
 _GUEST_HINTS: dict[str, dict[str, Any]] = {
     "102": {
-        "name": "opnsense-edge-01",
+        "name": "lab-edge-01",
         "ip": "192.168.3.102",
         "guest_type": "qemu",
-        "os_family": "bsd",
+        "os_family": "linux",
         "role": "edge-router",
-        "business_service": "OPNsense lab edge and DNS appliance",
+        "business_service": "Linux edge router, firewall and DNS",
         "criticality": "medium",
         "tags": ["proxmox-fleet", "edge-appliance", "router", "dns", "ngfw"],
-        "source_name": "opnsense-edge-01",
+        "source_name": "lab-edge-01",
         "monitoring_enabled": True,
     },
     "104": {
