@@ -29,7 +29,7 @@ _DEFAULT_PROXMOX_PORT = 8006
 _GUEST_HINTS: dict[str, dict[str, Any]] = {
     "102": {
         "name": "opnsense-edge-01",
-        "ip": "192.168.1.102",
+        "ip": "192.168.3.102",
         "guest_type": "qemu",
         "os_family": "bsd",
         "role": "edge-router",
@@ -41,7 +41,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
     },
     "104": {
         "name": "siem-ingest",
-        "ip": "192.168.1.35",
+        "ip": "10.20.10.104",
         "guest_type": "qemu",
         "os_family": "linux",
         "role": "ingest",
@@ -53,7 +53,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
     },
     "105": {
         "name": "siem-processing",
-        "ip": "192.168.1.37",
+        "ip": "10.20.10.105",
         "guest_type": "qemu",
         "os_family": "linux",
         "role": "processing",
@@ -65,7 +65,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
     },
     "106": {
         "name": "siem-storage",
-        "ip": "192.168.1.38",
+        "ip": "10.20.10.106",
         "guest_type": "qemu",
         "os_family": "linux",
         "role": "storage",
@@ -77,7 +77,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
     },
     "107": {
         "name": "siem-web",
-        "ip": "192.168.1.39",
+        "ip": "10.20.10.107",
         "guest_type": "qemu",
         "os_family": "linux",
         "role": "control-plane",
@@ -89,7 +89,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
     },
     "108": {
         "name": "siem-transport",
-        "ip": "192.168.1.40",
+        "ip": "10.20.10.108",
         "guest_type": "qemu",
         "os_family": "linux",
         "role": "transport",
@@ -101,6 +101,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
     },
     "111": {
         "name": "WIN-RTX-test",
+        "ip": "192.168.3.81",
         "guest_type": "qemu",
         "os_family": "windows",
         "role": "workstation",

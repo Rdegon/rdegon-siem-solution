@@ -48,6 +48,9 @@ DLQ_LIST_SCAN_MAX_ROWS = 2_000
 DLQ_REPLAY_SCAN_MULTIPLIER = 100
 DLQ_REPLAY_SCAN_MAX_ROWS = 10_000
 SOURCE_ALIAS_OVERRIDES = {
+    "192.168.3.81": "DESKTOP-5JMJVBH",
+    "192.168.3.101": "pve",
+    "192.168.3.102": "opnsense-edge-01",
     "192.168.1.102": "opnsense-edge-01",
     "192.168.1.35": "siem-ingest",
     "192.168.1.37": "siem-processing",
@@ -56,6 +59,18 @@ SOURCE_ALIAS_OVERRIDES = {
     "192.168.1.101": "pve",
     "192.168.1.120": "nextcloud-siem",
     "192.168.1.121": "vuln-siem",
+    "10.20.10.1": "opnsense-edge-01",
+    "10.20.10.104": "siem-ingest",
+    "10.20.10.105": "siem-processing",
+    "10.20.10.106": "siem-storage",
+    "10.20.10.107": "siem-web",
+    "10.20.10.108": "siem-transport",
+    "10.20.20.1": "opnsense-edge-01",
+    "10.20.20.100": "minecraft-01",
+    "10.20.20.120": "nextcloud-siem",
+    "10.20.20.121": "navidrome-01",
+    "10.20.20.130": "gamepanel-01",
+    "10.20.30.1": "opnsense-edge-01",
     "10.20.30.122": "vuln-mgr-01",
     "10.20.30.123": "pilot-web-01",
     "10.20.30.124": "pilot-db-01",

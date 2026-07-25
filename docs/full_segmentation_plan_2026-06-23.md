@@ -2,6 +2,32 @@
 
 Date: 2026-06-23
 
+## Current deployed state
+
+Validated after the site move on 2026-07-25:
+
+- operator workstation: `192.168.3.81`;
+- Proxmox: `192.168.3.101`;
+- `lab-edge-01`: `192.168.3.102`;
+- all `sec`, `servers/games`, `lab`, and `users` bridges are present;
+- SIEM and service guests use their `10.20.x` segment address as primary and retain required `192.168.1.x/32` aliases;
+- traffic from `192.168.3.0/24` to internal segments is routed without source NAT so logs retain the real management-client IP;
+- only remote VPN source ranges are masqueraded toward internal segments.
+
+Local management entry points:
+
+| Service | URL/address |
+| --- | --- |
+| Proxmox | `https://192.168.3.101:8006/` |
+| SIEM Web | `https://192.168.3.102/` |
+| SIEM Ingest health | `https://192.168.3.102:8443/health` |
+| Nextcloud | `https://192.168.3.102:9443/` |
+| Navidrome | `http://192.168.3.102:9444/` |
+| Gamepanel | `http://192.168.3.102:9445/` |
+| Minecraft | `192.168.3.102:25565` |
+| BlueMap | `http://192.168.3.102:8100/` |
+| Minecraft admin | `http://192.168.3.102:8111/` |
+
 ## Correction
 
 The previous `site3` mode was a compatibility bridge with NAT/port forwards. The target state is now a real segmentation model:
@@ -75,3 +101,5 @@ Do not execute generated cutover scripts over SSH. Use local Proxmox console.
 6. Verify SIEM ingest, Kafka, ClickHouse, Web, rsyslog and alerts through the new segments.
 7. Disable old SIEM `vmbr0` NICs only after guest validation.
 8. Only after all env files are moved to DNS/10.20.x, consider removing legacy `/32` service aliases.
+
+The WireGuard service on Proxmox is enabled and starts automatically. End-to-end VPN readiness still depends on the remote peer producing a current handshake; a running local service alone is not sufficient evidence of remote reachability.

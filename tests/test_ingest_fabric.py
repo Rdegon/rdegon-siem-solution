@@ -295,6 +295,20 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview["sources"]["metrics"]["total"], 1)
         self.assertEqual(overview["collectors"]["metrics"]["total"], 1)
 
+    async def test_relocated_source_aliases_use_current_network_identities(self) -> None:
+        expected = {
+            "192.168.3.81": "DESKTOP-5JMJVBH",
+            "192.168.3.101": "pve",
+            "192.168.3.102": "opnsense-edge-01",
+            "10.20.10.104": "siem-ingest",
+            "10.20.10.108": "siem-transport",
+            "10.20.20.100": "minecraft-01",
+            "10.20.20.130": "gamepanel-01",
+        }
+        for source_id, alias in expected.items():
+            with self.subTest(source_id=source_id):
+                self.assertEqual(alias, self.redis_client._source_alias(source_id))
+
     async def test_record_ingest_acceptance_batch_defers_runtime_bookkeeping(self) -> None:
         accepted_events: list[dict[str, object]] = []
         for suffix in ("42", "43"):

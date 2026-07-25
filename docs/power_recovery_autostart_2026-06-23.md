@@ -32,15 +32,18 @@ Startup order:
 - Proxmox storage: all storages active.
 - Proxmox failed units: `0`.
 - VM/LXC state: all listed guests running.
+- Management addresses: workstation `192.168.3.81`, Proxmox `192.168.3.101`, edge entry point `192.168.3.102`.
 - HTTP checks:
-  - `https://192.168.1.35/health` -> `200`
-  - `https://192.168.1.39/` -> `307`
-  - `https://10.20.20.120/` -> `302`
-  - `http://10.20.20.121/` -> `302`
-  - `http://192.168.1.30/` -> `200`
-  - `http://192.168.1.32:8111/` -> `401`
+  - `https://192.168.3.102:8443/health` -> `200`
+  - `https://192.168.3.102/` -> `307`
+  - `https://192.168.3.102:9443/` -> `302`
+  - `http://192.168.3.102:9444/` -> `302`
+  - `http://192.168.3.102:9445/` -> `200`
+  - `http://192.168.3.102:8111/` -> `401`
 - SIEM events: `siem.events` had more than 5k events in the last 10 minutes during validation.
 - Windows source `WIN-RTX-test`: `RdegonSIEMCollector` scheduled task is active and sending events to Ingest; Sysmon is running and automatic.
+- Kafka consumer lag was `0` after recovery.
+- `siem-segment-routes`, `siem-vpn-access`, and `wg-quick@wg0` are enabled on Proxmox. The remote WireGuard peer must have a fresh handshake before VPN access can be considered available.
 
 ## Post-power-on checks
 
@@ -53,8 +56,9 @@ systemctl is-enabled pve-guests
 qm list
 pct list
 pvesm status
-curl -k -m 5 -s -o /dev/null -w '%{http_code}\n' https://192.168.1.35/health
-curl -k -m 5 -s -o /dev/null -w '%{http_code}\n' https://192.168.1.39/
+curl -k -m 5 -s -o /dev/null -w '%{http_code}\n' https://192.168.3.102:8443/health
+curl -k -m 5 -s -o /dev/null -w '%{http_code}\n' https://192.168.3.102/
+wg show wg0 latest-handshakes
 ```
 
 Run on `SIEM-Storage`:

@@ -129,6 +129,52 @@ class HomelabWatchdogTests(unittest.TestCase):
         self.assertEqual([], state["problems"])
         self.assertEqual("healthy", state["edge_status"])
 
+    def test_collect_critical_ingest_state_prefers_healthy_relocated_sources(self) -> None:
+        state = _collect_critical_ingest_state(
+            sources={
+                "items": [
+                    {
+                        "collector_profile": "app",
+                        "source_alias": "pve",
+                        "id": "192.168.1.101",
+                        "status": "stale",
+                        "seconds_since_last_seen": 3600,
+                    },
+                    {
+                        "collector_profile": "app",
+                        "source_alias": "192.168.3.101",
+                        "id": "192.168.3.101",
+                        "status": "healthy",
+                        "seconds_since_last_seen": 3,
+                    },
+                    {
+                        "collector_profile": "linux-auth",
+                        "source_alias": "192.168.3.102",
+                        "id": "192.168.1.102",
+                        "status": "stale",
+                        "seconds_since_last_seen": 3600,
+                    },
+                    {
+                        "collector_profile": "linux-auth",
+                        "source_alias": "lab-edge-01",
+                        "id": "192.168.3.102",
+                        "status": "healthy",
+                        "seconds_since_last_seen": 2,
+                    },
+                ]
+            },
+            collectors={
+                "items": [
+                    {"collector_profile": "app", "status": "healthy"},
+                    {"collector_profile": "linux-auth", "status": "healthy"},
+                    {"collector_profile": "linux-audit", "status": "healthy"},
+                ]
+            },
+        )
+        self.assertTrue(state["healthy"])
+        self.assertEqual("healthy", state["pve_app_status"])
+        self.assertEqual("healthy", state["edge_status"])
+
     def test_collect_critical_ingest_state_flags_missing_vpn_path(self) -> None:
         state = _collect_critical_ingest_state(
             sources={"items": [{"collector_profile": "app", "source_alias": "pve", "status": "healthy"}]},

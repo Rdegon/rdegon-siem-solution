@@ -9,12 +9,21 @@ import urllib.error
 from http.cookiejar import CookieJar
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
+from typing import Callable
 
 import paramiko
 
 
 CRITICAL_INGEST_COLLECTOR_PROFILES = ("app", "linux-auth", "linux-audit")
-EDGE_VPN_SOURCE_ALIASES = {"192.168.1.102", "opnsense-edge-01", "lab-edge-01"}
+PVE_SOURCE_ALIASES = {"192.168.1.101", "192.168.3.101", "pve"}
+EDGE_VPN_SOURCE_ALIASES = {
+    "192.168.1.102",
+    "192.168.3.102",
+    "10.20.10.1",
+    "10.20.30.1",
+    "opnsense-edge-01",
+    "lab-edge-01",
+}
 MAX_SMOKE_ARTIFACT_CLEANUP_PER_TYPE = 25
 DEFAULT_HTTP_TIMEOUT_SECONDS = 20.0
 SLOW_API_TIMEOUT_SECONDS = 75.0
@@ -439,6 +448,26 @@ def _item_status(item: dict[str, object]) -> str:
     return str(item.get("status") or item.get("health") or "").strip().lower()
 
 
+def _best_source_item(
+    items: list[dict[str, object]],
+    predicate: Callable[[dict[str, object]], bool],
+) -> dict[str, object] | None:
+    candidates = [item for item in items if predicate(item)]
+    if not candidates:
+        return None
+
+    status_rank = {"healthy": 4, "delayed": 3, "stale": 2, "missing": 1}
+
+    def sort_key(item: dict[str, object]) -> tuple[int, float]:
+        try:
+            lag = float(item.get("seconds_since_last_seen") or float("inf"))
+        except (TypeError, ValueError):
+            lag = float("inf")
+        return status_rank.get(_item_status(item), 0), -lag
+
+    return max(candidates, key=sort_key)
+
+
 def _collect_critical_ingest_state(*, sources: dict[str, object], collectors: dict[str, object]) -> dict[str, object]:
     collector_items = [dict(item) for item in list(collectors.get("items") or [])]
     source_items = [dict(item) for item in list(sources.get("items") or [])]
@@ -459,45 +488,41 @@ def _collect_critical_ingest_state(*, sources: dict[str, object], collectors: di
         if status != "healthy":
             problems.append(f"collector:{profile}:{status}")
 
-    pve_app = next(
-        (
-            item
-            for item in source_items
-            if str(item.get("collector_profile") or item.get("ingest_profile") or "").strip().lower() == "app"
-            and "pve" in " ".join(
-                str(item.get(field) or "").strip().lower()
-                for field in ("source", "source_alias", "id")
+    pve_app = _best_source_item(
+        source_items,
+        lambda item: (
+            str(item.get("collector_profile") or item.get("ingest_profile") or "").strip().lower() == "app"
+            and (
+                "pve" in " ".join(
+                    str(item.get(field) or "").strip().lower()
+                    for field in ("source", "source_alias", "id")
+                )
+                or any(
+                    str(item.get(field) or "").strip().lower() in PVE_SOURCE_ALIASES
+                    for field in ("source", "source_alias", "id")
+                )
             )
         ),
-        None,
     )
     if _item_status(pve_app or {}) != "healthy":
         problems.append(f"source:pve/app:{_item_status(pve_app or {}) or 'missing'}")
 
-    vpn_source = next(
-        (
-            item
-            for item in source_items
-            if (
+    vpn_source = _best_source_item(
+        source_items,
+        lambda item: (
                 str(item.get("collector_profile") or item.get("ingest_profile") or "").strip().lower() == "vpn"
                 or (
                     str(item.get("collector_profile") or item.get("ingest_profile") or "").strip().lower() == "linux-auth"
                     and str(item.get("source") or item.get("source_alias") or "").strip() == "127.0.0.1"
                 )
-            )
         ),
-        None,
     )
-    edge_source = next(
-        (
-            item
-            for item in source_items
-            if any(
+    edge_source = _best_source_item(
+        source_items,
+        lambda item: any(
                 str(item.get(field) or "").strip().lower() in EDGE_VPN_SOURCE_ALIASES
                 for field in ("source", "source_alias", "id")
-            )
         ),
-        None,
     )
     vpn_ready = _item_status(vpn_source or {}) == "healthy" or _item_status(edge_source or {}) == "healthy"
     if not vpn_ready:

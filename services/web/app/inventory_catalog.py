@@ -49,6 +49,9 @@ COMMON_SERVICE_PORTS: dict[int, str] = {
 }
 
 SOURCE_ALIAS_OVERRIDES: dict[str, str] = {
+    "192.168.3.81": "DESKTOP-5JMJVBH",
+    "192.168.3.101": "pve",
+    "192.168.3.102": "opnsense-edge-01",
     "192.168.1.22": "DESKTOP-5JMJVBH",
     "192.168.1.102": "opnsense-edge-01",
     "192.168.1.35": "siem-ingest",
@@ -66,8 +69,10 @@ SOURCE_ALIAS_OVERRIDES: dict[str, str] = {
     "10.20.10.107": "siem-web",
     "10.20.10.108": "siem-transport",
     "10.20.20.1": "opnsense-edge-01",
+    "10.20.20.100": "minecraft-01",
     "10.20.20.120": "nextcloud-siem",
     "10.20.20.121": "navidrome-01",
+    "10.20.20.130": "gamepanel-01",
     "10.20.30.1": "opnsense-edge-01",
     "10.20.30.122": "vuln-mgr-01",
     "10.20.30.123": "pilot-web-01",

@@ -1,6 +1,6 @@
 param(
     [string]$IngestUrl = "",
-    [string]$BaseUrl = "https://192.168.1.35",
+    [string]$BaseUrl = "https://192.168.3.102:8443",
     [string]$StatePath = "C:\ProgramData\RdegonSIEM\collector-state.json",
     [string]$LogPath = "C:\ProgramData\RdegonSIEM\collector.log",
     [int]$BatchSize = 80,
@@ -30,9 +30,34 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$legacyIngestBaseUrl = "https://192.168.1.35"
+if ($BaseUrl.TrimEnd("/") -eq $legacyIngestBaseUrl) {
+    $BaseUrl = "https://192.168.3.102:8443"
+}
+
 function Initialize-Tls {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    if (-not ("RdegonSiemCertificatePolicy" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+public static class RdegonSiemCertificatePolicy
+{
+    public static readonly RemoteCertificateValidationCallback Callback = Validate;
+
+    private static bool Validate(
+        object sender,
+        X509Certificate certificate,
+        X509Chain chain,
+        SslPolicyErrors errors)
+    {
+        return true;
+    }
+}
+"@
+    }
+    [Net.ServicePointManager]::ServerCertificateValidationCallback = [RdegonSiemCertificatePolicy]::Callback
 }
 
 function Ensure-StateDirectory {

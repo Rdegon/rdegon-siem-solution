@@ -35,7 +35,7 @@ PUBLIC_IP_PROFILES: dict[str, dict[str, str]] = {
 SOURCE_IDENTITY_OVERRIDES: dict[str, dict[str, str]] = {
     "pve": {
         "hostname": "pve",
-        "ip": "192.168.1.28",
+        "ip": "192.168.3.101",
         "source_kind": "proxmox_host",
         "entity_role": "proxmox-hypervisor",
         "source_type_label": "Proxmox host",
@@ -43,7 +43,7 @@ SOURCE_IDENTITY_OVERRIDES: dict[str, dict[str, str]] = {
     },
     "opnsense-edge-01": {
         "hostname": "opnsense-edge-01",
-        "ip": "192.168.1.102",
+        "ip": "192.168.3.102",
         "source_kind": "virtual_router",
         "entity_role": "edge-router",
         "source_type_label": "Virtual router",
@@ -51,6 +51,7 @@ SOURCE_IDENTITY_OVERRIDES: dict[str, dict[str, str]] = {
     },
     "lab-edge-01": {
         "hostname": "lab-edge-01",
+        "ip": "192.168.3.102",
         "source_kind": "virtual_router",
         "entity_role": "edge-router",
         "source_type_label": "Virtual router",

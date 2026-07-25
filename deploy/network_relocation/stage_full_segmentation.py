@@ -161,8 +161,8 @@ table inet filter {{
     iifname "lo" accept
     ct state established,related accept
     ip protocol icmp accept
-    iifname "eth0" ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24 }} tcp dport {{ 22, 53 }} accept
-    iifname "eth0" ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24 }} udp dport 53 accept
+    iifname "eth0" ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24, 10.66.66.0/24 }} tcp dport {{ 22, 53 }} accept
+    iifname "eth0" ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24, 10.66.66.0/24 }} udp dport 53 accept
     iifname {{ "eth1", "eth2", "eth3", "eth4" }} tcp dport {{ 22, 53 }} accept
     iifname {{ "eth1", "eth2", "eth3", "eth4" }} udp dport 53 accept
     log prefix "nft-input-drop " level notice
@@ -171,11 +171,15 @@ table inet filter {{
   chain forward {{
     type filter hook forward priority 0; policy drop;
     ct state established,related accept
+    iifname "eth1" oifname "eth1" accept
+    iifname "eth2" oifname "eth2" accept
+    iifname "eth3" oifname "eth3" accept
+    iifname "eth4" oifname "eth4" accept
     iifname "eth2" oifname {{ "eth1", "eth3", "eth4", "eth0" }} accept
     iifname "eth3" oifname {{ "eth2", "eth0" }} accept
     iifname "eth1" oifname {{ "eth2", "eth3", "eth0" }} accept
     iifname "eth4" oifname {{ "eth2", "eth3", "eth0" }} accept
-    iifname "eth0" ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24 }} oifname {{ "eth1", "eth2", "eth3", "eth4" }} accept
+    iifname "eth0" ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24, 10.66.66.0/24 }} oifname {{ "eth1", "eth2", "eth3", "eth4" }} accept
     log prefix "nft-forward-drop " level notice
     drop
   }}
@@ -184,10 +188,27 @@ table inet filter {{
   }}
 }}
 table ip nat {{
+  chain prerouting {{
+    type nat hook prerouting priority dstnat; policy accept;
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 80 dnat to {sec["hosts"]["siem-web"]}:80
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 443 dnat to {sec["hosts"]["siem-web"]}:443
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8443 dnat to {sec["hosts"]["siem-ingest"]}:443
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 1514-1518 dnat to {sec["hosts"]["siem-ingest"]}
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} udp dport 1514-1518 dnat to {sec["hosts"]["siem-ingest"]}
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 9443 dnat to {servers["hosts"]["nextcloud-siem"]}:443
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 9444 dnat to {servers["hosts"]["navidrome-01"]}:80
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 9445 dnat to {servers["hosts"]["gamepanel-01"]}:80
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 2022 dnat to {servers["hosts"]["gamepanel-01"]}:2022
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8080 dnat to {servers["hosts"]["gamepanel-01"]}:8080
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 25565 dnat to {servers["hosts"]["minecraft-01"]}:25565
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} udp dport 25565 dnat to {servers["hosts"]["minecraft-01"]}:25565
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8100 dnat to {servers["hosts"]["minecraft-01"]}:8100
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8111 dnat to {servers["hosts"]["minecraft-01"]}:8111
+  }}
   chain postrouting {{
     type nat hook postrouting priority srcnat; policy accept;
     ip saddr {{ {sec["cidr"]}, {servers["cidr"]}, {lab["cidr"]}, {users["cidr"]} }} oifname "eth0" masquerade
-    ip saddr {{ {mgmt["cidr"]}, 10.10.10.0/24 }} oifname {{ "eth1", "eth2", "eth3", "eth4" }} masquerade
+    ip saddr {{ 10.10.10.0/24, 10.66.66.0/24 }} oifname {{ "eth1", "eth2", "eth3", "eth4" }} masquerade
   }}
 }}
 NFT
@@ -207,6 +228,7 @@ access = [
   '  access-control: {lab["cidr"]} allow',
   '  access-control: {users["cidr"]} allow',
   '  access-control: 10.10.10.0/24 allow',
+  '  access-control: 10.66.66.0/24 allow',
 ]
 lines = [line for line in text.splitlines() if not line.strip().startswith('access-control:')]
 try:
