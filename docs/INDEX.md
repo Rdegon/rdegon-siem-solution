@@ -27,6 +27,8 @@ current references unless noted otherwise.
 - `network_cutover_2026-07-25.md` - deployed segmented-network cutover and validation.
 - `soc_security_inventory_and_target_architecture_2026-07-25.md` - live security inventory,
   Suricata coverage and staged OPNsense/SOC target design.
+- `vulnerability_exposure_management_2026-07-26.md` - non-duplicating vulnerability
+  management, exposure prioritization, remediation and safe-validation runbook.
 - `network_relocation_runbook_2026-06-23.md` - legacy relocation fallback notes.
 - `live_service_placement_and_network_topology_2026-04-01.md` - service placement and topology.
 - `network_segmentation_rollout_2026-04-01.md` - previous segmentation rollout record.

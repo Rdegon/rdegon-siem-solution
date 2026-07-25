@@ -9125,6 +9125,10 @@ def import_greenbone_reports(limit: int = 20) -> Dict[str, Any]:
     return _vuln_store().import_greenbone_reports(limit=limit)
 
 
+def start_vulnerability_scans(asset_ids: List[str], limit: int = 25) -> Dict[str, Any]:
+    return _vuln_store().start_vulnerability_scans(asset_ids=asset_ids, limit=limit)
+
+
 def get_report_artifact_path(report_id: str) -> str:
     try:
         return str(_vuln_store().get_report_artifact_path(report_id))

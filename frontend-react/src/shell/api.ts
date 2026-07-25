@@ -105,6 +105,7 @@ import type {
   LocalUsersResponse,
   NetworkTopologyResponse,
   VulnCveRow,
+  VulnExposureWorkbenchResponse,
   VulnFindingRow,
   VulnHostRow,
   VulnIntegrationContractResponse,
@@ -352,6 +353,14 @@ export const api = {
     getJson<VulnMaturityResponse>(`/api/vuln/maturity${toQuery(params)}`),
   vulnApplyPolicies: (body: Record<string, unknown>) =>
     postJson<VulnPolicyApplyResponse>("/api/vuln/policies/apply", body),
+  vulnWorkbench: (params: { days?: number; limit?: number } = {}) =>
+    getJson<VulnExposureWorkbenchResponse>(`/api/vuln/workbench${toQuery(params)}`),
+  vulnSyncIntelligence: (body: Record<string, unknown>) =>
+    postJson<RuntimeBlob>("/api/vuln/intelligence/sync", body),
+  vulnApplyExposure: (body: Record<string, unknown>) =>
+    postJson<VulnPolicyApplyResponse>("/api/vuln/exposure/apply", body),
+  vulnStartScans: (body: { asset_ids: string[]; limit?: number }) =>
+    postJson<VulnSyncResponse>("/api/vuln/scans/start", body),
   vulnSync: (body: Record<string, unknown>) => postJson<VulnSyncResponse>("/api/vuln/sync", body),
   vulnImport: (body: Record<string, unknown>) => postJson<VulnSyncResponse>("/api/vuln/import", body),
   vulnIntegrationContract: () => getJson<VulnIntegrationContractResponse>("/api/vuln/integration-contract"),

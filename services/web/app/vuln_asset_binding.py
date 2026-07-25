@@ -19,6 +19,12 @@ def _normalize_hostname(value: Any) -> str:
 
 def _short_hostname(value: Any) -> str:
     hostname = _normalize_hostname(value)
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return hostname
     return hostname.split(".", 1)[0] if hostname else ""
 
 

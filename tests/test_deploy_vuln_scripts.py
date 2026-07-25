@@ -28,6 +28,21 @@ def _load_script(path: Path, module_name: str):
 
 
 class DeployVulnerabilityScriptsTests(unittest.TestCase):
+    def test_greenbone_feed_sync_defers_during_active_scans(self) -> None:
+        script = (REPO_ROOT / "deploy" / "vuln" / "rdegon_greenbone_feed_sync.sh").read_text(encoding="utf-8")
+        service = (
+            REPO_ROOT / "deploy" / "vuln" / "systemd" / "rdegon-greenbone-feed-sync.service"
+        ).read_text(encoding="utf-8")
+        timer = (
+            REPO_ROOT / "deploy" / "vuln" / "systemd" / "rdegon-greenbone-feed-sync.timer"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("[o]penvas --scan-start", script)
+        self.assertIn("greenbone-feed-sync", script)
+        self.assertIn("--user gvm", script)
+        self.assertIn("CPUQuota=200%", service)
+        self.assertIn("Persistent=true", timer)
+
     def test_greenbone_sync_script_imports_and_runs(self) -> None:
         with patch.dict(os.environ, MINIMAL_WEB_ENV, clear=False):
             module = _load_script(REPO_ROOT / "deploy" / "vuln" / "rdegon_greenbone_sync.py", "test_rdegon_greenbone_sync")

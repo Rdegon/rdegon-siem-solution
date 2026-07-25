@@ -1,0 +1,59 @@
+---
+- name: Collect safe vulnerability validation evidence
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    vuln_case_id: ""
+    vuln_package: ""
+    vuln_service: ""
+    vuln_port: 0
+
+  pre_tasks:
+    - name: Validate the evidence request
+      ansible.builtin.assert:
+        that:
+          - vuln_case_id | string | length > 0
+          - vuln_package | string | length > 0 or vuln_service | string | length > 0 or vuln_port | int > 0
+          - vuln_package | string | length == 0 or vuln_package is match('^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$')
+          - vuln_service | string | length == 0 or vuln_service is match('^[A-Za-z0-9@_.:-]{1,128}$')
+          - vuln_port | int >= 0
+          - vuln_port | int <= 65535
+        fail_msg: "A linked case and at least one strictly validated package, service, or port are required."
+
+  tasks:
+    - name: Collect installed packages
+      ansible.builtin.package_facts:
+        manager: auto
+      when: vuln_package | string | length > 0
+
+    - name: Collect service states
+      ansible.builtin.service_facts:
+      when: vuln_service | string | length > 0
+
+    - name: Collect listening sockets
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -lntup
+      register: vuln_socket_evidence
+      changed_when: false
+      when: vuln_port | int > 0
+
+    - name: Publish validation evidence
+      ansible.builtin.debug:
+        msg:
+          case_id: "{{ vuln_case_id }}"
+          host: "{{ inventory_hostname }}"
+          package: "{{ vuln_package }}"
+          package_facts: "{{ ansible_facts.packages.get(vuln_package, []) if vuln_package | string | length > 0 else [] }}"
+          service: "{{ vuln_service }}"
+          service_fact: "{{ ansible_facts.services.get(vuln_service, {}) if vuln_service | string | length > 0 else {} }}"
+          port: "{{ vuln_port | int }}"
+          socket_lines: >-
+            {{
+              (vuln_socket_evidence.stdout_lines | default([]))
+              | select('search', ':' ~ (vuln_port | string) ~ '([^0-9]|$)')
+              | list
+            }}
+          validation_profile: safe-read-only

@@ -1,0 +1,51 @@
+---
+- name: Apply an approved vulnerability package update
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    vuln_case_id: ""
+    vuln_approval_ticket: ""
+    vuln_package: ""
+    vuln_allowed_packages: []
+
+  pre_tasks:
+    - name: Enforce remediation governance
+      ansible.builtin.assert:
+        that:
+          - vuln_case_id | string | length > 0
+          - vuln_approval_ticket | string | length > 0
+          - vuln_package is match('^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$')
+          - vuln_allowed_packages is sequence
+          - vuln_allowed_packages is not string
+          - vuln_package in vuln_allowed_packages
+        fail_msg: "A linked case, approval ticket, and explicitly allowlisted package are required."
+
+  tasks:
+    - name: Collect package state before remediation
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Record previous package state
+      ansible.builtin.set_fact:
+        vuln_package_before: "{{ ansible_facts.packages.get(vuln_package, []) }}"
+
+    - name: Update the allowlisted package
+      ansible.builtin.package:
+        name: "{{ vuln_package }}"
+        state: latest
+
+    - name: Refresh package state after remediation
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Publish remediation evidence
+      ansible.builtin.debug:
+        msg:
+          case_id: "{{ vuln_case_id }}"
+          approval_ticket: "{{ vuln_approval_ticket }}"
+          host: "{{ inventory_hostname }}"
+          package: "{{ vuln_package }}"
+          before: "{{ vuln_package_before }}"
+          after: "{{ ansible_facts.packages.get(vuln_package, []) }}"
+          next_step: "Run safe validation and a targeted Greenbone rescan."

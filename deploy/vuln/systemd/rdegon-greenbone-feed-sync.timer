@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Greenbone feed synchronization in the nightly maintenance window
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 Europe/Moscow
+RandomizedDelaySec=15m
+Persistent=true
+Unit=rdegon-greenbone-feed-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Rdegon Greenbone vulnerability feed synchronization
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rdegon-greenbone-feed-sync
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=200%
+TimeoutStartSec=6h

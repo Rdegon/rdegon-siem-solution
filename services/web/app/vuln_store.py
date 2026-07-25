@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import lru_cache
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 
 VULN_ASSET_BINDING_TABLE = "siem.vuln_asset_bindings"
@@ -553,6 +553,59 @@ def sync_vulnerability_targets(limit: int = 500) -> Dict[str, Any]:
     for item in result.get("items", []):
         item["last_sync_ts"] = timestamp
     _upsert_vuln_asset_bindings(result.get("items", []))
+    return result
+
+
+def start_vulnerability_scans(asset_ids: Iterable[str], limit: int = 25) -> Dict[str, Any]:
+    try:
+        from .vuln_greenbone import start_tasks
+    except ImportError:  # pragma: no cover - local test fallback
+        from vuln_greenbone import start_tasks  # type: ignore[no-redef]
+
+    requested_ids = {
+        str(asset_id or "").strip()
+        for asset_id in asset_ids
+        if str(asset_id or "").strip()
+    }
+    if not requested_ids:
+        raise ValueError("At least one asset_id is required")
+    effective_limit = max(1, min(100, int(limit)))
+    assets_by_id = {item["asset_id"]: item for item in fetch_cmdb_assets(limit=5000)}
+    bindings = []
+    rejected = []
+    for binding in _fetch_vuln_asset_bindings(limit=5000):
+        asset_id = str(binding.get("asset_id") or "")
+        if asset_id not in requested_ids or len(bindings) >= effective_limit:
+            continue
+        asset = assets_by_id.get(asset_id) or {}
+        current_target = str(asset.get("ip") or asset.get("hostname") or "").strip()
+        binding_target = str(binding.get("target_ref") or "").strip()
+        if not bool(asset.get("enabled")) or not bool(asset.get("vuln_enabled")):
+            rejected.append({"asset_id": asset_id, "reason": "asset_not_scan_enabled"})
+            continue
+        if not current_target or current_target != binding_target:
+            rejected.append(
+                {
+                    "asset_id": asset_id,
+                    "reason": "stale_binding",
+                    "current_target": current_target,
+                    "binding_target": binding_target,
+                }
+            )
+            continue
+        if str(binding.get("sync_status") or "") != "synced" or not str(binding.get("task_id") or ""):
+            rejected.append({"asset_id": asset_id, "reason": "binding_not_ready"})
+            continue
+        bindings.append(binding)
+
+    missing = requested_ids - {str(item.get("asset_id") or "") for item in bindings} - {
+        str(item.get("asset_id") or "") for item in rejected
+    }
+    rejected.extend({"asset_id": asset_id, "reason": "binding_not_found"} for asset_id in sorted(missing))
+    result = start_tasks(bindings) if bindings else {"status": "no-op", "started": 0, "skipped": 0, "failed": 0, "items": []}
+    result["requested"] = len(requested_ids)
+    result["eligible"] = len(bindings)
+    result["rejected"] = rejected
     return result
 
 

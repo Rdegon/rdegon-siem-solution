@@ -23,6 +23,7 @@ import type {
   IntegrationTemplateRecord,
   IntegrationsCatalogResponse,
   VulnCveRow,
+  VulnExposureWorkbenchResponse,
   VulnFindingRow,
   VulnIntegrationContractResponse,
   VulnIntegrationTemplate,
@@ -281,6 +282,10 @@ export function VulnPage() {
     void refreshTick;
     return api.vulnMaturity({ days: 30, limit: 100 });
   }, [refreshTick]);
+  const loadWorkbench = useCallback<() => Promise<VulnExposureWorkbenchResponse>>(() => {
+    void refreshTick;
+    return api.vulnWorkbench({ days: 30, limit: 200 });
+  }, [refreshTick]);
   const loadHosts = useCallback(() => api.vulnHosts({ q: debouncedSearch, days: 30, limit: 120 }), [debouncedSearch]);
   const loadSoftware = useCallback(() => api.vulnSoftware({ q: debouncedSearch, days: 30, limit: 120 }), [debouncedSearch]);
   const loadCves = useCallback(() => api.vulnCves({ q: debouncedSearch, days: 30, limit: 120 }), [debouncedSearch]);
@@ -300,6 +305,7 @@ export function VulnPage() {
   const contractState = useAsyncData<VulnIntegrationContractResponse>(loadIntegrationContract);
   const runtimeState = useAsyncData<VulnRuntimeResponse>(loadRuntime);
   const maturityState = useAsyncData<VulnMaturityResponse>(loadMaturity);
+  const workbenchState = useAsyncData<VulnExposureWorkbenchResponse>(loadWorkbench);
   const hostsState = useAsyncData(loadHosts);
   const softwareState = useAsyncData(loadSoftware);
   const cvesState = useAsyncData(loadCves);
@@ -340,6 +346,7 @@ export function VulnPage() {
   };
   const vulnRuntime = useMemo(() => runtimeState.data || {}, [runtimeState.data]);
   const vulnMaturity = useMemo(() => maturityState.data || {}, [maturityState.data]);
+  const vulnWorkbench = useMemo(() => workbenchState.data || {}, [workbenchState.data]);
   const canOperateVuln = useMemo(() => permissions.includes("vuln:operate"), [permissions]);
   const runtimeBlob = useMemo(() => ((vulnRuntime.runtime || {}) as Record<string, unknown>), [vulnRuntime.runtime]);
   const probeState = useMemo(
@@ -527,6 +534,55 @@ export function VulnPage() {
     }
   }
 
+  async function syncExposureIntelligence() {
+    if (!canOperateVuln) return;
+    setActionState("Synchronizing CISA KEV and FIRST EPSS intelligence...");
+    try {
+      const result = await api.vulnSyncIntelligence({ days: 30, limit: 500 });
+      setActionState(`Intelligence sync: ${safeText(result.status, "completed")}`);
+      setRefreshTick((value) => value + 1);
+      pushToast({ title: "Exposure intelligence synchronized", message: safeText(result.status, "completed"), tone: "success" });
+    } catch (error) {
+      const failure = classifyVulnActionFailure("apply", error);
+      setActionState(failure.state);
+      pushToast({ title: "Intelligence sync failed", message: failure.toastMessage, tone: "error" });
+    }
+  }
+
+  async function applyExposurePolicies() {
+    if (!canOperateVuln) return;
+    setActionState("Creating risk-based vulnerability remediation cases...");
+    try {
+      const result = await api.vulnApplyExposure({ days: 30, limit: 100 });
+      setActionState(`Exposure policy: ${Number(result.created || 0).toLocaleString()} case(s) created`);
+      setRefreshTick((value) => value + 1);
+      pushToast({
+        title: "Exposure policy applied",
+        message: `${Number(result.created || 0).toLocaleString()} created / ${Number(result.skipped || 0).toLocaleString()} skipped`,
+        tone: "success",
+      });
+    } catch (error) {
+      const failure = classifyVulnActionFailure("apply", error);
+      setActionState(failure.state);
+      pushToast({ title: "Exposure policy failed", message: failure.toastMessage, tone: "error" });
+    }
+  }
+
+  async function startTargetedScan(assetId: string) {
+    if (!canOperateVuln || !assetId) return;
+    setActionState(`Starting targeted scan for ${assetId}...`);
+    try {
+      const result = await api.vulnStartScans({ asset_ids: [assetId], limit: 1 });
+      setActionState(`Targeted scan started: ${Number(result.started || 0).toLocaleString()}`);
+      setRefreshTick((value) => value + 1);
+      pushToast({ title: "Targeted scan requested", message: assetId, tone: "success" });
+    } catch (error) {
+      const failure = classifyVulnActionFailure("sync", error);
+      setActionState(failure.state);
+      pushToast({ title: "Targeted scan failed", message: failure.toastMessage, tone: "error" });
+    }
+  }
+
   async function saveUnmappedTargetOverride() {
     if (!overrideTarget.trim()) return;
     const matchedQueueItem =
@@ -630,7 +686,7 @@ export function VulnPage() {
 
   return (
     <AsyncGate
-      states={[reportsState, overviewState, assetsState, integrationsState, contractState, runtimeState, maturityState]}
+      states={[reportsState, overviewState, assetsState, integrationsState, contractState, runtimeState, maturityState, workbenchState]}
       loadingMessage="Loading vulnerability module..."
     >
       <div className="react-page react-page-vuln">
@@ -666,6 +722,83 @@ export function VulnPage() {
       {VulnTabs(lang)}
 
       {mode === "overview" ? <MetricStrip items={maturityMetrics} /> : null}
+
+      {mode === "overview" ? (
+        <section className="react-card">
+          <PanelHeader
+            title="Risk-based exposure queue"
+            subtitle="KEV, EPSS, asset criticality, SLA and remediation status over current scanner findings."
+            actions={
+              canOperateVuln ? (
+                <div className="react-actions react-wrap">
+                  <button type="button" className="react-link-button" onClick={() => void syncExposureIntelligence()}>
+                    Sync intelligence
+                  </button>
+                  <button type="button" className="react-link-button" onClick={() => void applyExposurePolicies()}>
+                    Create remediation cases
+                  </button>
+                </div>
+              ) : (
+                <span className="react-chip">Read only</span>
+              )
+            }
+          />
+          <div className="react-chip-row">
+            <span className="react-chip">Actionable: {Number(vulnWorkbench.summary?.actionable || 0)}</span>
+            <span className="react-chip">Urgent: {Number(vulnWorkbench.summary?.urgent || 0)}</span>
+            <span className="react-chip">KEV: {Number(vulnWorkbench.summary?.kev || 0)}</span>
+            <span className="react-chip">SLA breached: {Number(vulnWorkbench.summary?.sla_breached || 0)}</span>
+            <span className="react-chip">Stale targets: {Number(vulnWorkbench.summary?.stale_targets || 0)}</span>
+          </div>
+          <div className="react-table-wrap" style={{ marginTop: 16 }}>
+            <table className="react-table">
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Risk</th>
+                  <th>KEV / EPSS</th>
+                  <th>SLA</th>
+                  <th>Remediation</th>
+                  <th>Validation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(vulnWorkbench.items || []).slice(0, 12).map((item) => (
+                  <tr key={item.finding_key}>
+                    <td>
+                      <strong>{safeText(item.asset_hostname || item.target || item.asset_id)}</strong>
+                      {item.stale_target ? <div className="react-cell-muted">stale target {safeText(item.target_ip)}</div> : null}
+                    </td>
+                    <td>
+                      <strong>{Number(item.priority_score || 0).toFixed(1)}</strong>
+                      <div className="react-cell-muted">{safeText(item.priority_band)}</div>
+                    </td>
+                    <td>{item.kev ? "KEV" : "no"} / {Number(item.epss || 0).toFixed(3)}</td>
+                    <td>{item.sla_breached ? "breached" : safeText(item.due_ts ? formatTimestamp(item.due_ts, "compact") : "")}</td>
+                    <td className="react-cell-clamp">{safeText(item.remediation?.action)}</td>
+                    <td>
+                      {item.case_id ? (
+                        <span className="react-chip">{safeText(item.case_status, "case")}</span>
+                      ) : canOperateVuln && item.asset_id && !item.stale_target ? (
+                        <button type="button" className="react-link-button" onClick={() => void startTargetedScan(String(item.asset_id))}>
+                          Rescan
+                        </button>
+                      ) : (
+                        <span className="react-chip">{item.stale_target ? "sync target" : "case required"}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!(vulnWorkbench.items || []).length ? (
+                  <tr>
+                    <td colSpan={6}>No vulnerability findings in the selected window.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {mode === "overview" ? (
         <div className="react-grid react-grid-3">

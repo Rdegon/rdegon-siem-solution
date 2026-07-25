@@ -36,9 +36,13 @@ def _load_module(name: str):
 # Import control-plane first so its late case-op bindings settle before maturity runtime loads.
 _load_module("enterprise_control_plane")
 _maturity = _load_module("vuln_maturity_runtime")
+_exposure = _load_module("vuln_exposure_runtime")
 _runtime = _load_module("vuln_runtime")
 
 apply_vulnerability_incident_policies = _maturity.apply_vulnerability_incident_policies
+apply_exposure_management_policies = _exposure.apply_exposure_management_policies
+load_vulnerability_intelligence = _exposure.load_vulnerability_intelligence
+sync_vulnerability_intelligence = _exposure.sync_vulnerability_intelligence
 vulnerability_policy_state_path = _runtime.vulnerability_policy_state_path
 write_vulnerability_runtime_state = _runtime.write_vulnerability_runtime_state
 
@@ -49,6 +53,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--actor", default="systemd-timer")
     parser.add_argument("--state-file", default="")
+    parser.add_argument("--legacy-only", action="store_true")
+    parser.add_argument("--intel-max-age-hours", type=int, default=6)
     return parser
 
 
@@ -56,7 +62,29 @@ def _state_path(raw_path: str) -> Path:
     return Path(raw_path).expanduser() if str(raw_path or "").strip() else vulnerability_policy_state_path()
 
 
-def run_policy_cycle(*, days: int, limit: int, actor: str, state_path: Path) -> dict[str, Any]:
+def _intelligence_sync_due(max_age_hours: int) -> bool:
+    updated = str(load_vulnerability_intelligence().get("updated_ts") or "").strip()
+    if not updated:
+        return True
+    try:
+        parsed = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - parsed).total_seconds()
+    return age_seconds >= max(1, int(max_age_hours)) * 3600
+
+
+def run_policy_cycle(
+    *,
+    days: int,
+    limit: int,
+    actor: str,
+    state_path: Path,
+    enable_exposure: bool = False,
+    intel_max_age_hours: int = 6,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "status": "ok",
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -70,6 +98,19 @@ def run_policy_cycle(*, days: int, limit: int, actor: str, state_path: Path) -> 
             days=result["days"],
             limit=result["limit"],
         )
+        if enable_exposure:
+            if _intelligence_sync_due(intel_max_age_hours):
+                result["intelligence_sync"] = sync_vulnerability_intelligence(
+                    days=result["days"],
+                    limit=max(500, result["limit"] * 5),
+                )
+            else:
+                result["intelligence_sync"] = {"status": "fresh", "skipped": True}
+            result["exposure_apply"] = apply_exposure_management_policies(
+                actor=result["actor"],
+                days=result["days"],
+                limit=max(result["limit"], 100),
+            )
     except Exception as exc:  # noqa: BLE001
         result["status"] = "error"
         result["error"] = str(exc)
@@ -87,6 +128,8 @@ def main() -> int:
         limit=args.limit,
         actor=args.actor,
         state_path=_state_path(args.state_file),
+        enable_exposure=not bool(args.legacy_only),
+        intel_max_age_hours=max(1, int(args.intel_max_age_hours)),
     )
     print(json.dumps(result, ensure_ascii=True, sort_keys=True))
     return 0

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import vuln_maturity_runtime as runtime
+from vuln_asset_binding import build_asset_lookup, match_finding_asset
 
 
 class VulnerabilityMaturityRuntimeTests(unittest.TestCase):
@@ -101,6 +102,10 @@ class VulnerabilityMaturityRuntimeTests(unittest.TestCase):
             "cvss_score": 9.8,
             "cves": ["CVE-2026-1234"],
             "asset_id": "asset-1",
+            "asset_current_ip": "192.168.1.10",
+            "target_ip": "192.168.1.10",
+            "asset_binding_basis": "dst_ip->ip",
+            "asset_binding_confidence": 0.9801,
         }
         with patch("vuln_maturity_runtime.build_vulnerability_maturity_status", return_value={"critical_candidates": [candidate]}):
             with patch(
@@ -133,6 +138,56 @@ class VulnerabilityMaturityRuntimeTests(unittest.TestCase):
         self.assertEqual("case-1", result["created_cases"][0]["case_id"])
         append_comment.assert_called_once()
         record_signal.assert_called_once()
+
+    def test_ipv4_addresses_are_not_matched_by_first_octet(self) -> None:
+        assets = [{"asset_id": "asset-current", "hostname": "srv-current", "ip": "192.168.3.107"}]
+        lookup = build_asset_lookup(
+            assets,
+            [{"cmdb_asset_id": "asset-current", "source_name": "192.168.3.107", "aliases": ["192.168.3.107"]}],
+        )
+
+        match = match_finding_asset(
+            {"host_name": "192.168.1.34", "dst_ip": "192.168.1.34"},
+            lookup,
+            assets=assets,
+        )
+
+        self.assertIsNone(match)
+
+    def test_policy_rejects_stale_and_low_confidence_bindings(self) -> None:
+        candidates = [
+            {
+                "finding_key": "stale",
+                "asset_id": "asset-1",
+                "asset_current_ip": "10.20.10.107",
+                "target_ip": "192.168.1.39",
+                "asset_binding_confidence": 0.98,
+            },
+            {
+                "finding_key": "weak",
+                "asset_id": "asset-2",
+                "asset_current_ip": "10.20.50.123",
+                "target_ip": "10.20.50.123",
+                "asset_binding_confidence": 0.82,
+            },
+            {
+                "finding_key": "unmapped",
+                "asset_id": "",
+                "asset_binding_confidence": 0.0,
+            },
+        ]
+        with patch("vuln_maturity_runtime.build_vulnerability_maturity_status", return_value={"critical_candidates": candidates}):
+            with patch("vuln_maturity_runtime.fetch_vulnerability_findings", return_value={"items": []}):
+                with patch("vuln_maturity_runtime.list_cases", return_value=[]):
+                    with patch("vuln_maturity_runtime.save_case") as save_case:
+                        result = runtime.apply_vulnerability_incident_policies(actor="tester", days=14, limit=10)
+
+        self.assertEqual(0, result["created"])
+        self.assertEqual(
+            {"stale_scanner_target", "low_binding_confidence", "unmapped_asset"},
+            {item["reason"] for item in result["skipped_items"]},
+        )
+        save_case.assert_not_called()
 
     def test_build_status_uses_binding_override_for_unmapped_target(self) -> None:
         with patch("vuln_maturity_runtime.fetch_vulnerability_reports", return_value=[{"report_id": "r1"}]):

@@ -313,8 +313,8 @@ def sync_assets(
         scanner_id = _resolve_scanner_id(gmp)
         port_list_id = _resolve_port_list_id(gmp)
         alive_test = _resolve_alive_test()
-        targets = _resource_map(gmp.get_targets(), "target")
-        tasks = _task_map(gmp.get_tasks())
+        targets = _resource_map(gmp.get_targets(filter_string="rows=-1"), "target")
+        tasks = _task_map(gmp.get_tasks(filter_string="rows=-1"))
         results: List[Dict[str, Any]] = []
         for asset in enabled_assets:
             asset_id = _safe_text(asset.get("asset_id"))
@@ -342,6 +342,18 @@ def sync_assets(
                         **_target_kwargs(asset, port_list_id=port_list_id, alive_test=alive_test),
                     )
                     target_id = _response_id(response)
+                    if not target_id:
+                        target_id = _safe_text(
+                            (
+                                _resource_map(
+                                    gmp.get_targets(filter_string="rows=-1"),
+                                    "target",
+                                ).get(target_name)
+                                or {}
+                            ).get("id")
+                        )
+                if not target_id:
+                    raise RuntimeError(f"Greenbone did not return a target id for {target_name}")
 
                 task_id = _safe_text(binding.get("task_id"))
                 if task_id:
@@ -377,6 +389,17 @@ def sync_assets(
                         comment="Managed by Rdegon SIEM vulnerability sync.",
                     )
                     task_id = _response_id(response)
+                    if not task_id:
+                        task_id = _safe_text(
+                            (
+                                _task_map(
+                                    gmp.get_tasks(filter_string="rows=-1")
+                                ).get(task_name)
+                                or {}
+                            ).get("id")
+                        )
+                if not task_id:
+                    raise RuntimeError(f"Greenbone did not return a task id for {task_name}")
 
                 results.append(
                     {
@@ -411,8 +434,102 @@ def sync_assets(
                         "sync_message": str(exc),
                     }
                 )
-        failed = sum(1 for item in results if item["sync_status"] != "synced")
-        return {"status": "ok", "synced": len(results) - failed, "failed": failed, "items": results}
+        enabled_ids = {_safe_text(asset.get("asset_id")) for asset in enabled_assets}
+        for asset_id, binding in bindings_by_asset.items():
+            if asset_id in enabled_ids:
+                continue
+            task_id = _safe_text(binding.get("task_id"))
+            try:
+                if task_id and _safe_text(binding.get("sync_status")) != "retired":
+                    gmp.delete_task(task_id)
+                results.append(
+                    {
+                        "asset_id": asset_id,
+                        "scanner_family": "greenbone",
+                        "profile": _safe_text(binding.get("profile")) or "network-basic",
+                        "environment": _safe_text(binding.get("environment")) or "prod",
+                        "target_ref": _safe_text(binding.get("target_ref")),
+                        "target_id": _safe_text(binding.get("target_id")),
+                        "target_name": _safe_text(binding.get("target_name")),
+                        "task_id": "",
+                        "task_name": _safe_text(binding.get("task_name")),
+                        "schedule_name": "",
+                        "sync_status": "retired",
+                        "sync_message": "Asset is missing, disabled, or removed from vulnerability coverage.",
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                results.append(
+                    {
+                        **binding,
+                        "asset_id": asset_id,
+                        "scanner_family": "greenbone",
+                        "sync_status": "error",
+                        "sync_message": f"Unable to retire scanner task: {exc}",
+                    }
+                )
+        retired = sum(1 for item in results if item["sync_status"] == "retired")
+        failed = sum(1 for item in results if item["sync_status"] == "error")
+        return {
+            "status": "ok" if failed == 0 else "degraded",
+            "synced": sum(1 for item in results if item["sync_status"] == "synced"),
+            "retired": retired,
+            "failed": failed,
+            "items": results,
+        }
+
+    return _with_gmp(_run)
+
+
+def start_tasks(bindings: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    requested = [dict(item) for item in bindings if _safe_text(item.get("task_id"))]
+    if not requested:
+        return {"status": "no-op", "started": 0, "skipped": 0, "failed": 0, "items": []}
+
+    def _run(gmp: Any) -> Dict[str, Any]:
+        task_states: Dict[str, str] = {}
+        response = gmp.get_tasks(filter_string="rows=-1")
+        for node in response.findall(".//task"):
+            task_id = _response_id(node)
+            if task_id:
+                task_states[task_id] = _xml_text(node, "status").lower()
+
+        results: List[Dict[str, Any]] = []
+        active_states = {"requested", "queued", "running", "processing", "stop requested"}
+        for binding in requested:
+            task_id = _safe_text(binding.get("task_id"))
+            state = task_states.get(task_id, "")
+            result = {
+                "asset_id": _safe_text(binding.get("asset_id")),
+                "task_id": task_id,
+                "task_name": _safe_text(binding.get("task_name")),
+                "previous_status": state,
+            }
+            if state in active_states:
+                results.append({**result, "status": "skipped", "message": f"task already {state}"})
+                continue
+            try:
+                started = gmp.start_task(task_id)
+                results.append(
+                    {
+                        **result,
+                        "status": "started",
+                        "report_id": _response_id(started),
+                        "message": "",
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                results.append({**result, "status": "error", "message": str(exc)})
+        started_total = sum(1 for item in results if item["status"] == "started")
+        skipped_total = sum(1 for item in results if item["status"] == "skipped")
+        failed_total = sum(1 for item in results if item["status"] == "error")
+        return {
+            "status": "ok" if failed_total == 0 else "degraded",
+            "started": started_total,
+            "skipped": skipped_total,
+            "failed": failed_total,
+            "items": results,
+        }
 
     return _with_gmp(_run)
 

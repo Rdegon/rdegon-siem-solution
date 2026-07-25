@@ -48,6 +48,24 @@ describe("VulnPage", () => {
             unmapped_targets: [{ finding_key: "finding-3", target: "ws-17.corp.local", hostname: "ws-17", ip: "192.168.1.117", suggested_asset_id: "asset-ws-17", severity: "high", reason: "Needs asset binding" }],
           });
         }
+        if (url.includes("/api/vuln/workbench")) {
+          return jsonResponse({
+            summary: { actionable: 2, urgent: 1, kev: 1, sla_breached: 1, stale_targets: 1 },
+            items: [
+              {
+                finding_key: "exposure-1",
+                asset_id: "asset-ws-17",
+                asset_hostname: "ws-17",
+                priority_score: 92.5,
+                priority_band: "urgent",
+                kev: true,
+                epss: 0.82,
+                sla_breached: true,
+                remediation: { action: "Update openssl" },
+              },
+            ],
+          });
+        }
         if (url.includes("/api/vuln/hosts")) {
           return jsonResponse({ items: [] });
         }
@@ -79,6 +97,8 @@ describe("VulnPage", () => {
 
     expect(await screen.findByText("Exposure and scan intelligence")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Unmapped target queue")).toBeInTheDocument());
+    expect(screen.getByText("Risk-based exposure queue")).toBeInTheDocument();
+    expect(screen.getByText("Update openssl")).toBeInTheDocument();
     expect(screen.getByDisplayValue("asset-ws-17")).toBeInTheDocument();
   });
 });

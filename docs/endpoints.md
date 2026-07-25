@@ -186,12 +186,16 @@ Legacy pages such as `/dashboards` remain compatibility surfaces and are not the
 | `POST` | `/api/vuln/sync` | Vulnerability sync trigger |
 | `GET` | `/api/vuln/runtime` | Vulnerability runtime gate |
 | `GET` | `/api/vuln/maturity` | Vulnerability maturity gate |
+| `GET` | `/api/vuln/workbench` | Risk-based exposure queue with KEV, EPSS and SLA |
 | `GET` | `/api/vuln/overview` | Vulnerability overview |
 | `GET` | `/api/vuln/findings` | Finding inventory |
 | `GET` | `/api/vuln/hosts` | Host inventory |
 | `GET` | `/api/vuln/software` | Software inventory |
 | `GET` | `/api/vuln/cves` | CVE inventory |
 | `POST` | `/api/vuln/policies/apply` | Policy application |
+| `POST` | `/api/vuln/intelligence/sync` | Refresh CISA KEV and FIRST EPSS cache |
+| `POST` | `/api/vuln/exposure/apply` | Create risk-based remediation cases and tasks |
+| `POST` | `/api/vuln/scans/start` | Start targeted scans for current CMDB bindings |
 
 ## Reports APIs
 
@@ -213,4 +217,5 @@ The release gate uses these endpoints as the operational truth:
 - `GET /api/health/hosts/runtime`
 - `GET /api/vuln/runtime`
 - `GET /api/vuln/maturity`
+- `GET /api/vuln/workbench`
 - `GET /api/reports`

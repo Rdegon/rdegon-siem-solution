@@ -494,6 +494,119 @@ def _default_ansible_response_actions() -> list[dict[str, Any]]:
             "secret_requirements": [],
         },
         {
+            "id": "greenbone-targeted-rescan",
+            "type": "response_action",
+            "schema_version": CONTROL_PLANE_SCHEMA_VERSION,
+            "kind": "vuln_scan_start",
+            "title": "Greenbone targeted rescan",
+            "description": "Start existing Greenbone tasks only for explicitly selected, current CMDB asset bindings.",
+            "enabled": True,
+            "dangerous": False,
+            "approval_required": False,
+            "updated_ts": now,
+            "health": {"last_execution_ts": "", "last_status": "never", "total_executions": 0},
+            "target": {"asset_ids": [], "limit": 25},
+            "message_template": "Start a targeted Greenbone rescan for approved asset IDs.",
+            "owners": ["exposure-management", "soc-ops"],
+            "trigger_kinds": ["manual", "case", "vulnerability_finding"],
+            "default_linkage": {"trigger_kind": "case"},
+            "playbook_class": "validation",
+            "governance_tier": "operator",
+            "evidence_contract": ["asset_id", "task_id", "report_id"],
+            "rollback_contract": [],
+            "compliance_controls": ["PCI-DSS-11", "NIST-RA.5"],
+            "preconditions": ["asset-scan-enabled", "current-cmdb-binding", "scanner-connectivity-confirmed"],
+            "integration_targets": ["greenbone", "cmdb"],
+            "operator_notes": "Stale scanner bindings are rejected. Synchronize targets before retrying.",
+            "rollback_notes": "The action starts a read-only scan and does not modify the target.",
+            "secret_requirements": [],
+        },
+        {
+            "id": "ansible-vuln-safe-validation",
+            "type": "response_action",
+            "schema_version": CONTROL_PLANE_SCHEMA_VERSION,
+            "kind": "ansible_playbook",
+            "title": "Vulnerability safe validation",
+            "description": "Collect package, service and socket evidence without exploiting or changing the target.",
+            "enabled": True,
+            "dangerous": False,
+            "approval_required": False,
+            "updated_ts": now,
+            "health": {"last_execution_ts": "", "last_status": "never", "total_executions": 0},
+            "target": {
+                "inventory": inventory,
+                "playbook": "/opt/siem/soar/ansible/vuln_validate.yml",
+                "limit": "pilot_web",
+                "check_mode": False,
+                "timeout_ms": 180000,
+                "extra_vars": {"vuln_case_id": "", "vuln_package": "", "vuln_service": "", "vuln_port": 0},
+            },
+            "message_template": "Validate vulnerability evidence for {{asset_id}} without intrusive checks.",
+            "owners": ["exposure-management", "soc-ops"],
+            "trigger_kinds": ["manual", "case", "vulnerability_finding"],
+            "default_linkage": {"trigger_kind": "case"},
+            "playbook_class": "evidence",
+            "governance_tier": "operator",
+            "evidence_contract": ["asset_id", "case_id", "package_version", "service_state", "listening_socket"],
+            "rollback_contract": [],
+            "compliance_controls": ["PCI-DSS-11", "NIST-RA.5"],
+            "preconditions": ["case_linked", "target-host-selected", "ssh-reachability-confirmed"],
+            "integration_targets": ["ansible", "linux-hosts", "greenbone"],
+            "operator_notes": "No exploit modules or arbitrary scanner-provided commands are accepted.",
+            "rollback_notes": "Read-only validation; no rollback is required.",
+            "secret_requirements": [],
+        },
+        {
+            "id": "ansible-vuln-package-remediation",
+            "type": "response_action",
+            "schema_version": CONTROL_PLANE_SCHEMA_VERSION,
+            "kind": "ansible_playbook",
+            "title": "Approved vulnerability package remediation",
+            "description": "Update one allowlisted Linux package with two-person approval, check mode by default and captured evidence.",
+            "enabled": True,
+            "dangerous": True,
+            "approval_required": True,
+            "approval": {
+                "required": True,
+                "mode": "two_man",
+                "min_approvers": 2,
+                "required_roles": ["soc-manager", "platform-engineering"],
+                "justification_required": True,
+                "expires_minutes": 30,
+                "role_separation_required": True,
+            },
+            "updated_ts": now,
+            "health": {"last_execution_ts": "", "last_status": "never", "total_executions": 0},
+            "target": {
+                "inventory": inventory,
+                "playbook": "/opt/siem/soar/ansible/vuln_patch_package.yml",
+                "limit": "pilot_web",
+                "check_mode": True,
+                "diff": True,
+                "timeout_ms": 600000,
+                "extra_vars": {
+                    "vuln_case_id": "",
+                    "vuln_approval_ticket": "",
+                    "vuln_package": "",
+                    "vuln_allowed_packages": [],
+                },
+            },
+            "message_template": "Update {{vuln_package}} on {{asset_id}} after two-person approval.",
+            "owners": ["platform-engineering", "soc-manager"],
+            "trigger_kinds": ["case", "vulnerability_finding"],
+            "default_linkage": {"trigger_kind": "case"},
+            "playbook_class": "remediation",
+            "governance_tier": "high-risk",
+            "evidence_contract": ["asset_id", "case_id", "approval_ticket", "package_before", "package_after"],
+            "rollback_contract": ["previous_package_version", "package_manager_history", "service_health"],
+            "compliance_controls": ["NIST-RA.5", "NIST-RS.MI", "SOC2-CC7"],
+            "preconditions": ["case_linked", "package_allowlisted", "rollback-plan-recorded", "approval_chain_satisfied"],
+            "integration_targets": ["ansible", "linux-package-manager", "greenbone"],
+            "operator_notes": "The default execution remains check mode. A scoped operator payload must explicitly disable it after approval.",
+            "rollback_notes": "Restore the previous package version, then run safe validation and a targeted rescan.",
+            "secret_requirements": [],
+        },
+        {
             "id": "ansible-openvas-refresh",
             "type": "response_action",
             "schema_version": CONTROL_PLANE_SCHEMA_VERSION,
@@ -620,6 +733,7 @@ def _normalize_response_action_governance(action: dict[str, Any]) -> dict[str, A
         "approval_gate": ["approval-chain-satisfied", "rollback-path-defined"],
         "chain": ["steps-validated", "rollback-path-defined"],
         "vuln_sync": ["target-scope-approved", "scanner-connectivity-confirmed"],
+        "vuln_scan_start": ["asset-scan-enabled", "current-cmdb-binding", "scanner-connectivity-confirmed"],
         "ansible_playbook": ["target-host-selected", "ssh-reachability-confirmed", "playbook-reviewed"],
     }.get(kind, ["linked-case-present"])
     default_targets = {
@@ -628,6 +742,7 @@ def _normalize_response_action_governance(action: dict[str, Any]) -> dict[str, A
         "approval_gate": ["identity-provider", "access-governance"],
         "chain": ["workflow-engine"],
         "vuln_sync": ["vulnerability-manager"],
+        "vuln_scan_start": ["greenbone", "cmdb"],
         "ansible_playbook": ["ansible", "linux-hosts"],
     }.get(kind, ["control-plane"])
     current["preconditions"] = [str(value).strip() for value in (current.get("preconditions") or []) if str(value).strip()] or default_preconditions
@@ -640,6 +755,7 @@ def _normalize_response_action_governance(action: dict[str, Any]) -> dict[str, A
             "approval_gate": "Use only with a linked case and explicit approval record.",
             "chain": "Validate every step and downstream dependency before live execution.",
             "vuln_sync": "Use for scoped vulnerability synchronization and coverage workflows.",
+            "vuln_scan_start": "Start only tasks with current CMDB bindings; stale bindings are rejected.",
             "ansible_playbook": "Use a scoped inventory limit and prefer dry-run before changing machine state.",
         }.get(kind, "")
     ).strip()
@@ -651,6 +767,7 @@ def _normalize_response_action_governance(action: dict[str, Any]) -> dict[str, A
             "approval_gate": "Restore prior target state and document the reversal in the case timeline.",
             "chain": "Rollback every completed step in reverse order using linked evidence.",
             "vuln_sync": "Remove unintended targets from the scanner scope and record the resync plan.",
+            "vuln_scan_start": "Cancel the task in Greenbone if needed; the target itself is not changed.",
             "ansible_playbook": "Use playbook evidence and the linked case to run the documented rollback step.",
         }.get(kind, "")
     ).strip()
@@ -1424,6 +1541,43 @@ def _execute_vuln_import_action(action: dict[str, Any], payload: dict[str, Any],
     }
 
 
+def _execute_vuln_scan_start_action(action: dict[str, Any], payload: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+    try:
+        from .vulnerability_query_runtime import start_vulnerability_scans
+    except ImportError:  # pragma: no cover - local test fallback
+        from vulnerability_query_runtime import start_vulnerability_scans  # type: ignore[no-redef]
+    target = dict(_resolve_runtime_object(action.get("target") or {}))
+    raw_asset_ids = payload.get("asset_ids") if "asset_ids" in payload else target.get("asset_ids")
+    if isinstance(raw_asset_ids, str):
+        asset_ids = [item.strip() for item in raw_asset_ids.split(",") if item.strip()]
+    elif isinstance(raw_asset_ids, (list, tuple, set)):
+        asset_ids = [str(item).strip() for item in raw_asset_ids if str(item).strip()]
+    else:
+        asset_ids = []
+    if not asset_ids:
+        raise ValueError("vuln_scan_start action requires at least one asset_id")
+    limit = _int_or_default(_resolve_config_value(target, "limit", payload.get("limit") or 25), 25, maximum=100)
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "message": f"Validated targeted Greenbone rescan for {len(asset_ids)} asset(s)",
+            "details": {"executor": "vuln_scan_start", "asset_ids": asset_ids, "limit": limit},
+        }
+    result = dict(start_vulnerability_scans(asset_ids=asset_ids, limit=limit))
+    status = "executed" if str(result.get("status") or "ok").lower() not in {"error", "degraded"} else "error"
+    return {
+        "status": status,
+        "message": f"Started {int(result.get('started') or 0)} targeted Greenbone scan(s)",
+        "details": {
+            "executor": "vuln_scan_start",
+            "asset_ids": asset_ids,
+            "limit": limit,
+            "result": result,
+            "error": "" if status == "executed" else "One or more scan tasks failed",
+        },
+    }
+
+
 def _execute_vuln_policy_apply_action(action: dict[str, Any], payload: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
     try:
         from .vuln_maturity_runtime import apply_vulnerability_incident_policies
@@ -1459,6 +1613,8 @@ def _run_response_executor(action: dict[str, Any], payload: dict[str, Any], *, d
         return _execute_vuln_sync_action(action, payload, dry_run=dry_run)
     if kind == "vuln_import":
         return _execute_vuln_import_action(action, payload, dry_run=dry_run)
+    if kind == "vuln_scan_start":
+        return _execute_vuln_scan_start_action(action, payload, dry_run=dry_run)
     if kind == "vuln_policy_apply":
         return _execute_vuln_policy_apply_action(action, payload, dry_run=dry_run)
     if kind == "runtime_doc":

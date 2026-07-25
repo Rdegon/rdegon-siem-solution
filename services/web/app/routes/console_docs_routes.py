@@ -31,7 +31,13 @@ from ..vulnerability_query_runtime import (
     fetch_vulnerability_software,
     get_report_artifact_path,
     import_greenbone_reports,
+    start_vulnerability_scans,
     sync_vulnerability_targets,
+)
+from ..vuln_exposure_runtime import (
+    apply_exposure_management_policies,
+    build_exposure_workbench,
+    sync_vulnerability_intelligence,
 )
 from ..vuln_maturity_runtime import apply_vulnerability_incident_policies, build_vulnerability_maturity_status
 
@@ -187,6 +193,41 @@ async def vuln_import_api(payload: dict[str, Any] = Body(default={}), user=Depen
         return JSONResponse({"error": str(exc)}, status_code=400)
 
 
+@router.post("/api/vuln/scans/start", response_class=JSONResponse)
+async def vuln_scan_start_api(
+    payload: dict[str, Any] = Body(default={}),
+    user=Depends(require_permissions("vuln:operate")),
+) -> JSONResponse:
+    try:
+        asset_ids = payload.get("asset_ids") or []
+        if not isinstance(asset_ids, list):
+            raise ValueError("asset_ids must be a list")
+        return JSONResponse(
+            start_vulnerability_scans(
+                asset_ids=[str(item) for item in asset_ids],
+                limit=int(payload.get("limit") or 25),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.post("/api/vuln/intelligence/sync", response_class=JSONResponse)
+async def vuln_intelligence_sync_api(
+    payload: dict[str, Any] = Body(default={}),
+    user=Depends(require_permissions("vuln:operate")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(
+            sync_vulnerability_intelligence(
+                days=int(payload.get("days") or 30),
+                limit=int(payload.get("limit") or 500),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
 @router.get("/api/vuln/overview", response_class=JSONResponse)
 async def vuln_overview_api(
     days: int = Query(30, ge=1, le=90),
@@ -219,6 +260,18 @@ async def vuln_maturity_api(
         return JSONResponse({"error": str(exc)}, status_code=400)
 
 
+@router.get("/api/vuln/workbench", response_class=JSONResponse)
+async def vuln_workbench_api(
+    days: int = Query(30, ge=1, le=180),
+    limit: int = Query(200, ge=1, le=500),
+    user=Depends(require_permissions("resources:view")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(build_exposure_workbench(days=days, limit=limit))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
 @router.post("/api/vuln/policies/apply", response_class=JSONResponse)
 async def vuln_policy_apply_api(
     payload: dict[str, Any] = Body(default={}),
@@ -231,6 +284,24 @@ async def vuln_policy_apply_api(
                 actor=actor,
                 days=int(payload.get("days") or 30),
                 limit=int(payload.get("limit") or 50),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.post("/api/vuln/exposure/apply", response_class=JSONResponse)
+async def vuln_exposure_apply_api(
+    payload: dict[str, Any] = Body(default={}),
+    user=Depends(require_permissions("vuln:operate")),
+) -> JSONResponse:
+    try:
+        actor = str(getattr(user, "username", "web") or "web")
+        return JSONResponse(
+            apply_exposure_management_policies(
+                actor=actor,
+                days=int(payload.get("days") or 30),
+                limit=int(payload.get("limit") or 100),
             )
         )
     except Exception as exc:  # noqa: BLE001

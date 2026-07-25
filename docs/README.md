@@ -15,6 +15,8 @@ and dated delivery records for the SIEM platform.
 8. `network_cutover_2026-07-25.md` - deployed addresses, OPNsense status and validation.
 9. `soc_security_inventory_and_target_architecture_2026-07-25.md` - security inventory
    and target NGFW/IPS/SOC design.
+10. `vulnerability_exposure_management_2026-07-26.md` - current Greenbone,
+    KEV/EPSS, remediation and safe-validation architecture.
 
 ## Current Runtime Truth
 

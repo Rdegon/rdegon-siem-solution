@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import ipaddress
 from pathlib import Path
 import sys
 from typing import Any
@@ -32,6 +33,7 @@ except Exception:  # noqa: BLE001
 
 
 AUTO_CASE_TAGS = ("vulnerability", "auto", "greenbone")
+AUTO_CASE_MIN_BINDING_CONFIDENCE = 0.90
 
 
 def _root_on_path() -> None:
@@ -110,6 +112,12 @@ def _severity_rank(value: str) -> int:
 
 def _short_hostname(value: Any) -> str:
     text = _string(value).lower()
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        pass
+    else:
+        return text
     return text.split(".", 1)[0] if text else ""
 
 
@@ -286,6 +294,8 @@ def build_vulnerability_maturity_status(*, days: int = 30, limit: int = 200) -> 
                     "status": _string(item.get("status") or "open"),
                     "delta_state": _string(item.get("delta_state") or "new"),
                     "asset_id": _string((asset or {}).get("asset_id")),
+                    "asset_current_ip": _string((asset or {}).get("ip")),
+                    "target_ip": _string(item.get("dst_ip")),
                     "asset_binding_basis": _string((asset_match or {}).get("basis")),
                     "asset_binding_confidence": round(float((asset_match or {}).get("confidence") or 0.0), 4),
                     "auto_case_exists": finding_key in auto_case_keys,
@@ -370,9 +380,35 @@ def apply_vulnerability_incident_policies(*, actor: str = "system", days: int = 
         if finding_key in existing_keys:
             skipped.append({"finding_key": finding_key, "reason": "existing_case"})
             continue
+        asset_id = _string(candidate.get("asset_id"))
+        binding_confidence = float(candidate.get("asset_binding_confidence") or 0.0)
+        current_ip = _string(candidate.get("asset_current_ip"))
+        target_ip = _string(candidate.get("target_ip"))
+        if not asset_id:
+            skipped.append({"finding_key": finding_key, "reason": "unmapped_asset"})
+            continue
+        if binding_confidence < AUTO_CASE_MIN_BINDING_CONFIDENCE:
+            skipped.append(
+                {
+                    "finding_key": finding_key,
+                    "reason": "low_binding_confidence",
+                    "confidence": binding_confidence,
+                }
+            )
+            continue
+        if current_ip and target_ip and current_ip != target_ip:
+            skipped.append(
+                {
+                    "finding_key": finding_key,
+                    "reason": "stale_scanner_target",
+                    "target_ip": target_ip,
+                    "current_asset_ip": current_ip,
+                }
+            )
+            continue
         finding = dict(findings_lookup.get(finding_key) or {})
         asset = {
-            "asset_id": _string(candidate.get("asset_id")),
+            "asset_id": asset_id,
             "hostname": _string(candidate.get("target")),
         }
         case_item = save_case(

@@ -36,6 +36,7 @@ benchmark output.
 7. [Full network segmentation plan](docs/full_segmentation_plan_2026-06-23.md)
 8. [Deployed network cutover](docs/network_cutover_2026-07-25.md)
 9. [SOC security inventory and target architecture](docs/soc_security_inventory_and_target_architecture_2026-07-25.md)
+10. [Vulnerability and exposure management](docs/vulnerability_exposure_management_2026-07-26.md)
 
 ## Local Checks
 

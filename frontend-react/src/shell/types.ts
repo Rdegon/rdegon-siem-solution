@@ -1673,6 +1673,67 @@ export type VulnPolicyApplyResponse = {
   }>;
 };
 
+export type VulnExposureItem = {
+  finding_key: string;
+  report_id?: string;
+  asset_id?: string;
+  asset_hostname?: string;
+  asset_owner?: string;
+  target?: string;
+  target_ip?: string;
+  current_asset_ip?: string;
+  stale_target?: boolean;
+  title?: string;
+  severity?: string;
+  cvss_score?: number;
+  qod?: number;
+  cves?: string[];
+  kev?: boolean;
+  epss?: number;
+  epss_percentile?: number;
+  priority_score?: number;
+  priority_band?: string;
+  priority_reasons?: string[];
+  sla_hours?: number;
+  due_ts?: string;
+  sla_breached?: boolean;
+  case_id?: string;
+  case_status?: string;
+  remediation?: {
+    mode?: string;
+    action?: string;
+    package_name?: string;
+    fixed_version?: string;
+    approval_required?: boolean;
+    validation_profile?: string;
+    intrusive_validation_allowed?: boolean;
+  };
+};
+
+export type VulnExposureWorkbenchResponse = {
+  generated_ts?: string;
+  intelligence?: {
+    updated_ts?: string;
+    sources?: RuntimeBlob;
+    errors?: string[];
+  };
+  summary?: {
+    findings?: number;
+    actionable?: number;
+    urgent?: number;
+    kev?: number;
+    epss_high?: number;
+    sla_breached?: number;
+    unowned?: number;
+    unmapped?: number;
+    stale_targets?: number;
+    existing_cases?: number;
+    fixed_findings?: number;
+  };
+  items?: VulnExposureItem[];
+  fixed_finding_keys?: string[];
+};
+
 export type VulnSyncResponse = RuntimeBlob & {
   imported?: number;
   synced?: number;

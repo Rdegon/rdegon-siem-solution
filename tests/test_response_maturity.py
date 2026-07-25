@@ -24,6 +24,23 @@ response_ops = importlib.import_module("app.control_plane_response_ops")
 
 
 class ResponseMaturityTests(unittest.TestCase):
+    def test_vulnerability_remediation_actions_are_governed(self) -> None:
+        actions = {
+            str(item.get("id") or ""): item
+            for item in response_ops._default_ansible_response_actions()
+        }
+
+        validation = actions["ansible-vuln-safe-validation"]
+        remediation = actions["ansible-vuln-package-remediation"]
+        rescan = actions["greenbone-targeted-rescan"]
+        self.assertFalse(validation["dangerous"])
+        self.assertEqual("vuln_validate.yml", Path(validation["target"]["playbook"]).name)
+        self.assertTrue(remediation["dangerous"])
+        self.assertTrue(remediation["approval_required"])
+        self.assertEqual(2, remediation["approval"]["min_approvers"])
+        self.assertTrue(remediation["target"]["check_mode"])
+        self.assertEqual("vuln_scan_start", rescan["kind"])
+
     def test_response_analytics_reports_governance_coverage_fields(self) -> None:
         actions = [
             {

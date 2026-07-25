@@ -138,6 +138,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/transport_health_runtime.py", "transport_health_runtime.py"),
     FileMapping("services/web/app/vulnerability_query_runtime.py", "vulnerability_query_runtime.py"),
     FileMapping("services/web/app/vuln_greenbone.py", "vuln_greenbone.py"),
+    FileMapping("services/web/app/vuln_exposure_runtime.py", "vuln_exposure_runtime.py"),
     FileMapping("services/web/app/vuln_maturity_runtime.py", "vuln_maturity_runtime.py"),
     FileMapping("services/web/app/vuln_store.py", "vuln_store.py"),
     FileMapping("services/web/app/vuln_runtime.py", "vuln_runtime.py"),
@@ -176,6 +177,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/transport_health_runtime.py", "services/web/app/transport_health_runtime.py"),
     FileMapping("services/web/app/vulnerability_query_runtime.py", "services/web/app/vulnerability_query_runtime.py"),
     FileMapping("services/web/app/vuln_greenbone.py", "services/web/app/vuln_greenbone.py"),
+    FileMapping("services/web/app/vuln_exposure_runtime.py", "services/web/app/vuln_exposure_runtime.py"),
     FileMapping("services/web/app/vuln_maturity_runtime.py", "services/web/app/vuln_maturity_runtime.py"),
     FileMapping("services/web/app/vuln_store.py", "services/web/app/vuln_store.py"),
     FileMapping("services/web/app/vuln_runtime.py", "services/web/app/vuln_runtime.py"),
@@ -311,6 +313,8 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("tests/test_host_access_runtime.py", "tests/test_host_access_runtime.py"),
     FileMapping("tests/test_stream_worker.py", "tests/test_stream_worker.py"),
     FileMapping("tests/test_vuln_maturity_runtime.py", "tests/test_vuln_maturity_runtime.py"),
+    FileMapping("tests/test_vuln_exposure_runtime.py", "tests/test_vuln_exposure_runtime.py"),
+    FileMapping("tests/test_vuln_greenbone.py", "tests/test_vuln_greenbone.py"),
     FileMapping("tests/test_proxmox_fleet_runtime.py", "tests/test_proxmox_fleet_runtime.py"),
     FileMapping("tests/test_vm2_processing_resilience.py", "tests/test_vm2_processing_resilience.py"),
     FileMapping("deploy/vm1_ingest_fabric_deploy.py", "deploy/vm1_ingest_fabric_deploy.py"),
@@ -324,6 +328,8 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("deploy/vuln/rdegon_greenbone_start_wave.py", "deploy/vuln/rdegon_greenbone_start_wave.py"),
     FileMapping("deploy/vuln/rdegon_greenbone_sync.py", "deploy/vuln/rdegon_greenbone_sync.py"),
     FileMapping("deploy/vuln/rdegon_vuln_policy_apply.py", "deploy/vuln/rdegon_vuln_policy_apply.py"),
+    FileMapping("deploy/ansible/vuln_validate.yml", "deploy/ansible/vuln_validate.yml"),
+    FileMapping("deploy/ansible/vuln_patch_package.yml", "deploy/ansible/vuln_patch_package.yml"),
     FileMapping("deploy/vm3_stream_corr_event_time_deploy.py", "deploy/vm3_stream_corr_event_time_deploy.py"),
     FileMapping("deploy/vm3_stream_corr_event_time_smoke.py", "deploy/vm3_stream_corr_event_time_smoke.py"),
     FileMapping("deploy/vm2_processing_resilience_deploy.py", "deploy/vm2_processing_resilience_deploy.py"),
@@ -414,6 +420,8 @@ SYSTEM_ASSETS: tuple[SystemAsset, ...] = (
     SystemAsset("deploy/vm4/siem-greenbone-sync.timer", "/etc/systemd/system/siem-greenbone-sync.timer", "0644"),
     SystemAsset("deploy/vm4/siem-vuln-policy-apply.service", "/etc/systemd/system/siem-vuln-policy-apply.service", "0644"),
     SystemAsset("deploy/vm4/siem-vuln-policy-apply.timer", "/etc/systemd/system/siem-vuln-policy-apply.timer", "0644"),
+    SystemAsset("deploy/ansible/vuln_validate.yml", "/opt/siem/soar/ansible/vuln_validate.yml", "0644"),
+    SystemAsset("deploy/ansible/vuln_patch_package.yml", "/opt/siem/soar/ansible/vuln_patch_package.yml", "0644"),
     SystemAsset("deploy/vm4/siem-jump-tunnels.service", "/etc/systemd/system/siem-jump-tunnels.service", "0644"),
     SystemAsset("deploy/vm4/siem-jump-tunnels.sh", "/usr/local/bin/siem-jump-tunnels.sh", "0755"),
     SystemAsset("deploy/vm4/siem-vault.service", "/etc/systemd/system/siem-vault.service", "0644"),
@@ -913,6 +921,7 @@ def main() -> int:
             "app/topology_runtime.py "
             "app/host_access_runtime.py "
             "app/vulnerability_query_runtime.py "
+            "app/vuln_exposure_runtime.py "
             "app/vuln_maturity_runtime.py "
             "app/vuln_runtime.py "
             "app/routes/console.py "
@@ -952,7 +961,7 @@ def main() -> int:
             "PYTHONPATH=\"$PWD:$PWD/services/web/app\" "
             "SIEM_ENV=prod "
             "SIEM_INSTANCE_NAME=siem-web "
-            "SIEM_WEB_BASE_URL=https://192.168.1.39 "
+            "SIEM_WEB_BASE_URL=https://192.168.3.107 "
             "SIEM_JWT_SECRET=test-jwt-secret "
             "SIEM_CERTIFICATION_STATUS_PATH=\"$PWD/runtime-control-plane/production_certification_status.json\" "
             "SIEM_STREAM_STATE_SQLITE_PATH=\"$PWD/runtime-control-plane/test-runtime-state.db\" "
@@ -967,6 +976,8 @@ def main() -> int:
             "tests.test_source_discovery "
             "tests.test_topology_runtime "
             "tests.test_host_access_runtime "
+            "tests.test_vuln_exposure_runtime "
+            "tests.test_vuln_greenbone "
             "tests.test_vuln_maturity_runtime "
             "tests.test_enterprise_control_plane -v"
         )
