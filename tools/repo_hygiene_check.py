@@ -51,6 +51,10 @@ SECRET_PATTERNS = [
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
 ]
 
+DETECTION_PRIVATE_KEY_MARKER = re.compile(
+    r"event\.original icontains '-----BEGIN [A-Z ]*PRIVATE KEY-----'"
+)
+
 
 def _git_list_candidate_files() -> list[str]:
     result = subprocess.run(
@@ -83,6 +87,12 @@ def _scan_content(path: Path) -> str | None:
         payload = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return None
+    try:
+        rel_path = path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        rel_path = ""
+    if rel_path.startswith("correlation_rule_packs/") and path.suffix.lower() == ".json":
+        payload = DETECTION_PRIVATE_KEY_MARKER.sub("", payload)
     for pattern in SECRET_PATTERNS:
         if pattern.search(payload):
             return f"suspicious secret pattern: {pattern.pattern}"

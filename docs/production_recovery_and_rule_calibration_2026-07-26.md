@@ -134,7 +134,7 @@ The final production checks recorded:
   in the cleanup dry-run;
 - 29 enabled CMDB assets and no loopback, HTTP-update, or benchmark assets.
 
-The complete local test suite passed with 610 tests and 51 subtests.
+The complete local test suite passed with 613 tests and 51 subtests.
 
 ## Recovery Checklist
 
