@@ -627,20 +627,41 @@ def _alert_agg_operational_filter_sql() -> str:
 
 @lru_cache(maxsize=1)
 def ensure_event_enrichment_support() -> bool:
+    required_columns = {
+        "event_code": "String DEFAULT ''",
+        "asset_id": "String DEFAULT ''",
+        "asset_owner": "String DEFAULT ''",
+        "asset_criticality": "String DEFAULT ''",
+        "asset_environment": "String DEFAULT ''",
+        "asset_service": "String DEFAULT ''",
+        "ti_indicator": "String DEFAULT ''",
+        "ti_indicator_type": "String DEFAULT ''",
+        "ti_provider": "String DEFAULT ''",
+        "ti_severity": "String DEFAULT ''",
+    }
+    client = get_ch_client()
     for table in ("siem.events", EVENTS_COLD_TABLE):
-        exists = get_ch_client().query(f"EXISTS TABLE {table}").result_rows
+        exists = client.query(f"EXISTS TABLE {table}").result_rows
         if not exists or not exists[0][0]:
             continue
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS event_code String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS asset_id String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS asset_owner String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS asset_criticality String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS asset_environment String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS asset_service String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS ti_indicator String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS ti_indicator_type String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS ti_provider String DEFAULT ''")
-        get_ch_client().command(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS ti_severity String DEFAULT ''")
+        database, table_name = table.split(".", 1)
+        existing_rows = client.query(
+            """
+            SELECT name
+            FROM system.columns
+            WHERE database = %(database)s
+              AND table = %(table)s
+            """,
+            parameters={"database": database, "table": table_name},
+        ).result_rows
+        existing = {str(row[0]) for row in existing_rows if row}
+        missing = [
+            f"ADD COLUMN IF NOT EXISTS {name} {definition}"
+            for name, definition in required_columns.items()
+            if name not in existing
+        ]
+        if missing:
+            client.command(f"ALTER TABLE {table} " + ", ".join(missing))
     return True
 
 

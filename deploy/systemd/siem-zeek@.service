@@ -1,0 +1,23 @@
+[Unit]
+Description=Zeek passive network sensor on %i
+After=network-online.target siem-monitor-interfaces.service
+Wants=network-online.target
+Requires=siem-monitor-interfaces.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/zeek/logs/%i
+ExecStart=/opt/zeek/bin/zeek -i %i local
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/zeek/logs/%i /var/lib/zeek
+
+[Install]
+WantedBy=multi-user.target

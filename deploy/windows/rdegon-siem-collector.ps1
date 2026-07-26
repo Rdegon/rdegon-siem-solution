@@ -3,6 +3,8 @@ param(
     [string]$BaseUrl = "https://192.168.3.102:8443",
     [string]$StatePath = "C:\ProgramData\RdegonSIEM\collector-state.json",
     [string]$LogPath = "C:\ProgramData\RdegonSIEM\collector.log",
+    [int]$MaxLogSizeMB = 10,
+    [int]$LogRetentionFiles = 3,
     [int]$BatchSize = 80,
     [int]$MaxSendBatch = 20,
     [ValidateSet("ports", "paths")]
@@ -70,6 +72,24 @@ function Ensure-StateDirectory {
 function Write-DiagnosticLog([string]$Message, [string]$Level = "INFO") {
     try {
         Ensure-StateDirectory
+        if (
+            $MaxLogSizeMB -gt 0 -and
+            (Test-Path -LiteralPath $LogPath) -and
+            (Get-Item -LiteralPath $LogPath).Length -ge ($MaxLogSizeMB * 1MB)
+        ) {
+            for ($index = [Math]::Max($LogRetentionFiles - 1, 0); $index -ge 1; $index--) {
+                $sourcePath = "$LogPath.$index"
+                $destinationPath = "$LogPath.$($index + 1)"
+                if (Test-Path -LiteralPath $sourcePath) {
+                    Move-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+                }
+            }
+            if ($LogRetentionFiles -gt 0) {
+                Move-Item -LiteralPath $LogPath -Destination "$LogPath.1" -Force
+            } else {
+                Remove-Item -LiteralPath $LogPath -Force
+            }
+        }
         $timestamp = (Get-Date).ToUniversalTime().ToString("o")
         Add-Content -Path $LogPath -Encoding UTF8 -Value ("[{0}] [{1}] {2}" -f $timestamp, $Level, $Message)
     } catch {

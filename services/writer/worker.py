@@ -122,6 +122,15 @@ class WriterWorker:
             text = str(candidate or "").strip()
             if not text:
                 continue
+            try:
+                epoch = float(text)
+            except ValueError:
+                epoch = 0.0
+            if epoch > 0 and text.replace(".", "", 1).isdigit():
+                try:
+                    return datetime.fromtimestamp(epoch, tz=timezone.utc).replace(tzinfo=None)
+                except (OverflowError, OSError, ValueError):
+                    pass
             normalized = text.replace(" ", "T")
             if normalized.endswith("Z"):
                 normalized = normalized[:-1] + "+00:00"
@@ -187,6 +196,16 @@ class WriterWorker:
         details = self._parse_json_field(fields.get("details"), default={})
         payload = {
             "provider": fields.get("event.provider", ""),
+            "event": {
+                "provider": fields.get("event.provider", ""),
+                "dataset": fields.get("event.dataset", ""),
+                "category": fields.get("event.category", ""),
+                "type": fields.get("event.type", ""),
+                "code": fields.get("event.code", ""),
+                "action": fields.get("event.action", ""),
+                "outcome": fields.get("event.outcome", ""),
+                "severity": fields.get("event.severity", "") or fields.get("severity", ""),
+            },
             "category": fields.get("event.category", ""),
             "type": fields.get("event.type", ""),
             "code": fields.get("event.code", ""),
@@ -206,6 +225,10 @@ class WriterWorker:
             },
             "network": {
                 "transport": fields.get("network.transport", ""),
+                "protocol": fields.get("network.protocol", ""),
+                "community_id": fields.get("network.community_id", ""),
+                "bytes": fields.get("network.bytes", ""),
+                "packets": fields.get("network.packets", ""),
                 "domain": fields.get("network.domain", ""),
             },
             "user": {
@@ -220,6 +243,41 @@ class WriterWorker:
                 "name": fields.get("process.name", ""),
                 "executable": fields.get("process.executable", ""),
                 "command_line": fields.get("process.command_line", "") or fields.get("process.command", ""),
+            },
+            "file": {
+                "name": fields.get("file.name", ""),
+                "path": fields.get("file.path", ""),
+                "sha256": fields.get("file.sha256", ""),
+                "sha1": fields.get("file.sha1", ""),
+                "md5": fields.get("file.md5", ""),
+                "size": fields.get("file.size", ""),
+            },
+            "container": {
+                "id": fields.get("container.id", ""),
+                "name": fields.get("container.name", ""),
+                "image": fields.get("container.image.name", ""),
+            },
+            "vulnerability": {
+                "id": fields.get("vulnerability.id", ""),
+                "severity": fields.get("vulnerability.severity", ""),
+                "title": fields.get("vulnerability.title", ""),
+                "description": fields.get("vulnerability.description", ""),
+                "package": fields.get("vulnerability.package.name", ""),
+                "package_version": fields.get("vulnerability.package.version", ""),
+                "fixed_version": fields.get("vulnerability.fixed_version", ""),
+            },
+            "rule": {
+                "name": fields.get("rule.name", ""),
+            },
+            "threat": {
+                "indicator": fields.get("threat.indicator.value", ""),
+                "indicator_type": fields.get("threat.indicator.type", ""),
+                "feed": fields.get("threat.feed.name", ""),
+                "confidence": fields.get("threat.confidence", ""),
+            },
+            "evidence": {
+                "id": fields.get("evidence.id", ""),
+                "uri": fields.get("evidence.uri", ""),
             },
             "observer": {
                 "collector": fields.get("observer.collector", ""),
@@ -478,7 +536,7 @@ class WriterWorker:
 
     def _build_row(self, msg_id: str, fields: Dict[str, str]) -> Tuple[Any, ...]:
         ts = self._parse_event_ts(fields)
-        event_id = fields.get("event_id") or msg_id
+        event_id = fields.get("event_id") or fields.get("event.id") or msg_id
         event_code = fields.get("event.code") or fields.get("winlog.event_id") or fields.get("audit.type") or ""
         provider = fields.get("event.provider", "")
         category = fields.get("event.category") or provider or "generic"
@@ -500,6 +558,12 @@ class WriterWorker:
         process_name = fields.get("process.name") or ""
         process_executable = fields.get("process.executable") or ""
         process_command = fields.get("process.command_line") or fields.get("process.command") or ""
+        community_id = fields.get("network.community_id") or ""
+        file_sha256 = fields.get("file.sha256") or ""
+        container_id = fields.get("container.id") or ""
+        vulnerability_id = fields.get("vulnerability.id") or ""
+        rule_name = fields.get("rule.name") or ""
+        evidence_id = fields.get("evidence.id") or ""
         severity = fields.get("event.severity") or fields.get("severity") or fields.get("log.level") or "info"
         message = fields.get("event.original") or fields.get("message") or ""
         cmdb_asset = self._match_cmdb_asset(fields) or {}
@@ -552,6 +616,12 @@ class WriterWorker:
             process_name,
             process_executable,
             process_command,
+            community_id,
+            file_sha256,
+            container_id,
+            vulnerability_id,
+            rule_name,
+            evidence_id,
             top_ti.get("indicator", ""),
             top_ti.get("indicator_type", ""),
             top_ti.get("provider", ""),
@@ -575,6 +645,7 @@ class WriterWorker:
             " src_ip, dst_ip, src_port, dst_port, device_vendor, device_product, "
             " log_source, host_name, asset_id, asset_owner, asset_criticality, asset_environment, asset_service, "
             " user_name, target_user, process_name, process_executable, process_command, "
+            " community_id, file_sha256, container_id, vulnerability_id, rule_name, evidence_id, "
             " ti_indicator, ti_indicator_type, ti_provider, ti_severity, severity, message, normalized_json, tags) VALUES"
         )
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconcile Zeek traffic mirror targets
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=soc-ndr-mirror.service
+
+[Install]
+WantedBy=timers.target

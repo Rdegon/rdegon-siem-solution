@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare passive Zeek monitor interfaces
+After=network-pre.target
+Before=siem-zeek@enp6s19.service siem-zeek@enp6s20.service siem-zeek@enp6s21.service siem-zeek@enp6s22.service siem-zeek@enp6s23.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/siem-prepare-monitor-interfaces
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

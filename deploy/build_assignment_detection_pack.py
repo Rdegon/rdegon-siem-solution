@@ -8,6 +8,11 @@ from typing import Any
 
 import yaml
 
+try:
+    from deploy.curated_assignment_rules import curated_batch_sql
+except ModuleNotFoundError:  # Direct script execution from deploy/.
+    from curated_assignment_rules import curated_batch_sql
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK_PATH = ROOT / "correlation_rule_packs" / "siem_detection_pack_v1.json"
@@ -785,21 +790,21 @@ SELECT
 FROM
 (
     SELECT
-        if(entity_key != '' AND entity_key != '-', entity_key, source) AS corr_entity_key,
-        concat('assignment-correlation:', if(entity_key != '' AND entity_key != '-', entity_key, source)) AS correlation_source,
-        min(ts_first) AS corr_ts_first,
-        max(ts_last) AS corr_ts_last,
+        if(child.entity_key != '' AND child.entity_key != '-', child.entity_key, child.source) AS corr_entity_key,
+        concat('assignment-correlation:', if(child.entity_key != '' AND child.entity_key != '-', child.entity_key, child.source)) AS correlation_source,
+        min(child.ts_first) AS corr_ts_first,
+        max(child.ts_last) AS corr_ts_last,
         count() AS hits,
         concat(
             '{{"event_type":"assignment_correlation_rule","source_id":"{row["source_id"]}","required":{required},"child_rule_ids":[',
-            arrayStringConcat(arrayMap(x -> toString(x), groupUniqArray(rule_id)), ','),
+            arrayStringConcat(arrayMap(x -> toString(x), groupUniqArray(child.rule_id)), ','),
             ']}}'
         ) AS context_json,
-        uniqExact(rule_id) AS matched_rules
-    FROM siem.alerts_raw
-    WHERE ts_last >= now() - INTERVAL {{WINDOW_S}} SECOND
-      AND rule_id IN ({ids_csv})
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+        uniqExact(child.rule_id) AS matched_rules
+    FROM siem.alerts_raw AS child
+    WHERE child.ts_last >= now() - INTERVAL {{WINDOW_S}} SECOND
+      AND child.rule_id IN ({ids_csv})
+      AND lower(child.status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
     GROUP BY corr_entity_key, correlation_source
     HAVING matched_rules >= {required}
 ) AS candidate
@@ -808,13 +813,26 @@ LEFT JOIN
     SELECT entity_key
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
-      AND ts_last >= now() - INTERVAL {dedupe_window_s} SECOND
+      AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
       AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
     GROUP BY entity_key
 ) AS existing
 ON candidate.corr_entity_key = existing.entity_key
 WHERE existing.entity_key = ''
 """
+
+
+def _normalize_existing_alert_dedupe_guard(sql_template: str) -> str:
+    sql = str(sql_template or "")
+    existing_end = sql.rfind(") AS existing")
+    if existing_end < 0:
+        return sql
+    existing_start = sql.rfind("LEFT JOIN", 0, existing_end)
+    if existing_start < 0:
+        return sql
+    existing_block = sql[existing_start:existing_end]
+    existing_block = re.sub(r"(\bAND\s+)ts_last(\s+>=\s+now\(\)\s+-\s+INTERVAL\b)", r"\1ts\2", existing_block)
+    return sql[:existing_start] + existing_block + sql[existing_end:]
 
 
 def _generic_batch_sql_template(
@@ -824,6 +842,9 @@ def _generic_batch_sql_template(
     status: str,
     source_id_to_rule_id: dict[str, int] | None = None,
 ) -> str:
+    curated_sql = curated_batch_sql(row)
+    if curated_sql:
+        return curated_sql
     if status == "active_correlation":
         correlation_sql = _generic_correlation_sql_template(row, source_id_to_rule_id or {})
         if correlation_sql:
@@ -884,7 +905,7 @@ LEFT JOIN
     SELECT entity_key
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
-      AND ts_last >= now() - INTERVAL {dedupe_window_s} SECOND
+      AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
       AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
     GROUP BY entity_key
 ) AS existing
@@ -1019,7 +1040,7 @@ def build_pack(
         is_batch, status = _is_batch_rule(row)
         source_id = row["source_id"]
         asset_groups = _asset_groups(row)
-        rule_row = {**row, "asset_groups": asset_groups, "_index": str(index)}
+        rule_row = {**row, "id": rule_id, "asset_groups": asset_groups, "_index": str(index)}
         override = active_overrides.get(source_id) or {}
         override_expr = _override_stream_expr(override)
         if override.get("threshold") is not None:
@@ -1028,6 +1049,10 @@ def build_pack(
             rule_row["_override_window_s"] = str(int(override.get("window_s") or 300))
         if override.get("dedupe_window_s") is not None:
             rule_row["_dedupe_window_s"] = str(int(override.get("dedupe_window_s") or 300))
+        if override.get("legacy_event_offset_cutoffs"):
+            rule_row["legacy_event_offset_cutoffs"] = dict(
+                override["legacy_event_offset_cutoffs"]
+            )
         sigma_yaml = ""
         if status == "requires_stream_tuning":
             if override_expr:
@@ -1063,19 +1088,29 @@ def build_pack(
             "operator_action": row["response"],
             "description": f"{row['source_id']}: {row['logic']} Источники: {row['sources']}.",
         }
+        if override.get("legacy_event_offset_cutoffs"):
+            common["legacy_event_offset_cutoffs"] = dict(
+                override["legacy_event_offset_cutoffs"]
+            )
         if is_batch:
             if status in {"active_batch", "active_correlation"}:
                 common["window_s"] = int(override.get("window_s") or _window_s(row["logic"]))
                 common["threshold"] = _safe_batch_threshold(rule_row, status=status, override=override)
-                common["sql_template"] = str(
-                    override.get("sql_template")
-                    or _generic_batch_sql_template(
-                        rule_row,
-                        asset_groups,
-                        status=status,
-                        source_id_to_rule_id=source_id_to_rule_id,
-                    )
-                ).strip()
+                curated_sql = curated_batch_sql(rule_row)
+                common["sql_template"] = _normalize_existing_alert_dedupe_guard(
+                    str(
+                        curated_sql
+                        or override.get("sql_template")
+                        or _generic_batch_sql_template(
+                            rule_row,
+                            asset_groups,
+                            status=status,
+                            source_id_to_rule_id=source_id_to_rule_id,
+                        )
+                    ).strip()
+                )
+                if override.get("trusted_admin_ips"):
+                    common["trusted_admin_ips"] = list(override["trusted_admin_ips"])
             batch_rules.append(common)
             continue
         stream_rule = {

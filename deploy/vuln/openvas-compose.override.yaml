@@ -1,0 +1,13 @@
+services:
+  openvas:
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          nmap -p 9390 localhost | grep -qs '9390.*open' &&
+          (curl -fsS http://localhost:9392/ >/dev/null ||
+          curl -kfsS https://localhost:9392/ >/dev/null)
+      interval: 5m
+      timeout: 30s
+      retries: 3
+      start_period: 10m

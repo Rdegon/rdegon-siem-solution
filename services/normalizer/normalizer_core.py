@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import logging
@@ -7,6 +8,7 @@ import re
 import shlex
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -24,6 +26,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - CI fallback when option
     _CLICKHOUSE_DRIVER_IMPORT_ERROR = exc
 
 from .config import NormalizerSettings
+from .security_tool_normalizers import parse_security_tool_event, parse_suricata_payload
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ SYSLOG_RFC5424_RE = re.compile(
     r"^<(?P<pri>\d+)>(?P<version>\d)\s+(?P<timestamp>\S+)\s+(?P<host>\S+)\s+"
     r"(?P<program>\S+)\s+(?P<pid>\S+)\s+(?P<msgid>\S+)\s+(?P<structured>(?:-|\[[^\]]*\](?:\[[^\]]*\])*))\s*(?P<body>.*)$"
 )
+AUDIT_ID_RE = re.compile(r"\bmsg=audit\((?P<audit_id>[^)]+)\)")
 KV_RE = re.compile(r'([A-Za-z0-9_.-]+)=(".*?"|\'.*?\'|[^ ]+)')
 IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 UFW_BLOCK_RE = re.compile(
@@ -227,6 +231,18 @@ SIEM_OPERATIONAL_SUDO_MARKERS = (
     "kafka-topics.sh",
     "kafka-consumer-groups.sh",
 )
+SIEM_OPERATOR_AUTOMATION_HOSTS = {"desktop-5jmjvbh", "win-rtx-test"}
+SIEM_OPERATOR_AUTOMATION_PATH_MARKERS = (
+    r"c:\users\rdegon\projects\siem-solution-clean",
+    r"c:\users\rdegon\projects\siem_xfer_2026-03-25\docs\operator_bundle\operator_access_bundle.md",
+)
+SIEM_OPERATOR_AUTOMATION_ACTION_MARKERS = (
+    "from deploy.soc_foundation_provision import proxmox",
+    "from deploy.security_analytics_qga_deploy import",
+    "$env:siem_proxmox_host",
+    "/opt/siem/siem-solution/",
+)
+SIEM_APPROVED_SCANNER_IPS = {"10.20.30.122"}
 MEDIUM_RISK_EVENT_TYPES = {
     "audit_user_login_failure",
     "audit_user_auth_failure",
@@ -669,6 +685,70 @@ def _looks_like_greenbone_expected_ssh_probe(event_type: str, source_ip: str, ho
     return safe_host not in {GREENBONE_SCANNER_HOST, ""} and safe_log_source not in {GREENBONE_SCANNER_HOST, ""}
 
 
+def _looks_like_siem_operator_automation(provider: str, host_name: str, message: str) -> bool:
+    safe_provider = str(provider or "").strip().lower()
+    safe_host = _canonical_host_name(str(host_name or "")).lower()
+    safe_message = str(message or "").strip().lower()
+    return (
+        safe_provider == "windows.powershell"
+        and safe_host in SIEM_OPERATOR_AUTOMATION_HOSTS
+        and any(marker in safe_message for marker in SIEM_OPERATOR_AUTOMATION_PATH_MARKERS)
+        and any(marker in safe_message for marker in SIEM_OPERATOR_AUTOMATION_ACTION_MARKERS)
+    )
+
+
+def _looks_like_approved_scanner_auth_probe(
+    event_type: str,
+    source_ip: str,
+    logon_type: str,
+    message: str,
+) -> bool:
+    safe_event_type = str(event_type or "").strip().lower()
+    safe_source_ip = str(source_ip or "").strip()
+    safe_logon_type = str(logon_type or "").strip()
+    safe_message = str(message or "").lower()
+    return (
+        safe_event_type == "windows_logon_failure"
+        and safe_source_ip in SIEM_APPROVED_SCANNER_IPS
+        and (safe_logon_type == "3" or "logon type:\t\t\t3" in safe_message)
+    )
+
+
+def _looks_like_approved_scanner_network_detection(
+    event_type: str,
+    provider: str,
+    source_ip: str,
+) -> bool:
+    return (
+        str(event_type or "").strip().lower() == "suricata_alert"
+        and str(provider or "").strip().lower() == "suricata"
+        and str(source_ip or "").strip() in SIEM_APPROVED_SCANNER_IPS
+    )
+
+
+def _looks_like_managed_rsyslog_change(
+    event_type: str,
+    audit_key: str,
+    host_name: str,
+    process_name: str,
+    message: str,
+) -> bool:
+    safe_event_type = str(event_type or "").strip().lower()
+    safe_key = _normalize_audit_key(audit_key)
+    safe_host = _canonical_host_name(str(host_name or "")).lower()
+    safe_process = _basename(str(process_name or "")).lower()
+    safe_message = str(message or "").lower()
+    return (
+        safe_event_type == "linux_rsyslog_config_modified"
+        and safe_key == "rsyslog_config"
+        and safe_host == "lab-edge-01"
+        and safe_process in {"bash", "chmod"}
+        and "auid=4294967295" in safe_message
+        and "uid=0" in safe_message
+        and "tty=(none)" in safe_message
+    )
+
+
 def _apply_openclaw_allowlist_tags(event: Dict[str, Any]) -> Dict[str, Any]:
     host_name = _canonical_host_name(str(event.get("host.name") or event.get("log_source") or ""))
     if host_name != OPENCLAW_EXPECTED_HOST:
@@ -739,13 +819,26 @@ def _apply_operational_allowlist_tags(event: Dict[str, Any]) -> Dict[str, Any]:
     host_name = _canonical_host_name(str(event.get("host.name") or event.get("log_source") or ""))
     log_source = _canonical_host_name(str(event.get("log_source") or ""))
     event_type = _clean_value(event.get("event.type")).lower()
+    provider = _clean_value(event.get("event.provider")).lower()
+    message = _clean_value(event.get("event.original") or event.get("message"))
+    process_name = _clean_value(event.get("process.name"))
     command_line = _clean_value(event.get("process.command_line") or event.get("process.command")).lower()
     user_name = _clean_value(event.get("user.name")).lower()
     source_ip = _clean_value(event.get("source.ip"))
+    logon_type = _clean_value(event.get("auth.logon_type"))
+    audit_key = _clean_value(event.get("audit.key"))
     if event_type == "sudo_command" and _looks_like_siem_operational_sudo(command_line, host_name, user_name):
         _append_tags(event, "allowlist:siem_operational_sudo", "siem:operational-sudo")
     if _looks_like_greenbone_expected_ssh_probe(event_type, source_ip, host_name, log_source):
         _append_tags(event, "allowlist:greenbone_expected_ssh_probe", "greenbone:expected-ssh-probe")
+    if _looks_like_siem_operator_automation(provider, host_name, message):
+        _append_tags(event, "allowlist:siem_operator_automation", "siem:operator-automation")
+    if _looks_like_approved_scanner_auth_probe(event_type, source_ip, logon_type, message):
+        _append_tags(event, "allowlist:siem_approved_scanner", "siem:approved-scanner")
+    if _looks_like_approved_scanner_network_detection(event_type, provider, source_ip):
+        _append_tags(event, "allowlist:siem_approved_scanner", "siem:approved-scanner")
+    if _looks_like_managed_rsyslog_change(event_type, audit_key, host_name, process_name, message):
+        _append_tags(event, "allowlist:siem_managed_rsyslog_change", "siem:managed-rsyslog-change")
     return event
 
 
@@ -864,7 +957,8 @@ def _classify_file_path_event(result: Dict[str, Any], path_value: str) -> None:
 def _classify_execve_activity(result: Dict[str, Any]) -> None:
     command_line = _clean_value(result.get("process.command_line", ""))
     command_lower = command_line.lower()
-    executable = _basename(result.get("process.executable", "") or result.get("process.name", ""))
+    executable_path = _clean_value(result.get("process.executable", "") or result.get("process.name", "")).lower()
+    executable = _basename(executable_path)
     target_user = _extract_target_user(command_line)
     if target_user and not result.get("user.target.name"):
         result["user.target.name"] = target_user
@@ -928,7 +1022,10 @@ def _classify_execve_activity(result: Dict[str, Any]) -> None:
         _set_event_shape(result, category="command_and_control", action="reverse_shell", event_type="linux_reverse_shell_possible")
     elif any(token in command_lower for token in ("whoami", "uname", "hostnamectl", "ip a", "ifconfig", "netstat", "ss -", "lsof -i", "cat /etc/passwd", "getent passwd", "last ", "w ", "who ")):
         _set_event_shape(result, category="discovery", action="recon", event_type="linux_system_recon")
-    elif "/tmp/" in command_lower:
+    elif executable_path.startswith(("/tmp/", "/var/tmp/", "/dev/shm/")) or re.match(
+        r"^\s*(?:/usr/bin/env\s+)?(?:/tmp|/var/tmp|/dev/shm)/",
+        command_lower,
+    ):
         _set_event_shape(result, category="execution", action="exec_tmp", event_type="linux_exec_from_tmp")
     elif "authorized_keys" in command_lower:
         _set_event_shape(result, category="persistence", action="authorized_keys_modify", event_type="linux_authorized_keys_modified")
@@ -954,6 +1051,18 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
     audit_key = values.get("key", "")
     file_path = values.get("name", "")
     cwd = values.get("cwd", "")
+    audit_id_match = AUDIT_ID_RE.search(body)
+    audit_id = _clean_value(audit_id_match.group("audit_id")) if audit_id_match else ""
+    record_identity = "\x1f".join(
+        (
+            _clean_value(base.get("host.name")),
+            audit_id,
+            event_type_raw,
+            _clean_value(values.get("item", "")),
+            file_path,
+        )
+    )
+    event_id = f"audit-{hashlib.sha256(record_identity.encode('utf-8')).hexdigest()[:32]}" if audit_id else ""
     command_line = _extract_execve_command(values, _decode_hex(command_hex) or _decode_hex(proctitle_hex))
     process_name = values.get("comm", "") or base.get("process.name", "") or _basename(exe)
 
@@ -1002,8 +1111,9 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "event.action": event_action,
         "event.type": event_type,
         "event.outcome": outcome,
+        "event.id": event_id,
         "audit.type": event_type_raw,
-        "audit.id": values.get("msg", ""),
+        "audit.id": audit_id,
         "audit.key": audit_key,
         "session.id": values.get("ses", ""),
         "user.name": acct,
@@ -1620,9 +1730,40 @@ def _build_windows_event(mapping: Dict[str, Any], base: Dict[str, Any]) -> Dict[
         result["event.outcome"] = "success"
         result["event.severity"] = "high" if source_ip and source_ip not in {"127.0.0.1", "::1"} else "medium"
     elif provider == "windows.wmi" and event_id in {"5857", "5858", "5859", "5860", "5861"}:
-        _set_event_shape(result, category="execution", action="wmi_activity", event_type="windows_wmi_activity")
+        message_lower = message.lower()
+        client_match = re.search(r"\bClientMachine\s*=\s*([^;]+)", message, re.IGNORECASE)
+        client_machine = _clean_value(client_match.group(1)) if client_match else ""
+        operation_match = re.search(r"\bOperation\s*=\s*([^;]+)", message, re.IGNORECASE)
+        operation = _clean_value(operation_match.group(1)) if operation_match else ""
+        local_client = bool(
+            client_machine
+            and computer_name
+            and _canonical_host_name(client_machine).lower() == _canonical_host_name(computer_name).lower()
+        )
+        persistence_markers = (
+            "commandlineeventconsumer",
+            "activescripteventconsumer",
+            "__filtertoconsumerbinding",
+            "__eventfilter",
+        )
+        execution_markers = (
+            "iwbemservices::execmethod",
+            "win32_process::create",
+            "win32_process.create",
+        )
+        if event_id == "5861" or any(marker in message_lower for marker in persistence_markers):
+            action = "wmi_persistence"
+        elif any(marker in message_lower for marker in execution_markers):
+            action = "wmi_remote_execution" if not local_client else "wmi_local_execution"
+        elif client_machine and not local_client and "iwbemservices::execquery" in message_lower:
+            action = "wmi_remote_query"
+        else:
+            action = "wmi_local_query" if local_client else "wmi_activity"
+        _set_event_shape(result, category="execution", action=action, event_type="windows_wmi_activity")
         result["event.outcome"] = "failure" if event_id == "5858" else "success"
         result["event.severity"] = "medium" if event_id == "5858" else "high"
+        result["wmi.client_machine"] = client_machine
+        result["wmi.operation"] = operation
 
     command_lower = _clean_value(process_command or message).lower()
     executable_lower = _basename(process_executable)
@@ -1636,6 +1777,45 @@ def _build_windows_event(mapping: Dict[str, Any], base: Dict[str, Any]) -> Dict[
         result["event.severity"] = "medium"
 
     return result
+
+
+def _iso_utc(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_rfc5424_timestamp(value: str) -> str:
+    text = _clean_value(value)
+    if not text or text == "-":
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return _iso_utc(parsed)
+
+
+def _parse_bsd_syslog_timestamp(month: str, day: str, clock: str, host_name: str = "") -> str:
+    now = datetime.now(timezone.utc)
+    source_timezone = (
+        timezone(timedelta(hours=3))
+        if _canonical_host_name(host_name) in {"pve", "proxmox", "vpn-host-khanov"}
+        else timezone.utc
+    )
+    candidates: list[datetime] = []
+    for year in (now.year - 1, now.year, now.year + 1):
+        try:
+            candidates.append(
+                datetime.strptime(f"{year} {month} {day} {clock}", "%Y %b %d %H:%M:%S").replace(
+                    tzinfo=source_timezone
+                )
+            )
+        except ValueError:
+            continue
+    if not candidates:
+        return ""
+    return _iso_utc(min(candidates, key=lambda candidate: abs((candidate - now).total_seconds())))
 
 
 def _parse_systemd_resolved(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
@@ -1793,6 +1973,7 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
         _merge_non_empty(
             enriched,
             {
+                "@timestamp": _parse_rfc5424_timestamp(match_rfc5424.group("timestamp")),
                 "log.level": level,
                 "host.name": host_name,
                 "log_source": host_name or source_ip,
@@ -1812,6 +1993,12 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
         _merge_non_empty(
             enriched,
             {
+                "@timestamp": _parse_bsd_syslog_timestamp(
+                    match.group("month"),
+                    match.group("day"),
+                    match.group("clock"),
+                    host_name,
+                ),
                 "log.level": level,
                 "host.name": host_name,
                 "log_source": host_name or source_ip,
@@ -1840,6 +2027,10 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
         return _merge_non_empty(enriched, _parse_account_tools(program, body, enriched))
     if program == "systemd-resolved":
         return _merge_non_empty(enriched, _parse_systemd_resolved(body, enriched))
+    if program == "suricata-eve":
+        return _merge_non_empty(enriched, parse_suricata_payload(enriched, body))
+    if program == "suricata-fast":
+        return _merge_non_empty(enriched, parse_suricata_payload(enriched, body))
 
     return enriched
 
@@ -1847,9 +2038,12 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
 def _enrich_raw_event(raw_event: Dict[str, Any]) -> Dict[str, Any]:
     enriched = dict(raw_event)
     source_type = _clean_value(raw_event.get("source_type")).lower()
+    security_tool_event = parse_security_tool_event(raw_event)
     vuln_event = _parse_vuln_scanner_event(raw_event)
     windows_event = _parse_windows_event(raw_event)
-    if vuln_event:
+    if security_tool_event:
+        _merge_non_empty(enriched, security_tool_event)
+    elif vuln_event:
         _merge_non_empty(enriched, vuln_event)
     elif windows_event:
         _merge_non_empty(enriched, windows_event)
@@ -1952,7 +2146,18 @@ def _build_uem(rule: Optional[NormalizerRule], raw_event: Dict[str, Any]) -> Dic
         if value not in (None, "", [], {}):
             uem[uem_field] = value
 
-    passthrough_keys = {"message", "severity", "log_source", "source_type", "source", "metrics", "services", "details", "tags"}
+    passthrough_keys = {
+        "@timestamp",
+        "message",
+        "severity",
+        "log_source",
+        "source_type",
+        "source",
+        "metrics",
+        "services",
+        "details",
+        "tags",
+    }
     for key, value in raw_event.items():
         if "." in str(key) or str(key) in passthrough_keys:
             if value not in (None, "", [], {}):

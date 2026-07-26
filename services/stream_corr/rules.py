@@ -45,24 +45,27 @@ def load_stream_rules(settings: StreamCorrSettings) -> List[StreamCorrRule]:
         send_receive_timeout=settings.ch_timeout_secs,
     )
 
-    rows = client.execute(
-        """
-        SELECT
-            id,
-            name,
-            description,
-            enabled,
-            severity,
-            pattern,
-            window_s,
-            threshold,
-            expr,
-            entity_field
-        FROM siem.correlation_rules_stream
-        WHERE enabled = 1
-        ORDER BY id
-        """
-    )
+    try:
+        rows = client.execute(
+            """
+            SELECT
+                id,
+                name,
+                description,
+                enabled,
+                severity,
+                pattern,
+                window_s,
+                threshold,
+                expr,
+                entity_field
+            FROM siem.correlation_rules_stream
+            WHERE enabled = 1
+            ORDER BY id
+            """
+        )
+    finally:
+        client.disconnect()
 
     rules: List[StreamCorrRule] = []
     for row in rows:

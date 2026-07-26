@@ -76,7 +76,7 @@
       "window_s": 1800,
       "threshold": 25,
       "entity_field": "destination.ip",
-      "expr": "(((event.category == 'network' and destination.ip != '') and event.severity != 'info')) and not tags icontains 'allowlist:'",
+      "expr": "(((event.category == 'network' and destination.ip != '') and event.severity != 'info') and event.type != 'zeek_weird') and not tags icontains 'allowlist:'",
       "operator_action": "Check if repeated non-informational network activity to the destination is expected; pivot to host and destination timeline.",
       "scenario": "Repeated suspicious destination"
     },
@@ -90,7 +90,7 @@
       "window_s": 600,
       "threshold": 5,
       "entity_field": "source.ip",
-      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (event.category == 'network' or event.type == 'linux_firewall_blocked' or event.type == 'network_scan'))) and not tags icontains 'allowlist:'",
+      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (((event.provider == 'suricata' or event.provider == 'zeek') and network.direction == 'inbound') or event.type == 'linux_firewall_blocked'))) and not tags icontains 'allowlist:'",
       "operator_action": "Pivot to Attack geography and IP detail, confirm target ports, then add the source to TI/deny list only after validating it is not expected monitoring.",
       "scenario": "Protected perimeter probing"
     },

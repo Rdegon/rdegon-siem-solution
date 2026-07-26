@@ -1,11 +1,20 @@
 import types
 import unittest
 from unittest import mock
+from pathlib import Path
 
 from deploy import apply_stock_performance_profile as profile
 
 
 class StockPerformanceProfileTests(unittest.TestCase):
+    def test_stream_corr_has_service_specific_dynamic_membership_override(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        env_payload = (root / "deploy/vm4/siem-stream-corr-consumer.env").read_text(encoding="utf-8")
+        dropin_payload = (root / "deploy/vm4/siem-stream-corr-membership.conf").read_text(encoding="utf-8")
+
+        self.assertIn("SIEM_KAFKA_STATIC_MEMBERSHIP=false", env_payload)
+        self.assertIn("EnvironmentFile=-/etc/siem/stream-corr-consumer.env", dropin_payload)
+
     def test_render_dropin_quotes_environment_values(self) -> None:
         rendered = profile.render_dropin({"SIEM_KAFKA_PRODUCER_COMPRESSION_TYPE": "lz4", "SIEM_WRITER_BATCH_SIZE": "1000"})
 

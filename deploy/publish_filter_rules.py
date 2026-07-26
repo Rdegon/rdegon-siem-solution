@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+_publish_timeout = int(os.getenv("SIEM_FILTER_RULE_PUBLISH_TIMEOUT_SECONDS", "300"))
+_configured_ch_timeout = int(os.getenv("SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS", "20"))
+os.environ["SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS"] = str(
+    max(_publish_timeout, _configured_ch_timeout)
+)
 
 from deploy.runtime_imports import import_app_module  # noqa: E402
 
@@ -14,6 +22,8 @@ deps = import_app_module("deps")
 
 
 FILTER_RULES_SQL = ROOT / "sql" / "12_filter_rule_seed.sql"
+FILTER_RULE_MUTATION_TIMEOUT_SECONDS = _publish_timeout
+FILTER_RULE_IDS = tuple(range(3001, 3017))
 
 
 def _ensure_filter_rule_table() -> None:
@@ -64,13 +74,47 @@ def _split_sql_statements(payload: str) -> list[str]:
     return [statement for statement in statements if statement]
 
 
+def _wait_for_filter_rule_deletion(timeout_seconds: int) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    rule_ids = ", ".join(str(rule_id) for rule_id in FILTER_RULE_IDS)
+    while True:
+        remaining = int(
+            deps.get_ch_client()
+            .query(
+                f"""
+                SELECT count()
+                FROM siem.filter_rules
+                WHERE id IN ({rule_ids})
+                """
+            )
+            .result_rows[0][0]
+        )
+        if remaining == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Timed out waiting for deletion of {remaining} filter rule row(s)"
+            )
+        time.sleep(1)
+
+
 def main() -> int:
     _ensure_filter_rule_table()
     payload = FILTER_RULES_SQL.read_text(encoding="utf-8")
     statements = _split_sql_statements(payload)
     executed = 0
     for statement in statements:
-        deps.get_ch_client().command(statement)
+        is_delete = statement.lstrip().upper().startswith(
+            "ALTER TABLE SIEM.FILTER_RULES DELETE"
+        )
+        if is_delete:
+            deps.get_ch_client().command(
+                statement,
+                settings={"mutations_sync": 0},
+            )
+            _wait_for_filter_rule_deletion(FILTER_RULE_MUTATION_TIMEOUT_SECONDS)
+        else:
+            deps.get_ch_client().command(statement)
         executed += 1
     count = int(
         deps.get_ch_client()

@@ -362,6 +362,8 @@ class DeployRolloutRegressionTests(unittest.TestCase):
 
         self.assertIn("retired_runtime_rule_ids", publish_text)
         self.assertIn("false_positive", publish_text)
+        self.assertIn("lightweight_deletes_sync=2", publish_text)
+        self.assertNotIn("SETTINGS mutations_sync=1", publish_text)
         self.assertIn("publish_assignment_detection_pack.py", deploy_text)
 
     def test_rule_noise_tuning_publisher_is_in_vm4_deploy(self) -> None:
@@ -376,9 +378,13 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         import deploy.proxmox_fleet_wave_deploy as fleet_wave
 
         navidrome = next(spec for spec in fleet_wave.GUESTS if spec.name == "navidrome-01")
-        self.assertTrue(navidrome.needs_nmap_exporter)
-        self.assertIn("rdegon-vuln-scan.timer", navidrome.services)
-        self.assertIn("192.168.1.39", fleet_wave.NMAP_EXPOSURE_TARGETS)
+        vuln_manager = next(spec for spec in fleet_wave.GUESTS if spec.name == "vuln-mgr-01")
+        self.assertFalse(navidrome.needs_nmap_exporter)
+        self.assertNotIn("rdegon-vuln-scan.timer", navidrome.services)
+        self.assertTrue(vuln_manager.needs_nmap_exporter)
+        self.assertIn("rdegon-vuln-scan.timer", vuln_manager.services)
+        self.assertIn("10.20.10.107", fleet_wave.NMAP_EXPOSURE_TARGETS)
+        self.assertNotIn("192.168.1.39", fleet_wave.NMAP_EXPOSURE_TARGETS)
         deploy_text = (ROOT / "deploy" / "proxmox_fleet_wave_deploy.py").read_text(encoding="utf-8")
         self.assertIn("/etc/default/rdegon-vuln-scan", deploy_text)
         self.assertIn("/opt/rdegon-siem-vuln/targets.txt", deploy_text)

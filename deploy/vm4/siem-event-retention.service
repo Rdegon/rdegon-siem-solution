@@ -9,6 +9,8 @@ Type=oneshot
 User=rdegon
 WorkingDirectory=/opt/siem/siem-solution
 EnvironmentFile=/etc/siem/web.env
+Environment=SIEM_CH_CONNECT_TIMEOUT_SECONDS=15
+Environment=SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS=300
 ExecStart=/opt/siem/venv-web/bin/python /opt/siem/siem-solution/services/web/maintenance/retention_runner.py
 
 [Install]

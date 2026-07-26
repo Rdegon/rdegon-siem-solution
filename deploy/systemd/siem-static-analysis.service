@@ -1,0 +1,21 @@
+[Unit]
+Description=SOC static malware and vulnerability analysis worker
+After=network-online.target clamav-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/siem/services/security_analysis/static_worker.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/analysis /var/log/siem
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

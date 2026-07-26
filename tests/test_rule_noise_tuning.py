@@ -48,15 +48,12 @@ def test_windows_noise_rules_exclude_collector_system_and_wmi_lifecycle() -> Non
     assert "MpEngine" in str(defender["expr"])
     assert "Features\\EcsConfigs" in str(defender["expr"])
     assert "Features\\Controls" in str(defender["expr"])
-    assert "event.code != '5857'" in str(wmi["expr"])
-    assert "event.code != '5860'" in str(wmi["expr"])
-    assert "WmiPerfInst provider started" in str(wmi["expr"])
-    assert "WMIProv provider started" in str(wmi["expr"])
-    assert "Could not send status to client" in str(wmi["expr"])
-    assert "IWbemServices::ExecNotificationQuery" in str(wmi["expr"])
-    assert "DESKTOP-5JMJVBH" in str(wmi["expr"])
-    assert "NT AUTHORITY\\SYSTEM" in str(wmi["expr"])
-    assert "wsmprovhost.exe" in str(wmi["expr"])
+    assert "wmi_remote_query" in str(wmi["expr"])
+    assert "wmi_remote_execution" in str(wmi["expr"])
+    assert "wmi_local_query" not in str(wmi["expr"])
+    wmi_persistence = _pack_rule("windows_activity_v1.json", 2619)
+    assert int(wmi_persistence["threshold"]) == 1
+    assert "wmi_persistence" in str(wmi_persistence["expr"])
 
 
 def test_windows_defender_rule_matches_tamper_settings_not_update_churn() -> None:
@@ -106,6 +103,8 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
 
     assert "sigma_yaml" not in linux_rule
     assert "dpkg-tmp" in str(linux_rule["expr"])
+    assert "ubuntu-advantage.service" in str(linux_rule["expr"])
+    assert "ua-timer.service" in str(linux_rule["expr"])
     assert not _matches(str(linux_rule["expr"]), dpkg_path_event)
     assert _matches(str(linux_rule["expr"]), direct_unit_change)
     assert "sigma_yaml" not in tmp_exec_rule
@@ -130,6 +129,16 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
             "tags": "",
         },
     )
+    assert not _matches(
+        str(tmp_exec_rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_exec_from_tmp",
+            "process.command_line": "install -m 0644 /tmp/deploy-unit.service /etc/systemd/system/deploy-unit.service",
+            "user.target.name": "/etc/systemd/system/deploy-unit.service",
+            "tags": "",
+        },
+    )
     assert "sigma_yaml" not in openclaw_rule
     assert not _matches(str(openclaw_rule["expr"]), dpkg_path_event)
     assert _matches(str(openclaw_rule["expr"]), direct_unit_change)
@@ -141,6 +150,17 @@ def test_linux_system_recon_replacement_excludes_openclaw_health_checks() -> Non
     assert int(rule["threshold"]) >= 5
     assert "openclaw_send" in str(rule["expr"])
     assert "/usr/lib/node_modules/openclaw" in str(rule["expr"])
+    assert "apparmor_parser" in str(rule["expr"])
+    assert not _matches(
+        str(rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_system_recon",
+            "event.original": "type=EXECVE",
+            "process.command_line": "apparmor_parser -r -T -W /etc/apparmor.d/ubuntu_pro_esm_cache",
+            "tags": "",
+        },
+    )
 
     deps_text = (ROOT / "services" / "web" / "app" / "deps.py").read_text(encoding="utf-8")
     retired_block = deps_text.split("DEFAULT_SIGMA_RETIRED_DUPLICATE_IDS", 1)[1].split("}", 1)[0]
@@ -178,6 +198,64 @@ def test_host_service_flapping_requires_repeated_flaps() -> None:
     assert int(fleet_rule["window_s"]) >= 1800
 
 
+def test_network_destination_rule_ignores_zeek_weird_but_keeps_firewall_blocks() -> None:
+    rule = _pack_rule("diploma_core_stream_v1.json", 9005)
+    expr = str(rule["expr"])
+    common = {
+        "event.category": "network",
+        "event.severity": "medium",
+        "destination.ip": "198.51.100.20",
+        "tags": "",
+    }
+
+    assert not _matches(expr, {**common, "event.type": "zeek_weird"})
+    assert _matches(expr, {**common, "event.type": "linux_firewall_blocked"})
+
+
+def test_edge_service_rules_require_exact_service_and_terminal_state() -> None:
+    suricata = _pack_rule("siem_detection_pack_v1.json", 8096)
+    unbound = _pack_rule("siem_detection_pack_v1.json", 8097)
+    rsyslog = _pack_rule("siem_detection_pack_v1.json", 8098)
+    common = {
+        "event.provider": "linux.systemd",
+        "process.name": "systemd",
+        "host.name": "lab-edge-01",
+        "log_source": "lab-edge-01",
+        "tags": "",
+    }
+
+    dns_query = {
+        **common,
+        "event.provider": "linux.unbound",
+        "process.name": "unbound",
+        "event.original": "info: 10.20.10.128 docs.velociraptor.app. AAAA IN",
+    }
+    unrelated_stop = {
+        **common,
+        "event.original": "siem-host-runtime-agent.service: Deactivated successfully.",
+    }
+
+    assert not _matches(str(unbound["expr"]), dns_query)
+    assert not _matches(str(suricata["expr"]), unrelated_stop)
+    assert not _matches(str(rsyslog["expr"]), unrelated_stop)
+    assert _matches(
+        str(suricata["expr"]),
+        {**common, "event.original": "suricata.service: Failed with result 'exit-code'."},
+    )
+    assert _matches(
+        str(unbound["expr"]),
+        {**common, "event.original": "Stopped unbound.service - Unbound DNS server."},
+    )
+    assert not _matches(
+        str(rsyslog["expr"]),
+        {**common, "event.original": "rsyslog.service: Deactivated successfully."},
+    )
+    assert _matches(
+        str(rsyslog["expr"]),
+        {**common, "event.original": "rsyslog.service: Failed with result 'exit-code'."},
+    )
+
+
 def test_linux_sudo_and_openclaw_proxy_rules_have_operational_noise_guards() -> None:
     sudo_rule = _pack_rule("linux_activity_v1.json", 2703)
     proxy_rule = _pack_rule("openclaw_behavior_v1.json", 2304)
@@ -211,15 +289,34 @@ def test_batch_rules_exclude_internal_edge_and_emit_valid_numeric_json() -> None
     assert "AND priv_hits >= 3" in soc_batch
 
 
+def test_filter_seed_republishes_rules_without_async_delete_race() -> None:
+    filter_seed = (ROOT / "sql" / "12_filter_rule_seed.sql").read_text(encoding="utf-8")
+
+    assert "ALTER TABLE siem.filter_rules DELETE" in filter_seed
+    publisher = (ROOT / "deploy" / "publish_filter_rules.py").read_text(encoding="utf-8")
+    assert "_wait_for_filter_rule_deletion" in publisher
+    assert 'settings={"mutations_sync": 0}' in publisher
+    assert 'SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS"] = str(' in publisher
+
+
 def test_rule_noise_publisher_refreshes_second_layer_targets() -> None:
     publish_text = (ROOT / "deploy" / "publish_rule_noise_tuning.py").read_text(encoding="utf-8")
 
-    for rule_id in ("2303", "2605", "2607", "2612", "2616", "2701", "2702", "2703", "2706", "2708", "8070", "8071", "8091", "8093", "8134", "8213", "8224", "8225", "8226", "8227", "8228", "8263", "8286", "8308", "8331", "8339", "1001", "1003", "1013", "1018", "1019", "1020", "1021", "2000", "2302", "2718", "2723", "4002", "4003", "4004", "8012", "8431", "8432", "8481"):
+    for rule_id in ("2303", "2601", "2605", "2607", "2612", "2616", "2701", "2702", "2703", "2706", "2708", "2907", "8056", "8070", "8071", "8091", "8093", "8134", "8213", "8224", "8225", "8226", "8227", "8228", "8231", "8232", "8263", "8269", "8286", "8307", "8308", "8331", "8339", "8367", "9006", "1001", "1003", "1013", "1018", "1019", "1020", "1021", "2000", "2302", "2718", "2723", "4002", "4003", "4004", "8012", "8442", "8431", "8432", "8481"):
         assert rule_id in publish_text
     assert "REFRESH_BATCH_RULE_IDS" in publish_text
     assert "REFRESH_ASSIGNMENT_BATCH_RULE_IDS" in publish_text
     assert "_refresh_batch_rules" in publish_text
     assert "_refresh_assignment_batch_rules" in publish_text
+    assert "lightweight_deletes_sync = 2" in publish_text
+    assert "mutations_sync = 1" not in publish_text
+
+
+def test_assignment_publisher_uses_maintenance_sized_clickhouse_timeout() -> None:
+    publisher = (ROOT / "deploy" / "publish_assignment_detection_pack.py").read_text(encoding="utf-8")
+
+    assert "SIEM_RULE_PUBLISH_TIMEOUT_SECONDS" in publisher
+    assert 'os.environ["SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS"]' in publisher
 
 
 def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semantics() -> None:
@@ -258,6 +355,9 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "Stopped containerd" in str(overrides["DCK-002"]["expr"])
     assert "siem-stream-corr" in str(overrides["CORR-S-003"]["sql_template"])
     assert "pilot-db-01" not in str(overrides["CORR-S-003"]["sql_template"])
+    assert ":qmreboot:107:" in str(overrides["PVE-016"]["expr"])
+    assert "status update time" not in str(overrides["PVE-016"]["expr"])
+    assert "\\SoftLanding\\" in str(overrides["WIN-010"]["expr"])
     assert "host.name == 'siem-web'" in str(overrides["WEB-003"]["expr"])
     assert "host.name == 'siem-web'" in str(overrides["WEB-004"]["expr"])
     assert "host.name == 'siem-web'" in str(overrides["WEB-006"]["expr"])
@@ -302,6 +402,167 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "known AS" in str(overrides["AUTH-005"]["sql_template"])
     assert "k.src_ip_text = ''" in str(overrides["AUTH-005"]["sql_template"])
     assert "lower(status) IN ('open', 'false_positive', 'suppressed')" in str(overrides["AUTH-005"]["sql_template"])
+
+
+def test_windows_scheduled_task_rule_excludes_only_known_softlanding_tasks() -> None:
+    rule = _pack_rule("windows_activity_v1.json", 2607)
+    benign = {
+        "event.type": "windows_scheduled_task_created",
+        "event.original": (
+            'User "DESKTOP-5JMJVBH\\Rdegon" registered Task Scheduler task '
+            '"\\SoftLanding\\S-1-5-21\\SoftLandingDeferralTask-{id}"'
+        ),
+        "host.name": "DESKTOP-5JMJVBH",
+        "log_source": "DESKTOP-5JMJVBH",
+        "tags": [],
+    }
+    suspicious = {
+        **benign,
+        "event.original": (
+            'User "DESKTOP-5JMJVBH\\Rdegon" registered Task Scheduler task '
+            '"\\UpdaterPersistence"'
+        ),
+    }
+
+    assert not _matches(str(rule["expr"]), benign)
+    assert _matches(str(rule["expr"]), suspicious)
+
+
+def test_assignment_overrides_reject_observed_false_positive_shapes() -> None:
+    overrides = json.loads(
+        (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1_active_overrides.json").read_text(encoding="utf-8")
+    )
+
+    assert not _matches(
+        str(overrides["DCK-023"]["expr"]),
+        {
+            "event.provider": "linux.systemd",
+            "event.original": "Listening on systemd Password Requests Watch.",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(overrides["DCK-023"]["expr"]),
+        {
+            "event.provider": "linux.docker",
+            "event.original": "container output: AWS_SECRET_ACCESS_KEY=EXPOSED_TEST_VALUE",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["NC-005"]["expr"]),
+        {
+            "event.provider": "linux.systemd",
+            "host.name": "nextcloud-siem",
+            "event.original": "Found left-over process in control group while starting unit.",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(overrides["NC-005"]["expr"]),
+        {
+            "event.provider": "linux.nextcloud",
+            "host.name": "nextcloud-siem",
+            "event.original": '{"action":"group_add","group":"admin","user":"alice"}',
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["PG-008"]["expr"]),
+        {
+            "event.provider": "linux.systemd",
+            "host.name": "pilot-db-01",
+            "event.original": "siem-host-runtime-agent.service: Deactivated successfully.",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(overrides["PG-008"]["expr"]),
+        {
+            "event.provider": "postgresql",
+            "host.name": "pilot-db-01",
+            "event.original": "database system was interrupted; automatic recovery in progress",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["WEB-011"]["expr"]),
+        {
+            "event.provider": "linux.gitea",
+            "host.name": "gamepanel-01",
+            "event.original": "/go/pkg/mod/code.gitea.io/gitea/modules/indexer/issues/indexer.go",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(overrides["WEB-011"]["expr"]),
+        {
+            "event.provider": "linux.nginx-access",
+            "host.name": "pilot-web-01",
+            "event.original": '198.51.100.44 - - "GET /..%2f..%2fetc/passwd HTTP/1.1" 400 0',
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "10.20.10.108",
+            "destination.ip": "10.20.10.1",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "10.20.10.108",
+            "destination.ip": "8.8.8.8",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "10.20.10.108",
+            "destination.ip": "9.9.9.9",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "192.168.3.102",
+            "destination.ip": "8.8.8.8",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "10.20.20.100",
+            "destination.ip": "8.8.8.8",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
 
 
 def test_ssh_batch_rules_ignore_trusted_admin_source_ip() -> None:

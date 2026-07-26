@@ -359,6 +359,132 @@ class TransportRuntimeTests(unittest.TestCase):
                     consumer="c2",
                 )
 
+    def test_kafka_consumer_uses_static_membership_and_bounded_session_timeout(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeConsumer:
+            def __init__(self, topic, **kwargs):
+                captured["topic"] = topic
+                captured.update(kwargs)
+                self.start = AsyncMock()
+                self.stop = AsyncMock()
+
+        settings = transport_settings_from_object(
+            None,
+            env={
+                "SIEM_TRANSPORT_BACKEND": "kafka",
+                "SIEM_KAFKA_BOOTSTRAP_SERVERS": "10.20.10.104:9092",
+                "SIEM_KAFKA_CLIENT_ID": "siem-processing-vm2",
+            },
+        )
+        original_available = transport_module.KAFKA_CLIENTS_AVAILABLE
+        original_consumer = transport_module.AIOKafkaConsumer
+        transport_module.KAFKA_CLIENTS_AVAILABLE = True
+        transport_module.AIOKafkaConsumer = FakeConsumer
+        try:
+            consumer = KafkaTopicConsumer(
+                settings,
+                topic="siem.raw",
+                group="normalizer",
+                consumer="normalizer-primary",
+            )
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "SIEM_KAFKA_STATIC_MEMBERSHIP": "true",
+                    "SIEM_KAFKA_SESSION_TIMEOUT_MS": "45000",
+                    "SIEM_KAFKA_HEARTBEAT_INTERVAL_MS": "10000",
+                    "SIEM_KAFKA_GROUP_INSTANCE_ID": "",
+                },
+                clear=False,
+            ):
+                asyncio.run(consumer.init())
+
+            self.assertEqual("siem.raw", captured["topic"])
+            self.assertEqual("siem-processing-vm2-normalizer-normalizer-primary", captured["group_instance_id"])
+            self.assertEqual(45000, captured["session_timeout_ms"])
+            self.assertEqual(10000, captured["heartbeat_interval_ms"])
+        finally:
+            transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
+            transport_module.AIOKafkaConsumer = original_consumer
+
+    def test_kafka_consumer_honors_explicit_group_instance_id(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeConsumer:
+            def __init__(self, topic, **kwargs):
+                captured.update(kwargs)
+                self.start = AsyncMock()
+                self.stop = AsyncMock()
+
+        settings = transport_settings_from_object(
+            None,
+            env={
+                "SIEM_TRANSPORT_BACKEND": "kafka",
+                "SIEM_KAFKA_BOOTSTRAP_SERVERS": "10.20.10.104:9092",
+                "SIEM_KAFKA_CLIENT_ID": "siem-processing-vm2",
+            },
+        )
+        original_available = transport_module.KAFKA_CLIENTS_AVAILABLE
+        original_consumer = transport_module.AIOKafkaConsumer
+        transport_module.KAFKA_CLIENTS_AVAILABLE = True
+        transport_module.AIOKafkaConsumer = FakeConsumer
+        try:
+            consumer = KafkaTopicConsumer(settings, topic="siem.raw", group="normalizer", consumer="duplicate-name")
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "SIEM_KAFKA_STATIC_MEMBERSHIP": "true",
+                    "SIEM_KAFKA_GROUP_INSTANCE_ID": "siem-processing-vm2-normalizer-2",
+                },
+                clear=False,
+            ):
+                asyncio.run(consumer.init())
+
+            self.assertEqual("siem-processing-vm2-normalizer-2", captured["group_instance_id"])
+        finally:
+            transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
+            transport_module.AIOKafkaConsumer = original_consumer
+
+    def test_kafka_consumer_restarts_after_repeated_poll_failures(self) -> None:
+        instances = []
+
+        class FakeConsumer:
+            def __init__(self, topic, **kwargs):
+                self.start = AsyncMock()
+                self.stop = AsyncMock()
+                self.getmany = AsyncMock(side_effect=TimeoutError())
+                instances.append(self)
+
+        settings = transport_settings_from_object(
+            None,
+            env={
+                "SIEM_TRANSPORT_BACKEND": "kafka",
+                "SIEM_KAFKA_BOOTSTRAP_SERVERS": "10.20.10.104:9092",
+                "SIEM_KAFKA_CLIENT_ID": "siem-storage-vm3",
+            },
+        )
+        original_available = transport_module.KAFKA_CLIENTS_AVAILABLE
+        original_consumer = transport_module.AIOKafkaConsumer
+        transport_module.KAFKA_CLIENTS_AVAILABLE = True
+        transport_module.AIOKafkaConsumer = FakeConsumer
+        try:
+            consumer = KafkaTopicConsumer(settings, topic="siem.filtered", group="corr", consumer="corr-1")
+            with mock.patch.dict("os.environ", {"SIEM_KAFKA_POLL_RESTART_THRESHOLD": "2"}, clear=False):
+                consumer._poll_restart_threshold = 2
+                asyncio.run(consumer.init())
+                with self.assertRaises(TimeoutError):
+                    asyncio.run(consumer.poll(batch_size=10, block_ms=100))
+                with self.assertRaises(TimeoutError):
+                    asyncio.run(consumer.poll(batch_size=10, block_ms=100))
+
+            self.assertEqual(2, len(instances))
+            instances[0].stop.assert_awaited_once()
+            instances[1].start.assert_awaited_once()
+        finally:
+            transport_module.KAFKA_CLIENTS_AVAILABLE = original_available
+            transport_module.AIOKafkaConsumer = original_consumer
+
     def test_create_transport_producer_uses_redis_when_requested(self) -> None:
         class Settings:
             transport_backend = "redis"

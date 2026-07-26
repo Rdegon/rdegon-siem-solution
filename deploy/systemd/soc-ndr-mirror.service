@@ -1,0 +1,12 @@
+[Unit]
+Description=Mirror Proxmox bridge ingress traffic to Zeek monitor NICs
+After=network-online.target pve-guests.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/siem-zeek-mirror
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

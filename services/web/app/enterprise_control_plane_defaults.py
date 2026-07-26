@@ -953,6 +953,7 @@ def build_default_response_actions(
             "governance_tier": "operator",
             "evidence_contract": ["incident_ref", "severity", "source_summary", "actors"],
             "rollback_contract": [],
+            "rollback_required": False,
             "compliance_controls": ["SOC2-CC7", "ISO27001-A.16"],
             "preconditions": ["telegram-channel-verified", "incident-context-present"],
             "integration_targets": ["telegram"],

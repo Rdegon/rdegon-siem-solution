@@ -87,10 +87,11 @@ def _task_map(response: ET.Element) -> Dict[str, Dict[str, str]]:
         name = _xml_text(node, "name")
         if not name:
             continue
+        target_node = node.find("target")
         items[name] = {
             "id": _response_id(node),
             "name": name,
-            "target_id": _safe_text((node.find("target") or ET.Element("target")).get("id")),
+            "target_id": _safe_text(target_node.get("id") if target_node is not None else ""),
         }
     return items
 
@@ -661,7 +662,8 @@ def _result_findings(
         qod = float(qod_value)
     except ValueError:
         qod = 0.0
-    plugin_id = _safe_text((result.find("nvt") or ET.Element("nvt")).get("oid"))
+    nvt_node = result.find("nvt")
+    plugin_id = _safe_text(nvt_node.get("oid") if nvt_node is not None else "")
     package_name = _xml_text(result, "product")
     installed_version = _xml_text(result, "version")
     fixed_version = _xml_text(result, "nvt/solution") if "fixed version" in solution.lower() else ""
@@ -753,9 +755,11 @@ def fetch_completed_reports(
             if root_report is None:
                 continue
             task_node = root_report.find("task")
-            task_id = _safe_text((task_node or ET.Element("task")).get("id"))
-            target_node = (task_node.find("target") if task_node is not None else None) or root_report.find("target")
-            target_id = _safe_text((target_node or ET.Element("target")).get("id"))
+            task_id = _safe_text(task_node.get("id") if task_node is not None else "")
+            target_node = task_node.find("target") if task_node is not None else None
+            if target_node is None:
+                target_node = root_report.find("target")
+            target_id = _safe_text(target_node.get("id") if target_node is not None else "")
             target_value = _xml_text(target_node, "name") or _xml_text(root_report, "host")
             binding = _report_binding(task_id, target_id, target_value, bindings_by_task, bindings_by_target, asset_by_target)
             scan_run_id = f"greenbone-{report_id}"
@@ -780,8 +784,6 @@ def fetch_completed_reports(
                         report_url=_report_url(report_id),
                     )
                 )
-            if not findings:
-                continue
             severity_counts: Dict[str, int] = {}
             for row in findings:
                 severity = _safe_text(row.get("severity_normalized")) or "info"

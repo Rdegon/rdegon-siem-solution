@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -117,6 +119,51 @@ class GreenboneSynchronizationTests(unittest.TestCase):
         self.assertEqual(1, result["synced"])
         self.assertEqual(1, result["retired"])
         self.assertEqual(0, result["failed"])
+
+    def test_empty_reports_are_recorded_and_count_toward_limit(self) -> None:
+        class _ReportGmp:
+            def __init__(self) -> None:
+                self.requested: list[str] = []
+
+            def get_reports(self, **_kwargs):
+                root = ET.Element("get_reports_response")
+                ET.SubElement(root, "report", {"id": "report-empty-1"})
+                ET.SubElement(root, "report", {"id": "report-empty-2"})
+                return root
+
+            def get_report(self, report_id, **_kwargs):
+                self.requested.append(report_id)
+                response = ET.Element("get_reports_response")
+                wrapper = ET.SubElement(response, "report", {"id": report_id})
+                report = ET.SubElement(wrapper, "report", {"id": report_id})
+                task = ET.SubElement(report, "task", {"id": "task-1"})
+                ET.SubElement(task, "name").text = "Task 1"
+                target = ET.SubElement(task, "target", {"id": "target-1"})
+                ET.SubElement(target, "name").text = "10.20.30.10"
+                ET.SubElement(report, "scan_start").text = "2026-07-26T03:00:00Z"
+                ET.SubElement(report, "scan_end").text = "2026-07-26T03:05:00Z"
+                return response
+
+        fake = _ReportGmp()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(vuln_greenbone, "_with_gmp", side_effect=lambda function: function(fake)):
+                with patch.object(
+                    vuln_greenbone,
+                    "_artifact_path",
+                    side_effect=lambda report_id: Path(temp_dir) / f"{report_id}.xml",
+                ):
+                    result = vuln_greenbone.fetch_completed_reports(
+                        imported_report_ids=set(),
+                        bindings_by_task={},
+                        bindings_by_target={},
+                        asset_by_target={},
+                        limit=1,
+                    )
+
+        self.assertEqual(1, result["imported"])
+        self.assertEqual(["report-empty-1"], fake.requested)
+        self.assertEqual([], result["imported_runs"][0]["findings"])
+        self.assertEqual(0, result["imported_runs"][0]["scan_run"]["finding_count"])
 
 
 if __name__ == "__main__":

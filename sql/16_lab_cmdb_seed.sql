@@ -16,10 +16,17 @@ ALTER TABLE siem.cmdb_assets DELETE WHERE asset_id IN
     'asset-pilot-cache-01',
     'asset-openclaw-gateway',
     'asset-gamepanel-01',
+    'asset-opnsense-staging',
+    'asset-soc-ndr-01',
+    'asset-soc-dfir-01',
+    'asset-soc-analysis-01',
+    'asset-soc-ti-01',
+    'asset-soc-pki-01',
+    'asset-soc-evidence-01',
     'asset-desktop-5jmjvbh',
     'asset-jump-host',
     'asset-vpn-host'
-);
+) SETTINGS mutations_sync = 1;
 
 INSERT INTO siem.cmdb_assets
 (asset_id, asset_type, hostname, ip, owner, criticality, environment, business_service, os_family, expected_ports, tags, notes, enabled)
@@ -39,7 +46,14 @@ VALUES
 ('asset-pilot-db-01', 'server', 'pilot-db-01', '10.20.30.124', 'soc-fleet', 'high', 'lab', 'Pilot database tier', 'linux', '22,5432', 'pilot,database,linux_common,proxmox-fleet,role:pilot-db', 'Pilot application database node', 1),
 ('asset-pilot-cache-01', 'server', 'pilot-cache-01', '10.20.30.125', 'soc-fleet', 'medium', 'lab', 'Pilot cache tier', 'linux', '22,6379', 'pilot,cache,linux_common,proxmox-fleet,role:pilot-cache', 'Pilot application cache node', 1),
 ('asset-openclaw-gateway', 'server', 'openclaw-gateway', '10.20.30.126', 'soc-fleet', 'high', 'lab', 'OpenClaw egress gateway', 'linux', '22,80,443', 'edge_gateway,public_services,gateway,openclaw,linux_common,proxmox-fleet,role:openclaw-gateway', 'Gateway node for OpenClaw traffic', 1),
-('asset-gamepanel-01', 'server', 'gamepanel-01', '192.168.1.30', 'soc-fleet', 'high', 'lab', 'Game panel', 'linux', '22,80,443,8080,2022', 'game,public_services,gamepanel,pterodactyl,linux_common,proxmox-fleet,role:gamepanel', 'Pterodactyl/game panel host with additional service IP aliases', 1),
+('asset-gamepanel-01', 'server', 'gamepanel-01', '10.20.20.130', 'soc-fleet', 'high', 'lab', 'Game panel', 'linux', '22,80,443,8080,2022', 'game,public_services,gamepanel,pterodactyl,linux_common,proxmox-fleet,role:gamepanel', 'Pterodactyl/game panel host with legacy service IP aliases', 1),
+('asset-opnsense-staging', 'network', 'opnsense-staging', '172.31.255.2', 'soc-fleet', 'critical', 'lab', 'OPNsense NGFW staging', 'freebsd', '22,443', 'edge_gateway,ngfw,ids,ips,opnsense,proxmox-fleet,security', 'Parallel OPNsense NGFW staged for controlled gateway cutover', 1),
+('asset-soc-ndr-01', 'security_sensor', 'soc-ndr-01', '10.20.10.127', 'soc-fleet', 'high', 'lab', 'Network detection and response', 'linux', '22', 'security,ndr,zeek,network-monitoring,proxmox-fleet,siem-source', 'Zeek network sensor with segment mirror interfaces', 1),
+('asset-soc-dfir-01', 'security_server', 'soc-dfir-01', '10.20.10.128', 'soc-fleet', 'high', 'lab', 'DFIR and endpoint visibility', 'linux', '22,8000', 'security,dfir,velociraptor,proxmox-fleet,siem-source', 'Velociraptor server and event forwarder', 1),
+('asset-soc-analysis-01', 'security_server', 'soc-analysis-01', '10.20.30.129', 'soc-fleet', 'high', 'lab', 'Malware and static analysis', 'linux', '22', 'security,malware-analysis,static-analysis,proxmox-fleet,siem-source', 'Static analysis and malware triage worker', 1),
+('asset-soc-ti-01', 'security_server', 'soc-ti-01', '10.20.10.131', 'soc-fleet', 'high', 'lab', 'Threat intelligence platform', 'linux', '22,80,443', 'security,threat-intelligence,misp,proxmox-fleet,siem-source', 'MISP threat intelligence platform and SIEM exporter', 1),
+('asset-soc-pki-01', 'security_server', 'soc-pki-01', '10.20.10.132', 'soc-fleet', 'high', 'lab', 'SOC internal PKI', 'linux', '22,9000', 'security,pki,step-ca,proxmox-fleet', 'Internal certificate authority for SOC services', 1),
+('asset-soc-evidence-01', 'security_storage', 'soc-evidence-01', '10.20.10.133', 'soc-fleet', 'critical', 'lab', 'SOC evidence storage', 'linux', '22,9000,9001', 'security,evidence,minio,proxmox-fleet', 'Object storage for evidence and analysis artifacts', 1),
 ('asset-desktop-5jmjvbh', 'workstation', 'DESKTOP-5JMJVBH', '', 'rdegon', 'medium', 'lab', 'WIN-RTX-test operator workstation', 'windows', '', 'windows,endpoint,operator,win-rtx-test,identity-source', 'Current operator workstation and Windows telemetry source', 1),
 ('asset-jump-host', 'vpn', 'vpn-host-khanov', '176.108.250.215', 'rdegon', 'high', 'prod', 'Jump host', 'linux', '22', 'vpn,jump,edge', 'Public jump host with reverse access into the lab', 1),
 ('asset-vpn-host', 'vpn', 'vm15611031', '45.89.111.208', 'rdegon', 'high', 'prod', 'VPN gateway', 'linux', '22,443', 'vpn,edge,critical-asset', 'Public VLESS/Reality endpoint', 1);

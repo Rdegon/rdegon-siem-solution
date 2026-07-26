@@ -12,6 +12,7 @@ ClickHouse schema and rule seed SQL live here.
 | `15_batch_corr_soc_seed.sql` | SOC-oriented batch correlation seed. |
 | `16_lab_cmdb_seed.sql` | Lab CMDB seed. |
 | `17_lab_ti_seed.sql` | Lab threat-intel seed. |
+| `18_security_analytics_schema.sql` | Searchable Zeek, endpoint, container, vulnerability, rule, and evidence fields. |
 
 Publishing utilities that consume these files:
 

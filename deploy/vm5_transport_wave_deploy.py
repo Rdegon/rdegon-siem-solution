@@ -45,6 +45,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/normalizer/config.py", "services/normalizer/config.py"),
     FileMapping("services/normalizer/logging_conf.py", "services/normalizer/logging_conf.py"),
     FileMapping("services/normalizer/normalizer_core.py", "services/normalizer/normalizer_core.py"),
+    FileMapping("services/normalizer/security_tool_normalizers.py", "services/normalizer/security_tool_normalizers.py"),
     FileMapping("services/normalizer/requirements.txt", "services/normalizer/requirements.txt"),
     FileMapping("services/normalizer/worker.py", "services/normalizer/worker.py"),
     FileMapping("services/filter/__init__.py", "services/filter/__init__.py"),

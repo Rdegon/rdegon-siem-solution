@@ -55,7 +55,8 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect the changed cron entry, owning account, and recently executed commands. Unexpected cron edits often indicate persistence attempts.",
-      "sigma_yaml": "title: Linux Cron Modified\nid: sigma-linux-cron-modified\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.provider: linux.auditd\n    event.type: linux_cron_modified\n  condition: selection\nlevel: high\n"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_cron_modified' and not event.original icontains 'nametype=PARENT' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2705,
@@ -79,7 +80,7 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect the changed unit file, recent restarts, and whether the modification aligns with approved deployment activity or persistence attempts.",
-      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_systemd_unit_modified' and (event.original icontains '/etc/systemd/system/' or event.original icontains '/lib/systemd/system/' or event.original icontains '/usr/lib/systemd/system/') and not event.original icontains '.dpkg-' and not event.original icontains 'dpkg-tmp' and not event.original icontains 'dpkg-new' and not event.original icontains 'dpkg-old' and not event.original icontains 'nametype=PARENT' and not event.original icontains 'apt.systemd.daily' and not event.original icontains 'unattended-upgrade' and not event.original icontains '/tmp/apt-dpkg-install' and not process.command_line icontains 'apt-dpkg-install' and not process.command_line icontains '/usr/bin/dpkg' and not process.command_line icontains '/usr/bin/apt' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_systemd_unit_modified' and (event.original icontains '/etc/systemd/system/' or event.original icontains '/lib/systemd/system/' or event.original icontains '/usr/lib/systemd/system/') and not event.original icontains '.dpkg-' and not event.original icontains 'dpkg-tmp' and not event.original icontains 'dpkg-new' and not event.original icontains 'dpkg-old' and not event.original icontains 'nametype=PARENT' and not event.original icontains 'apt.systemd.daily' and not event.original icontains 'unattended-upgrade' and not event.original icontains '/tmp/apt-dpkg-install' and not event.original icontains '/apt-news.service' and not event.original icontains '/esm-cache.service' and not event.original icontains '/ua-timer.service' and not event.original icontains '/ua-timer.timer' and not event.original icontains '/ua-reboot-cmds.service' and not event.original icontains '/ubuntu-advantage.service' and not process.command_line icontains 'apt-dpkg-install' and not process.command_line icontains '/usr/bin/dpkg' and not process.command_line icontains '/usr/bin/apt' and not (tags icontains 'siem-core' and (event.original icontains '60-static-kafka-member.conf' or event.original icontains 'siem-security-sensor-forwarder@.service' or event.original icontains '/falco-custom.service')) and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
       "source_format": "stream-expr"
     },
     {
@@ -140,7 +141,7 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect command line, parent process, and recent downloads. Execution from temporary paths often indicates staging of ad hoc tooling or malware.",
-      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_exec_from_tmp' and not event.original icontains '/tmp/apt-dpkg-install' and not event.original icontains 'apt-dpkg-install' and not event.original icontains 'dpkg --status-fd' and not process.command_line icontains '/tmp/apt-dpkg-install' and not process.command_line icontains 'apt-dpkg-install' and not process.command_line icontains '/usr/bin/dpkg' and not process.command_line icontains '/usr/bin/apt' and not user.target.name icontains '/tmp/apt-dpkg-install' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_exec_from_tmp' and not event.original icontains '/tmp/apt-dpkg-install' and not event.original icontains 'apt-dpkg-install' and not event.original icontains 'dpkg --status-fd' and not process.command_line icontains '/tmp/apt-dpkg-install' and not process.command_line icontains 'apt-dpkg-install' and not process.command_line icontains '/usr/bin/dpkg' and not process.command_line icontains '/usr/bin/apt' and not process.command_line icontains 'dpkg --install /tmp/falco-' and not process.command_line icontains 'base64 -d /tmp/' and not process.command_line icontains 'install -m 0644 /tmp/' and not process.command_line icontains 'cp /tmp/' and not process.command_line icontains 'mv /tmp/' and not user.target.name icontains '/tmp/apt-dpkg-install' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
       "source_format": "stream-expr"
     },
     {
@@ -189,7 +190,8 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect changes to auditd configuration or rules. Unexpected audit reconfiguration should be treated as defense evasion until proven otherwise.",
-      "sigma_yaml": "title: Linux Audit Configuration Changed\nid: sigma-linux-audit-configuration-changed\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.type: linux_audit_config_changed\n  condition: selection\nlevel: high\n"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_audit_config_changed' and not event.original icontains 'nametype=PARENT' and not process.command_line icontains 'auditctl -R /etc/audit/audit.rules' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2716,
@@ -201,7 +203,8 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Review which SSH setting changed and whether it widens access, weakens authentication, or supports persistence.",
-      "sigma_yaml": "title: Linux SSHD Configuration Changed\nid: sigma-linux-sshd-configuration-changed\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.type: linux_sshd_config_modified\n  condition: selection\nlevel: high\n"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_sshd_config_modified' and not event.original icontains 'nametype=PARENT' and not event.original icontains '.dpkg-' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2717,
@@ -213,7 +216,8 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Inspect rsyslog configuration drift. Changes that suppress forwarding or modify routing can hide attacker activity from SIEM.",
-      "sigma_yaml": "title: Linux Logging Configuration Changed\nid: sigma-linux-logging-configuration-changed\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.type: linux_rsyslog_config_modified\n  condition: selection\nlevel: high\n"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_rsyslog_config_modified' and not event.original icontains 'nametype=PARENT' and not event.original icontains '.dpkg-' and not (tags icontains 'siem-core' and event.original icontains '/etc/rsyslog.d/91-siem-audit-imfile.conf') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2718,
@@ -321,7 +325,7 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Review the recon commands, user context, and whether the burst belongs to expected service health checks. Escalate unknown interactive or remote-origin recon.",
-      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_system_recon' and not event.original icontains 'key=\"openclaw_send\"' and not event.original icontains '/usr/lib/node_modules/openclaw' and not process.command_line icontains '/usr/lib/node_modules/openclaw' and not tags icontains 'allowlist:')"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_system_recon' and not event.original icontains 'key=\"openclaw_send\"' and not event.original icontains '/usr/lib/node_modules/openclaw' and not process.command_line icontains '/usr/lib/node_modules/openclaw' and not (process.command_line icontains 'apparmor_parser' and process.command_line icontains '/etc/apparmor.d/') and not tags icontains 'allowlist:')"
     }
   ],
   "batch_rules": [

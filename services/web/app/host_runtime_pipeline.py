@@ -495,6 +495,20 @@ def evaluate_snapshot(
         change_epochs = [float(item) for item in (previous.get("change_epochs") or []) if _safe_float(item) > 0]
         if previous and _service_transition_counts_as_flap(str(previous.get("status") or ""), current_status):
             change_epochs.append(now_value)
+        if previous and str(previous.get("status") or "") == "active" and current_status != "active":
+            alerts.append(
+                _base_event(
+                    snapshot,
+                    event_type="host_service_down",
+                    severity="high",
+                    message=f"Service stopped on {host_name}: {service_name} ({current_status})",
+                    details={
+                        "service": service_name,
+                        "status": current_status,
+                        "result": str(service.get("result") or ""),
+                    },
+                )
+            )
         change_epochs = [epoch for epoch in change_epochs if now_value - epoch <= SERVICE_FLAP_WINDOW_SECONDS]
         service_state[service_name] = {"status": current_status, "change_epochs": change_epochs}
         if len(change_epochs) >= SERVICE_FLAP_THRESHOLD:

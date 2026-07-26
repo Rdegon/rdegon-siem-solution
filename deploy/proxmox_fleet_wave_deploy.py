@@ -16,20 +16,33 @@ import paramiko
 
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_ROOT = "/opt/siem/siem-solution"
-PROXMOX_HOST = "192.168.1.101"
-VM4_HOST = "192.168.1.39"
+INGEST_CA_PATH = "/etc/siem/pki/ingest-ca.crt"
+PROXMOX_HOST = "192.168.3.101"
+VM4_HOST = "10.20.10.107"
 VM4_WEB_PYTHON = "/opt/siem/venv-web/bin/python"
 NAVIDROME_VERSION = "0.60.3"
 NAVIDROME_URL = f"https://github.com/navidrome/navidrome/releases/download/v{NAVIDROME_VERSION}/navidrome_{NAVIDROME_VERSION}_linux_amd64.tar.gz"
 NMAP_EXPOSURE_TARGETS: tuple[str, ...] = (
-    "192.168.1.39",
+    "10.20.10.104",
+    "10.20.10.105",
+    "10.20.10.106",
+    "10.20.10.107",
+    "10.20.10.108",
+    "10.20.10.127",
+    "10.20.10.128",
+    "10.20.10.131",
+    "10.20.10.132",
+    "10.20.10.133",
+    "10.20.20.100",
     "10.20.20.120",
     "10.20.20.121",
+    "10.20.20.130",
     "10.20.30.122",
     "10.20.30.123",
     "10.20.30.124",
     "10.20.30.125",
     "10.20.30.126",
+    "10.20.30.129",
 )
 
 
@@ -56,15 +69,23 @@ GUESTS: tuple[GuestSpec, ...] = (
         "lxc",
         "navidrome-01",
         "media-node",
-        ("navidrome", "rdegon-vuln-scan.timer", "ssh", "rsyslog"),
+        ("navidrome", "ssh", "rsyslog"),
         needs_navidrome=True,
+    ),
+    GuestSpec(
+        122,
+        "qemu",
+        "vuln-mgr-01",
+        "vulnerability-manager",
+        ("docker", "rdegon-vuln-scan.timer", "auditd", "ssh", "rsyslog"),
+        needs_docker=True,
+        needs_openvas_log=True,
         needs_nmap_exporter=True,
     ),
-    GuestSpec(122, "qemu", "vuln-mgr-01", "vulnerability-manager", ("docker", "auditd", "ssh", "rsyslog"), needs_docker=True, needs_openvas_log=True),
     GuestSpec(123, "qemu", "pilot-web-01", "pilot-web", ("docker", "pilot-gitea", "auditd", "ssh", "rsyslog"), needs_docker=True),
     GuestSpec(124, "qemu", "pilot-db-01", "pilot-db", ("postgresql@14-main", "auditd", "ssh", "rsyslog")),
     GuestSpec(125, "qemu", "pilot-cache-01", "pilot-cache", ("docker", "pilot-valkey", "auditd", "ssh", "rsyslog"), needs_docker=True),
-    GuestSpec(126, "qemu", "openclaw-gateway", "openclaw-gateway", ("openclaw-gateway", "openclaw-vless", "auditd", "systemd-resolved", "ssh", "rsyslog"), needs_openclaw=True),
+    GuestSpec(126, "qemu", "openclaw-gateway", "openclaw-gateway", ("openclaw-gateway", "openclaw-vless", "auditd", "systemd-resolved", "ssh.socket", "rsyslog"), needs_openclaw=True),
     GuestSpec(130, "qemu", "gamepanel-01", "guest", ("docker", "wings", "nginx", "auditd", "rsyslog")),
 )
 
@@ -246,6 +267,16 @@ def _install_common_monitoring_bundle(proxmox: paramiko.SSHClient, spec: GuestSp
     )
     for local_rel, remote_path, mode in COMMON_REMOTE_FILES:
         _guest_write_text(proxmox, spec, remote_path, _repo_text(local_rel), mode=mode)
+    ingest_spec = GuestSpec(104, "qemu", "siem-ingest", "ingest", ())
+    ingest_certificate = _guest_exec(
+        proxmox,
+        ingest_spec,
+        "cat /etc/siem/tls/ingest.crt",
+        timeout=60,
+    )
+    if "BEGIN CERTIFICATE" not in ingest_certificate:
+        raise RuntimeError("Unable to read the trusted SIEM ingest certificate from VM104")
+    _guest_write_text(proxmox, spec, INGEST_CA_PATH, ingest_certificate, mode="0644")
     if spec.vmid == 130:
         _guest_write_text(
             proxmox,
@@ -259,7 +290,8 @@ def _install_common_monitoring_bundle(proxmox: paramiko.SSHClient, spec: GuestSp
         f"SIEM_HOST_RUNTIME_ROLE={spec.role}\n"
         f"SIEM_HOST_RUNTIME_SERVICES={','.join(spec.services)}\n"
         "SIEM_HOST_RUNTIME_INGEST_URL=https://10.20.10.104/ingest/json\n"
-        "SIEM_HOST_RUNTIME_INGEST_TLS_VERIFY=disabled\n"
+        "SIEM_HOST_RUNTIME_INGEST_TLS_VERIFY=required\n"
+        f"SIEM_HOST_RUNTIME_INGEST_CA_FILE={INGEST_CA_PATH}\n"
         "SIEM_HOST_RUNTIME_TIMEOUT_SECONDS=20\n"
         "SIEM_HOST_RUNTIME_DELIVERY_ATTEMPTS=4\n"
         "SIEM_HOST_RUNTIME_STATE_PATH=/var/lib/siem-host-runtime/state.json\n"
@@ -360,11 +392,11 @@ def _ensure_navidrome(proxmox: paramiko.SSHClient, spec: GuestSpec) -> None:
 def _deploy_nmap_exporter(proxmox: paramiko.SSHClient, spec: GuestSpec) -> None:
     targets_text = "# Secondary Nmap exposure scan targets.\n" + "\n".join(NMAP_EXPOSURE_TARGETS) + "\n"
     env_text = (
-        "RDEGON_SIEM_BASE_URL=https://192.168.1.39\n"
-        "RDEGON_SIEM_VULN_INGEST_URL=https://192.168.1.35:9445/\n"
+        "RDEGON_SIEM_BASE_URL=https://192.168.3.102\n"
+        "RDEGON_SIEM_VULN_INGEST_URL=https://10.20.10.104:9445/\n"
         "RDEGON_VULN_TARGETS_FILE=/opt/rdegon-siem-vuln/targets.txt\n"
         "RDEGON_VULN_REPORT_DIR=/opt/rdegon-siem-vuln/reports\n"
-        "RDEGON_VULN_NMAP_ARGS=-Pn -sV -T4\n"
+        "RDEGON_VULN_NMAP_ARGS=-Pn -sV -T4 --top-ports 200 --max-retries 2 --host-timeout 3m\n"
     )
     _guest_exec(
         proxmox,

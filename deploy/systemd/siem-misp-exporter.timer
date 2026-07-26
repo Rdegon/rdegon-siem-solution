@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll MISP indicators for SIEM ingestion
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=60s
+RandomizedDelaySec=10s
+Persistent=true
+Unit=siem-misp-exporter.service
+
+[Install]
+WantedBy=timers.target

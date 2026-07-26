@@ -423,6 +423,7 @@ def _default_ansible_response_actions() -> list[dict[str, Any]]:
             "governance_tier": "operator",
             "evidence_contract": ["asset_id", "host_name", "journal", "services", "disk"],
             "rollback_contract": [],
+            "rollback_required": False,
             "compliance_controls": ["NIST-DE.CM", "SOC2-CC7"],
             "preconditions": ["target-host-selected", "ssh-reachability-confirmed"],
             "integration_targets": ["ansible", "linux-hosts"],
@@ -514,6 +515,7 @@ def _default_ansible_response_actions() -> list[dict[str, Any]]:
             "governance_tier": "operator",
             "evidence_contract": ["asset_id", "task_id", "report_id"],
             "rollback_contract": [],
+            "rollback_required": False,
             "compliance_controls": ["PCI-DSS-11", "NIST-RA.5"],
             "preconditions": ["asset-scan-enabled", "current-cmdb-binding", "scanner-connectivity-confirmed"],
             "integration_targets": ["greenbone", "cmdb"],
@@ -549,6 +551,7 @@ def _default_ansible_response_actions() -> list[dict[str, Any]]:
             "governance_tier": "operator",
             "evidence_contract": ["asset_id", "case_id", "package_version", "service_state", "listening_socket"],
             "rollback_contract": [],
+            "rollback_required": False,
             "compliance_controls": ["PCI-DSS-11", "NIST-RA.5"],
             "preconditions": ["case_linked", "target-host-selected", "ssh-reachability-confirmed"],
             "integration_targets": ["ansible", "linux-hosts", "greenbone"],
@@ -627,6 +630,7 @@ def _default_ansible_response_actions() -> list[dict[str, Any]]:
             "governance_tier": "operator",
             "evidence_contract": ["scanner_host", "report_id", "import_result"],
             "rollback_contract": [],
+            "rollback_required": False,
             "compliance_controls": ["PCI-DSS-11", "NIST-RA.5"],
             "preconditions": ["scanner-reachable", "import-credentials-configured"],
             "integration_targets": ["ansible", "greenbone", "siem-import"],
@@ -726,6 +730,7 @@ def _normalize_response_action_governance(action: dict[str, Any]) -> dict[str, A
     current["governance_tier"] = str(current.get("governance_tier") or ("high-risk" if bool(current.get("dangerous")) else "operator")).strip().lower() or "operator"
     current["evidence_contract"] = [str(value).strip() for value in (current.get("evidence_contract") or []) if str(value).strip()]
     current["rollback_contract"] = [str(value).strip() for value in (current.get("rollback_contract") or []) if str(value).strip()]
+    current["rollback_required"] = bool(current.get("rollback_required", True))
     current["compliance_controls"] = [str(value).strip() for value in (current.get("compliance_controls") or []) if str(value).strip()]
     default_preconditions = {
         "telegram": ["incident-context-present", "operator-channel-approved"],
@@ -997,6 +1002,7 @@ def save_response_action(payload: dict[str, Any]) -> dict[str, Any]:
         "governance_tier": str(payload.get("governance_tier") or (existing.get("governance_tier") if existing else ("high-risk" if dangerous else "operator")) or ("high-risk" if dangerous else "operator")).strip().lower(),
         "evidence_contract": [str(entry).strip() for entry in (payload.get("evidence_contract") or (existing.get("evidence_contract") if existing else []) or []) if str(entry).strip()],
         "rollback_contract": [str(entry).strip() for entry in (payload.get("rollback_contract") or (existing.get("rollback_contract") if existing else []) or []) if str(entry).strip()],
+        "rollback_required": bool(payload.get("rollback_required", existing.get("rollback_required", True) if existing else True)),
         "compliance_controls": [str(entry).strip() for entry in (payload.get("compliance_controls") or (existing.get("compliance_controls") if existing else []) or []) if str(entry).strip()],
         "preconditions": [str(entry).strip() for entry in (payload.get("preconditions") or (existing.get("preconditions") if existing else []) or []) if str(entry).strip()],
         "integration_targets": [str(entry).strip() for entry in (payload.get("integration_targets") or (existing.get("integration_targets") if existing else []) or []) if str(entry).strip()],
@@ -2134,7 +2140,14 @@ def get_response_analytics(*, limit: int = 200) -> dict[str, Any]:
     actions_total = len(actions)
     owned_actions = sum(1 for item in actions if list(item.get("owners") or []))
     evidence_contract_actions = sum(1 for item in actions if list(item.get("evidence_contract") or []))
-    rollback_ready_actions = sum(1 for item in actions if list(item.get("rollback_contract") or []))
+    rollback_applicable_actions = [item for item in actions if bool(item.get("rollback_required", True))]
+    rollback_ready_actions = sum(1 for item in rollback_applicable_actions if list(item.get("rollback_contract") or []))
+    rollback_not_applicable_actions = actions_total - len(rollback_applicable_actions)
+    rollback_ready_pct = (
+        round((rollback_ready_actions / len(rollback_applicable_actions)) * 100.0, 1)
+        if rollback_applicable_actions
+        else 100.0
+    )
     compliance_ready_actions = sum(1 for item in actions if list(item.get("compliance_controls") or []))
     precondition_actions = sum(1 for item in actions if list(item.get("preconditions") or []))
     integration_target_actions = sum(1 for item in actions if list(item.get("integration_targets") or []))
@@ -2171,7 +2184,9 @@ def get_response_analytics(*, limit: int = 200) -> dict[str, Any]:
             "governed_actions": governed_actions,
             "owner_coverage_pct": round((owned_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
             "evidence_contract_pct": round((evidence_contract_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
-            "rollback_ready_pct": round((rollback_ready_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
+            "rollback_ready_pct": rollback_ready_pct,
+            "rollback_applicable_actions": len(rollback_applicable_actions),
+            "rollback_not_applicable_actions": rollback_not_applicable_actions,
             "compliance_coverage_pct": round((compliance_ready_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
             "precondition_coverage_pct": round((precondition_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
             "integration_target_pct": round((integration_target_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
@@ -2192,7 +2207,9 @@ def get_response_analytics(*, limit: int = 200) -> dict[str, Any]:
         "governance": {
             "owner_coverage_pct": round((owned_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
             "evidence_contract_pct": round((evidence_contract_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
-            "rollback_ready_pct": round((rollback_ready_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
+            "rollback_ready_pct": rollback_ready_pct,
+            "rollback_applicable_actions": len(rollback_applicable_actions),
+            "rollback_not_applicable_actions": rollback_not_applicable_actions,
             "compliance_coverage_pct": round((compliance_ready_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
             "precondition_coverage_pct": round((precondition_actions / actions_total) * 100.0, 1) if actions_total else 0.0,
             "integration_target_pct": round((integration_target_actions / actions_total) * 100.0, 1) if actions_total else 0.0,

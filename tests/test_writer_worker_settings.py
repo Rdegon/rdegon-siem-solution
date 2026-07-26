@@ -2,6 +2,7 @@ import importlib
 import os
 import sys
 import unittest
+from datetime import datetime
 
 
 class WriterWorkerSettingsTests(unittest.TestCase):
@@ -21,6 +22,14 @@ class WriterWorkerSettingsTests(unittest.TestCase):
         writer_worker = importlib.import_module("services.writer.worker")
 
         self.assertEqual(writer_worker.WriterSettings().ch_port, 9000)
+
+    def test_writer_parses_decimal_unix_timestamp(self) -> None:
+        writer_worker = importlib.import_module("services.writer.worker")
+        worker = writer_worker.WriterWorker(writer_worker.WriterSettings())
+
+        parsed = worker._parse_event_ts({"@timestamp": "1785057668.347427"})
+
+        self.assertEqual(datetime.utcfromtimestamp(1785057668.347427), parsed)
 
 
 if __name__ == "__main__":

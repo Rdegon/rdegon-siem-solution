@@ -1,0 +1,17 @@
+[Unit]
+Description=Export published MISP indicators for SIEM ingestion
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/siem/deploy/misp_event_exporter.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/siem /var/lib/siem-misp-exporter /var/log/siem
+UMask=0077

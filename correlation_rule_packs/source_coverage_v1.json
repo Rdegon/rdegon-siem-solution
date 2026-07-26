@@ -92,7 +92,7 @@
       "suppression_key": "host.name + valkey + source_coverage_v1",
       "status": "active",
       "operator_action": "Review whether Valkey restarts, AOF/RDB persistence failures, or memory-pressure events are breaking cache-backed workflows.",
-      "sigma_yaml": "title: Valkey Persistence Or Restart Burst\nid: sigma-valkey-persistence-or-restart-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: valkey\ndetection:\n  selection_host:\n    host.name: pilot-cache-01\n  selection_message:\n    message|contains:\n      - Background saving terminated by signal\n      - Ready to accept connections\n      - Failed opening the temp RDB file\n      - Out Of Memory\n  condition: selection_host and selection_message\nlevel: medium\ntags:\n  - valkey\n  - cache\n"
+      "sigma_yaml": "title: Valkey Persistence Failure Or Memory Pressure\nid: sigma-valkey-persistence-or-restart-burst\nstatus: stable\nlogsource:\n  product: linux\n  service: valkey\ndetection:\n  selection_host:\n    host.name: pilot-cache-01\n  selection_message:\n    message|contains:\n      - Background saving terminated by signal\n      - Failed opening the temp RDB file\n      - Out Of Memory\n      - save in background\n      - MISCONF Redis is configured to save RDB snapshots\n  condition: selection_host and selection_message\nlevel: medium\ntags:\n  - valkey\n  - cache\n"
     },
     {
       "id": 2908,

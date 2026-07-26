@@ -8,8 +8,15 @@ BASE_DIR = next((parent for parent in CURRENT_FILE.parents if (parent / "service
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from services.web.app.config import CONFIG
-from services.web.app.deps import enforce_event_retention
+try:
+    from services.web.app.config import CONFIG
+    from services.web.app.deps import enforce_event_retention
+except ModuleNotFoundError:
+    WEB_DIR = CURRENT_FILE.parents[1]
+    if str(WEB_DIR) not in sys.path:
+        sys.path.insert(0, str(WEB_DIR))
+    from app.config import CONFIG  # type: ignore[no-redef]
+    from app.deps import enforce_event_retention  # type: ignore[no-redef]
 
 
 def main() -> None:

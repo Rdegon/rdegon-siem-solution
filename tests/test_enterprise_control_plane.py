@@ -276,8 +276,11 @@ class EnterpriseControlPlaneTests(unittest.TestCase):
         self.assertTrue(telegram["owners"])
         self.assertTrue(telegram["evidence_contract"])
         self.assertTrue(telegram["compliance_controls"])
+        self.assertFalse(telegram["rollback_required"])
         self.assertGreater(analytics["metrics"]["governed_actions"], 0)
         self.assertGreater(analytics["metrics"]["owner_coverage_pct"], 0.0)
+        self.assertEqual(100.0, analytics["metrics"]["rollback_ready_pct"])
+        self.assertGreater(analytics["metrics"]["rollback_not_applicable_actions"], 0)
 
     def test_postgres_control_plane_backend_round_trip_with_fake_driver(self) -> None:
         fake_psycopg = _FakePsycopgModule()

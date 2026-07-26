@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -9,7 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_publish_timeout = int(os.getenv("SIEM_RULE_PUBLISH_TIMEOUT_SECONDS", "300"))
+_configured_ch_timeout = int(os.getenv("SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS", "20"))
+os.environ["SIEM_CH_SEND_RECEIVE_TIMEOUT_SECONDS"] = str(
+    max(_publish_timeout, _configured_ch_timeout)
+)
+
 from deploy.runtime_imports import import_app_module  # noqa: E402
+from deploy.curated_assignment_rules import curated_batch_sql  # noqa: E402
 
 deps = import_app_module("deps")
 
@@ -17,6 +26,9 @@ deps = import_app_module("deps")
 PACK_PATH = ROOT / "correlation_rule_packs" / "siem_detection_pack_v1.json"
 PACK_AUTHOR = "assignment-pack:siem-detection-pack-v1"
 TERMINAL_ALERT_STATUSES = ("closed", "false_positive", "resolved", "suppressed")
+_AUTH_SOURCE_IP_NOT_IN_RE = re.compile(
+    r"if\(src_ip = 0, '', IPv4NumToString\(src_ip\)\) NOT IN \([^)]*\)"
+)
 
 
 def _dedupe_tags(tags: list[str]) -> list[str]:
@@ -90,6 +102,40 @@ def _ensure_batch_rule_table() -> None:
     )
 
 
+def _normalize_existing_alert_dedupe_guard(sql_template: str) -> str:
+    sql = str(sql_template or "")
+    existing_end = sql.rfind(") AS existing")
+    if existing_end < 0:
+        return sql
+    existing_start = sql.rfind("LEFT JOIN", 0, existing_end)
+    if existing_start < 0:
+        return sql
+    existing_block = sql[existing_start:existing_end]
+    existing_block = re.sub(r"(\bAND\s+)ts_last(\s+>=\s+now\(\)\s+-\s+INTERVAL\b)", r"\1ts\2", existing_block)
+    return sql[:existing_start] + existing_block + sql[existing_end:]
+
+
+def _normalize_batch_sql(item: dict[str, Any]) -> str:
+    sql = curated_batch_sql(item) or str(item.get("sql_template") or "")
+    sql = _normalize_existing_alert_dedupe_guard(sql)
+    if str(item.get("source_id") or "").upper() != "AUTH-005":
+        return sql
+    trusted_admin_ips = sorted(
+        {
+            str(value).strip()
+            for value in list(item.get("trusted_admin_ips") or [])
+            if str(value).strip()
+        }
+    )
+    if not trusted_admin_ips:
+        return sql
+    trusted_sql = ", ".join("'" + value.replace("'", "''") + "'" for value in trusted_admin_ips)
+    return _AUTH_SOURCE_IP_NOT_IN_RE.sub(
+        f"if(src_ip = 0, '', IPv4NumToString(src_ip)) NOT IN ({trusted_sql})",
+        sql,
+    )
+
+
 def _publish_batch_rule(item: dict[str, Any]) -> tuple[Any, ...]:
     return (
         int(item["id"]),
@@ -98,7 +144,7 @@ def _publish_batch_rule(item: dict[str, Any]) -> tuple[Any, ...]:
         1,
         str(item.get("severity") or "medium").lower(),
         max(60, int(item.get("window_s") or 300)),
-        str(item.get("sql_template") or ""),
+        _normalize_batch_sql(item),
     )
 
 
@@ -218,18 +264,15 @@ def main() -> int:
     _ensure_batch_rule_table()
     min_id = min(all_ids)
     max_id = max(all_ids)
-    deps.get_ch_client().command(
-        f"ALTER TABLE {deps.DETECTION_RULE_TABLE} DELETE WHERE id BETWEEN {min_id} AND {max_id} "
-        "SETTINGS mutations_sync=1"
-    )
-    deps.get_ch_client().command(
-        f"ALTER TABLE siem.correlation_rules_stream DELETE WHERE id BETWEEN {min_id} AND {max_id} "
-        "SETTINGS mutations_sync=1"
-    )
-    deps.get_ch_client().command(
-        f"ALTER TABLE siem.correlation_rules_batch DELETE WHERE id BETWEEN {min_id} AND {max_id} "
-        "SETTINGS mutations_sync=1"
-    )
+    for table_name in (
+        deps.DETECTION_RULE_TABLE,
+        "siem.correlation_rules_stream",
+        "siem.correlation_rules_batch",
+    ):
+        deps.get_ch_client().command(
+            f"DELETE FROM {table_name} WHERE id BETWEEN {min_id} AND {max_id} "
+            "SETTINGS lightweight_deletes_sync=2"
+        )
 
     converted_stream = [
         _publish_stream_rule(item, pack_id=pack_id)

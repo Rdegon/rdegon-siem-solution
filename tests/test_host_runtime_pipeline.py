@@ -64,6 +64,7 @@ class HostRuntimePipelineTests(unittest.TestCase):
         self.assertIn("host_swap_pressure", event_types)
         self.assertIn("host_inode_pressure", event_types)
         self.assertIn("host_storage_pressure", event_types)
+        self.assertIn("host_service_down", event_types)
         self.assertIn("host_service_flapping", event_types)
         self.assertIn("siem-storage", next_state["hosts"])
 

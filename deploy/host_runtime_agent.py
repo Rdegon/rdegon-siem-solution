@@ -39,7 +39,7 @@ def _ssl_context():
     url = _ingest_url()
     if not url.startswith("https://"):
         return None
-    mode = str(os.getenv("SIEM_HOST_RUNTIME_INGEST_TLS_VERIFY", "disabled") or "disabled").strip().lower()
+    mode = str(os.getenv("SIEM_HOST_RUNTIME_INGEST_TLS_VERIFY", "required") or "required").strip().lower()
     if mode in {"disabled", "off", "none"}:
         context = ssl.create_default_context()
         context.check_hostname = False

@@ -70,8 +70,8 @@ class _FakeSQLiteOffsetState:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def save_offset(self, **kwargs) -> None:
-        self.calls.append(dict(kwargs))
+    def save_offsets(self, offsets) -> None:
+        self.calls.extend(dict(item) for item in offsets)
 
 
 def _load_worker_module():
@@ -183,6 +183,18 @@ class StreamWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(epoch, 1700000000.0)
         self.assertTrue(fallback_used)
 
+    async def test_event_epoch_accepts_decimal_unix_timestamp_string(self) -> None:
+        module, Settings, _ = _load_worker_module()
+        worker = module.StreamCorrWorker(Settings())
+
+        epoch, fallback_used = worker._event_epoch(
+            {"@timestamp": "1785057668.347427"},
+            1700000000.0,
+        )
+
+        self.assertAlmostEqual(epoch, 1785057668.347427)
+        self.assertFalse(fallback_used)
+
     async def test_runtime_status_snapshot_persists_mode_and_counters(self) -> None:
         os.environ["SIEM_STREAM_CORR_TIME_MODE"] = "event"
         os.environ["SIEM_STREAM_CORR_SHADOW_COMPARE"] = "true"
@@ -229,6 +241,28 @@ class StreamWorkerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual({rule.id for rule in candidates}, {2618, 9000})
+
+    async def test_rule_index_uses_host_and_outcome_selectors(self) -> None:
+        module, Settings, Rule = _load_worker_module()
+        worker = module.StreamCorrWorker(Settings())
+        host_rule = Rule(id=2901, window_s=300, threshold=6)
+        host_rule.expr_text = "host.name == 'nextcloud-siem' and event.original icontains 'login failed'"
+        outcome_rule = Rule(id=2501, window_s=600, threshold=5)
+        outcome_rule.expr_text = "event.outcome == 'failure' and log_source == 'pilot-web-01'"
+        fallback_rule = Rule(id=9001, window_s=300, threshold=1)
+        fallback_rule.expr_text = "ti_indicator != ''"
+        worker._rules = [host_rule, outcome_rule, fallback_rule]
+        worker._rebuild_rule_index()
+
+        candidates = worker._candidate_rules(
+            {
+                "host.name": "nextcloud-siem",
+                "event.outcome": "success",
+                "log_source": "nextcloud-siem",
+            }
+        )
+
+        self.assertEqual({rule.id for rule in candidates}, {2901, 9001})
 
     async def test_benchmark_events_are_skipped_before_rule_evaluation(self) -> None:
         module, Settings, _ = _load_worker_module()

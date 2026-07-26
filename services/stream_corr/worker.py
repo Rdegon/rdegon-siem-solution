@@ -41,7 +41,10 @@ _RULE_INDEX_FIELDS = {
     "event.category",
     "event.type",
     "event.action",
+    "event.outcome",
     "event.code",
+    "host.name",
+    "log_source",
     "source_type",
     "collector_profile",
     "ingest_profile",
@@ -127,6 +130,8 @@ class StreamCorrWorker:
         self._shadow_compare_mismatches_total = 0
         self._last_mismatch_ts = ""
         self._last_runtime_status_flush = 0.0
+        self._runtime_events_since_flush = 0
+        self._runtime_alerts_since_flush = 0
 
     async def init(self) -> None:
         self._consumer = create_transport_consumer(
@@ -276,7 +281,7 @@ class StreamCorrWorker:
     async def _reload_rules_periodically(self) -> None:
         while True:
             try:
-                self._rules = load_stream_rules(self._settings)
+                self._rules = await asyncio.to_thread(load_stream_rules, self._settings)
                 self._rebuild_rule_index()
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to reload stream correlation rules", extra={"extra": {"error": str(exc)}})
@@ -293,14 +298,24 @@ class StreamCorrWorker:
             try:
                 resp = await self._consumer.poll(batch_size=self._settings.batch_size, block_ms=5000)
             except Exception as exc:  # noqa: BLE001
-                logger.error("Transport poll failed in stream_corr", extra={"extra": {"error": str(exc)}})
+                logger.error(
+                    "Transport poll failed in stream_corr",
+                    extra={"extra": {"error_type": type(exc).__name__, "error": repr(exc)}},
+                )
                 await asyncio.sleep(1)
                 continue
 
             if not resp:
                 now = time.time()
                 if now - self._last_runtime_status_flush >= self._runtime_status_interval_sec:
-                    self._write_runtime_status(events_processed=0, alerts_created=0)
+                    status_written = await asyncio.to_thread(
+                        self._write_runtime_status,
+                        events_processed=self._runtime_events_since_flush,
+                        alerts_created=self._runtime_alerts_since_flush,
+                    )
+                    if status_written:
+                        self._runtime_events_since_flush = 0
+                        self._runtime_alerts_since_flush = 0
                 continue
 
             wall_clock_now = time.time()
@@ -310,11 +325,11 @@ class StreamCorrWorker:
             alerts_created = 0
 
             for message in resp:
-                msg_id = message.id
                 events_processed += 1
                 processed_messages.append(message)
 
                 event: Dict[str, Any] = dict(message.fields)
+                msg_id = str(event.get("event.id") or event.get("event_id") or message.id)
                 if self._should_skip_correlation(event):
                     continue
 
@@ -394,13 +409,14 @@ class StreamCorrWorker:
 
             if alerts_to_insert:
                 try:
-                    ch.execute(
+                    await asyncio.to_thread(
+                        ch.execute,
                         """
-                        INSERT INTO siem.alerts_raw
-                        (ts, alert_id, rule_id, rule_name, severity,
-                         ts_first, ts_last, window_s, entity_key,
-                         hits, context_json, source, status)
-                        VALUES
+                            INSERT INTO siem.alerts_raw
+                            (ts, alert_id, rule_id, rule_name, severity,
+                             ts_first, ts_last, window_s, entity_key,
+                             hits, context_json, source, status)
+                            VALUES
                         """,
                         alerts_to_insert,
                     )
@@ -423,11 +439,27 @@ class StreamCorrWorker:
                     logger.error("Failed to ack messages in stream_corr", extra={"extra": {"error": str(exc)}})
 
             if events_processed > 0:
-                self._write_runtime_status(events_processed=events_processed, alerts_created=alerts_created)
-                logger.info(
-                    "StreamCorr batch processed",
-                    extra={"extra": {"events_processed": events_processed, "alerts_created": alerts_created}},
-                )
+                self._runtime_events_since_flush += events_processed
+                self._runtime_alerts_since_flush += alerts_created
+                now = time.time()
+                if now - self._last_runtime_status_flush >= self._runtime_status_interval_sec:
+                    status_written = await asyncio.to_thread(
+                        self._write_runtime_status,
+                        events_processed=self._runtime_events_since_flush,
+                        alerts_created=self._runtime_alerts_since_flush,
+                    )
+                    if status_written:
+                        logger.info(
+                            "StreamCorr interval processed",
+                            extra={
+                                "extra": {
+                                    "events_processed": self._runtime_events_since_flush,
+                                    "alerts_created": self._runtime_alerts_since_flush,
+                                }
+                            },
+                        )
+                        self._runtime_events_since_flush = 0
+                        self._runtime_alerts_since_flush = 0
 
     def _save_processed_offsets(self, messages: list[Any]) -> None:
         if self._sqlite_state is None:
@@ -444,15 +476,19 @@ class StreamCorrWorker:
         if not offsets:
             return
         updated_ts = _iso_from_epoch(time.time())
-        for (topic, partition), offset_value in offsets.items():
-            self._sqlite_state.save_offset(
-                transport_backend=self._transport_backend,
-                group_name=self._settings.group_name,
-                topic_name=topic,
-                partition_id=partition,
-                offset_value=offset_value,
-                updated_ts=updated_ts,
-            )
+        self._sqlite_state.save_offsets(
+            [
+                {
+                    "transport_backend": self._transport_backend,
+                    "group_name": self._settings.group_name,
+                    "topic_name": topic,
+                    "partition_id": partition,
+                    "offset_value": offset_value,
+                    "updated_ts": updated_ts,
+                }
+                for (topic, partition), offset_value in offsets.items()
+            ]
+        )
 
     def _redis_key_zset(self, rule_id: int, entity_key: str, *, mode: str) -> str:
         return f"siem:stream_corr:rule:{rule_id}:ent:{entity_key}:mode:{mode}"
@@ -484,7 +520,7 @@ class StreamCorrWorker:
             text = str(raw_value).strip()
             if not text:
                 continue
-            if text.isdigit():
+            if text.replace(".", "", 1).isdigit():
                 try:
                     return float(text), False
                 except ValueError:
@@ -628,7 +664,7 @@ class StreamCorrWorker:
             "open",
         )
 
-    def _write_runtime_status(self, *, events_processed: int, alerts_created: int) -> None:
+    def _write_runtime_status(self, *, events_processed: int, alerts_created: int) -> bool:
         assert self._ch_client is not None
         observed_ts = datetime.now(timezone.utc).replace(tzinfo=None)
         last_mismatch_dt = None
@@ -681,8 +717,10 @@ class StreamCorrWorker:
                         "last_mismatch_ts": self._last_mismatch_ts,
                     }
                 )
+            return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unable to write stream correlation runtime status: %s", exc)
+            return False
 
 
 async def main() -> None:

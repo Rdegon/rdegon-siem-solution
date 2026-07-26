@@ -1,0 +1,22 @@
+[Unit]
+Description=SIEM security sensor forwarder (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/siem/security-sensor-%i.env
+ExecStart=/usr/bin/python3 /opt/siem/deploy/security_sensor_forwarder.py --sensor %i
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/siem-security-forwarder
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

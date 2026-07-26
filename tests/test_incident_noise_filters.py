@@ -167,8 +167,8 @@ class IncidentNoiseFilterTests(unittest.TestCase):
         self.assertTrue(self.query_shared_module.is_non_operational_inventory_record({"actor": "vm4-smoke"}))
         self.assertTrue(self.query_shared_module.is_non_operational_inventory_record({"title": "Smoke token"}))
 
-    def test_runtime_test_sources_are_hidden_from_incident_views(self) -> None:
-        self.assertTrue(self.alerts_module._is_internal_maintenance_alert({"source": "win-rtx-test"}))
+    def test_real_workstation_is_visible_but_synthetic_incidents_are_hidden(self) -> None:
+        self.assertFalse(self.alerts_module._is_internal_maintenance_alert({"source": "win-rtx-test"}))
         self.assertTrue(self.alerts_module._is_internal_maintenance_alert({"entity_key": "test-incident-001"}))
 
     def test_host_runtime_agent_install_is_hidden_as_internal_maintenance(self) -> None:

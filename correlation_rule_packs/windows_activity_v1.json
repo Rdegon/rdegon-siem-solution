@@ -93,7 +93,7 @@
       "suppression_key": "host.name + service.name + windows_activity_v1",
       "status": "active",
       "operator_action": "Review the task author, schedule, and launched command. Unexpected scheduled tasks are a common persistence mechanism on Windows assets.",
-      "expr": "(event.type == 'windows_scheduled_task_created' and not event.original icontains 'RdegonSIEMCollector' and not event.original icontains 'rdegon-siem-collector' and not event.original icontains 'Microsoft\\Windows\\UpdateOrchestrator' and not event.original icontains 'Microsoft\\Windows\\Defrag' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+      "expr": "(event.type == 'windows_scheduled_task_created' and not event.original icontains 'RdegonSIEMCollector' and not event.original icontains 'rdegon-siem-collector' and not event.original icontains 'Microsoft\\Windows\\UpdateOrchestrator' and not event.original icontains 'Microsoft\\Windows\\Defrag' and not event.original icontains '\\SoftLanding\\' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
       "source_format": "stream-expr"
     },
     {
@@ -226,7 +226,20 @@
       "suppression_key": "host.name + service.name + windows_activity_v1",
       "status": "active",
       "operator_action": "Review WMI activity context, parent process, and operator identity. Bursts of WMI usage often indicate remote execution, discovery, or post-exploitation tradecraft.",
-      "expr": "(event.type == 'windows_wmi_activity' and event.code != '5857' and event.code != '5860' and not event.original icontains 'WmiPerfInst provider started' and not event.original icontains 'WmiPerfClass provider started' and not event.original icontains 'CIMWin32 provider started' and not event.original icontains 'StorageWMI provider started' and not event.original icontains 'WMI Kernel Trace Event Provider provider started' and not event.original icontains 'WMIProv provider started' and not event.original icontains 'Win32_PerfFormattedData_' and not event.original icontains 'Win32_PerfFormattedData_PerfProc_Process' and not event.original icontains 'WmiMonitorID' and not event.original icontains 'CreateInstanceEnum - root\\\\cimv2' and not (event.original icontains 'IWbemServices::ExecNotificationQuery' and event.original icontains 'Win32_ProcessStartTrace' and event.original icontains 'wsmprovhost.exe') and not event.original icontains 'SELECT HypervisorPresent FROM Win32_ComputerSystem' and not event.original icontains 'SELECT Family,VirtualizationFirmwareEnabled FROM Win32_Processor' and not event.original icontains 'Could not send status to client' and not (host.name == 'DESKTOP-5JMJVBH' and event.original icontains 'User = DESKTOP-5JMJVBH\\Rdegon') and not event.original icontains 'User = NT AUTHORITY\\SYSTEM' and not event.original icontains 'wsmprovhost.exe' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+      "expr": "(event.type == 'windows_wmi_activity' and (event.action == 'wmi_remote_query' or event.action == 'wmi_remote_execution') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+      "source_format": "stream-expr"
+    },
+    {
+      "id": 2619,
+      "title": "Windows WMI Permanent Event Consumer",
+      "severity": "critical",
+      "window_s": 1800,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "suppression_key": "host.name + wmi.operation + windows_activity_v1",
+      "status": "active",
+      "operator_action": "Inspect the WMI filter, consumer, and binding. Permanent WMI consumers are a high-signal persistence mechanism unless tied to an approved management agent.",
+      "expr": "(event.type == 'windows_wmi_activity' and event.action == 'wmi_persistence' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
       "source_format": "stream-expr"
     }
   ],

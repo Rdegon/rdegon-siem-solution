@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -41,17 +42,57 @@ REPUBLISH_STREAM_RULE_IDS = {
     2604,
     2605,
     2607,
+    2601,
     2611,
     2612,
     2616,
     2618,
+    2619,
     2701,
     2702,
     2703,
+    2704,
     2706,
     2708,
     2711,
+    2715,
+    2716,
+    2717,
     2726,
+    2907,
+    8056,
+    8096,
+    8097,
+    8098,
+    8101,
+    8102,
+    8103,
+    8104,
+    8105,
+    8106,
+    8107,
+    8108,
+    8109,
+    8110,
+    8111,
+    8112,
+    8114,
+    8115,
+    8116,
+    8117,
+    8118,
+    8119,
+    8120,
+    8121,
+    8122,
+    8123,
+    8231,
+    8232,
+    8269,
+    8307,
+    8367,
+    9005,
+    9006,
 }
 RETIRE_STREAM_RULE_IDS = {
     1001,
@@ -84,11 +125,28 @@ RETIRE_STREAM_RULE_IDS = {
     2723,
 }
 REFRESH_BATCH_RULE_IDS = {4001, 4002, 4003, 4004, 4005}
-REFRESH_ASSIGNMENT_BATCH_RULE_IDS = {8012, 8431, 8432, 8481}
+REFRESH_ASSIGNMENT_BATCH_RULE_IDS = {
+    8002,
+    8003,
+    8004,
+    8010,
+    8012,
+    8113,
+    8354,
+    8378,
+    8431,
+    8432,
+    8442,
+    8481,
+}
 RETIRE_OPEN_ALERT_RULE_IDS = {
     *REPUBLISH_STREAM_RULE_IDS,
     *RETIRE_STREAM_RULE_IDS,
     2104,
+    8002,
+    8003,
+    8004,
+    8010,
     8012,
     8018,
     8019,
@@ -204,7 +262,6 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     2501,
     2615,
     2617,
-    8001,
     8006,
     8007,
     8008,
@@ -220,6 +277,7 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     8019,
     8020,
     8099,
+    8212,
     8113,
     2705,
     2709,
@@ -253,6 +311,15 @@ def _id_list(rule_ids: set[int]) -> str:
     return ",".join(str(rule_id) for rule_id in sorted(rule_ids))
 
 
+def _delete_rule_rows(table_name: str, rule_ids: set[int]) -> None:
+    if not rule_ids:
+        return
+    deps.get_ch_client().command(
+        f"DELETE FROM {table_name} WHERE id IN ({_id_list(rule_ids)}) "
+        "SETTINGS lightweight_deletes_sync = 2"
+    )
+
+
 def _load_target_stream_rules() -> list[dict[str, Any]]:
     found: dict[int, dict[str, Any]] = {}
     for pack_name in PACK_FILES:
@@ -279,13 +346,8 @@ def _load_target_stream_rules() -> list[dict[str, Any]]:
 def _delete_runtime_rules(rule_ids: set[int]) -> None:
     if not rule_ids:
         return
-    ids = _id_list(rule_ids)
-    deps.get_ch_client().command(
-        f"ALTER TABLE {deps.DETECTION_RULE_TABLE} DELETE WHERE id IN ({ids}) SETTINGS mutations_sync = 1"
-    )
-    deps.get_ch_client().command(
-        f"ALTER TABLE siem.correlation_rules_stream DELETE WHERE id IN ({ids}) SETTINGS mutations_sync = 1"
-    )
+    _delete_rule_rows(deps.DETECTION_RULE_TABLE, rule_ids)
+    _delete_rule_rows("siem.correlation_rules_stream", rule_ids)
 
 
 def _refresh_batch_rules() -> int:
@@ -294,8 +356,17 @@ def _refresh_batch_rules() -> int:
     for sql_file in BATCH_SQL_FILES:
         payload = sql_file.read_text(encoding="utf-8")
         for statement in _split_sql_statements(payload):
-            if statement.upper().startswith("ALTER TABLE") and " DELETE " in statement.upper() and "SETTINGS" not in statement.upper():
-                statement = f"{statement} SETTINGS mutations_sync = 1"
+            delete_match = re.fullmatch(
+                r"ALTER\s+TABLE\s+([A-Za-z0-9_.]+)\s+DELETE\s+WHERE\s+(.+)",
+                statement,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if delete_match:
+                table_name, condition = delete_match.groups()
+                statement = (
+                    f"DELETE FROM {table_name} WHERE {condition} "
+                    "SETTINGS lightweight_deletes_sync = 2"
+                )
             deps.get_ch_client().command(statement)
             executed += 1
     return executed
@@ -319,13 +390,8 @@ def _refresh_assignment_batch_rules() -> int:
     if missing:
         raise RuntimeError(f"Assignment batch rules not found: {missing}")
 
-    ids = _id_list(REFRESH_ASSIGNMENT_BATCH_RULE_IDS)
-    deps.get_ch_client().command(
-        f"ALTER TABLE {deps.DETECTION_RULE_TABLE} DELETE WHERE id IN ({ids}) SETTINGS mutations_sync = 1"
-    )
-    deps.get_ch_client().command(
-        f"ALTER TABLE siem.correlation_rules_batch DELETE WHERE id IN ({ids}) SETTINGS mutations_sync = 1"
-    )
+    _delete_rule_rows(deps.DETECTION_RULE_TABLE, REFRESH_ASSIGNMENT_BATCH_RULE_IDS)
+    _delete_rule_rows("siem.correlation_rules_batch", REFRESH_ASSIGNMENT_BATCH_RULE_IDS)
     placeholders = [_placeholder_row(found[rule_id], pack_id=pack_id) for rule_id in sorted(found)]
     rows = [_publish_batch_rule(found[rule_id]) for rule_id in sorted(found)]
     deps._insert_detection_rule_rows(placeholders, sync_stream=False)  # type: ignore[attr-defined]

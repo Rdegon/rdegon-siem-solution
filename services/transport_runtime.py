@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import importlib.util
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -598,11 +599,24 @@ class KafkaTopicConsumer:
         self._group = group
         self._consumer_name = consumer
         self._consumer: AIOKafkaConsumer | None = None
+        self._consecutive_poll_failures = 0
+        self._poll_restart_threshold = max(
+            1,
+            int(os.getenv("SIEM_KAFKA_POLL_RESTART_THRESHOLD", "5") or "5"),
+        )
 
     async def init(self) -> None:
-        session_timeout_ms = max(10_000, int(os.getenv("SIEM_KAFKA_SESSION_TIMEOUT_MS", "120000") or "120000"))
+        session_timeout_ms = max(10_000, int(os.getenv("SIEM_KAFKA_SESSION_TIMEOUT_MS", "45000") or "45000"))
         heartbeat_interval_ms = max(1_000, int(os.getenv("SIEM_KAFKA_HEARTBEAT_INTERVAL_MS", "10000") or "10000"))
         heartbeat_interval_ms = min(heartbeat_interval_ms, max(1_000, session_timeout_ms // 3))
+        static_membership = _parse_bool(os.getenv("SIEM_KAFKA_STATIC_MEMBERSHIP", "true"))
+        instance_seed = f"{self._settings.kafka.client_id}-{self._group}-{self._consumer_name}"
+        configured_instance_id = str(os.getenv("SIEM_KAFKA_GROUP_INSTANCE_ID", "") or "").strip()
+        group_instance_id = re.sub(
+            r"[^A-Za-z0-9._-]+",
+            "-",
+            configured_instance_id or instance_seed,
+        ).strip("-")[:249]
         kwargs: dict[str, Any] = {
             "bootstrap_servers": list(self._settings.kafka.bootstrap_servers),
             "group_id": self._group,
@@ -621,6 +635,8 @@ class KafkaTopicConsumer:
                 int(os.getenv("SIEM_KAFKA_MAX_POLL_INTERVAL_MS", "900000") or "900000"),
             ),
         }
+        if static_membership and group_instance_id:
+            kwargs["group_instance_id"] = group_instance_id
         if self._settings.kafka.security_protocol != "PLAINTEXT":
             kwargs["security_protocol"] = self._settings.kafka.security_protocol
         if self._settings.kafka.sasl_username:
@@ -646,7 +662,28 @@ class KafkaTopicConsumer:
     async def poll(self, *, batch_size: int, block_ms: int) -> list[TransportMessage]:
         if self._consumer is None:
             raise RuntimeError("Kafka consumer not initialized")
-        results = await self._consumer.getmany(timeout_ms=block_ms, max_records=batch_size)
+        try:
+            results = await self._consumer.getmany(timeout_ms=block_ms, max_records=batch_size)
+        except Exception as exc:
+            self._consecutive_poll_failures += 1
+            if self._consecutive_poll_failures >= self._poll_restart_threshold:
+                logger.warning(
+                    "Restarting Kafka consumer after consecutive poll failures",
+                    extra={
+                        "extra": {
+                            "group": self._group,
+                            "consumer": self._consumer_name,
+                            "failures": self._consecutive_poll_failures,
+                            "error_type": type(exc).__name__,
+                            "error": repr(exc),
+                        }
+                    },
+                )
+                await self.close()
+                await self.init()
+                self._consecutive_poll_failures = 0
+            raise
+        self._consecutive_poll_failures = 0
         messages: list[TransportMessage] = []
         for topic_partition, rows in results.items():
             for row in rows:

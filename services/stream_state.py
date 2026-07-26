@@ -208,15 +208,41 @@ class SQLiteStreamState:
         return payload
 
     def save_offset(self, *, transport_backend: str, group_name: str, topic_name: str, partition_id: int, offset_value: int, updated_ts: str) -> None:
+        self.save_offsets(
+            [
+                {
+                    "transport_backend": transport_backend,
+                    "group_name": group_name,
+                    "topic_name": topic_name,
+                    "partition_id": partition_id,
+                    "offset_value": offset_value,
+                    "updated_ts": updated_ts,
+                }
+            ]
+        )
+
+    def save_offsets(self, offsets: list[dict[str, Any]]) -> None:
+        if not offsets:
+            return
         with self._lock:
-            self._conn.execute(
+            self._conn.executemany(
                 """
                 INSERT INTO consumer_offsets(transport_backend, group_name, topic_name, partition_id, offset_value, updated_ts)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(transport_backend, group_name, topic_name, partition_id)
                 DO UPDATE SET offset_value = excluded.offset_value, updated_ts = excluded.updated_ts
                 """,
-                (str(transport_backend), str(group_name), str(topic_name), int(partition_id), int(offset_value), str(updated_ts)),
+                [
+                    (
+                        str(item.get("transport_backend") or ""),
+                        str(item.get("group_name") or ""),
+                        str(item.get("topic_name") or ""),
+                        int(item.get("partition_id") or 0),
+                        int(item.get("offset_value") or 0),
+                        str(item.get("updated_ts") or ""),
+                    )
+                    for item in offsets
+                ],
             )
             self._conn.commit()
 
