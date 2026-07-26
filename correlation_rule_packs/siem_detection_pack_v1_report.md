@@ -7,9 +7,10 @@
 
 ## Status counts
 
-- `active`: 355
-- `active_batch`: 80
-- `active_correlation`: 52
+- `active`: 353
+- `active_batch`: 79
+- `active_correlation`: 51
+- `retired_asset`: 4
 
 ## Prefix counts
 

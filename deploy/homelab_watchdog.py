@@ -154,7 +154,14 @@ def _strip_sudo_echo(text: str, sudo_password: str) -> str:
     return "\n".join(cleaned_lines)
 
 
-def _ensure_service_bundle(client: paramiko.SSHClient, services: list[str], *, sudo_password: str, restart_bundle: str | None = None) -> list[str]:
+def _ensure_service_bundle(
+    client: paramiko.SSHClient,
+    services: list[str],
+    *,
+    sudo_password: str,
+    restart_bundle: str | None = None,
+    maintenance_marker: str = "/run/siem-maintenance",
+) -> list[str]:
     code, out, err = _run_command(client, f"systemctl is-active {' '.join(services)}", sudo_password=sudo_password, use_sudo=True)
     cleaned = _strip_sudo_echo(out, sudo_password)
     states = parse_systemctl_states(cleaned)
@@ -162,8 +169,28 @@ def _ensure_service_bundle(client: paramiko.SSHClient, services: list[str], *, s
         return states
     if not restart_bundle:
         raise RuntimeError(f"Service bundle unhealthy: services={services} stdout={states} stderr={err.strip()}")
-    print(f"watchdog repair restart={' '.join(services)}")
-    code, out, err = _run_command(client, restart_bundle, sudo_password=sudo_password, use_sudo=True)
+    marker_code, _, _ = _run_command(
+        client,
+        f"test -e {shlex.quote(maintenance_marker)}",
+        sudo_password=sudo_password,
+        use_sudo=True,
+    )
+    if marker_code == 0:
+        print(
+            f"watchdog maintenance_skip services={services} "
+            f"states={states} marker={maintenance_marker}"
+        )
+        return states
+    unhealthy = [
+        service
+        for index, service in enumerate(services)
+        if index >= len(states) or states[index] != "active"
+    ]
+    repair_command = "systemctl restart " + " ".join(
+        shlex.quote(service) for service in unhealthy
+    )
+    print(f"watchdog repair restart={' '.join(unhealthy)}")
+    code, out, err = _run_command(client, repair_command, sudo_password=sudo_password, use_sudo=True)
     if code != 0:
         raise RuntimeError(f"Service restart failed: services={services} stderr={err.strip()}")
     time.sleep(8)

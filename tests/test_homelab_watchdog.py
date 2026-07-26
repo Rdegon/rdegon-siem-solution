@@ -13,6 +13,7 @@ if "paramiko" not in sys.modules:
 from deploy.homelab_watchdog import (
     _collect_critical_ingest_state,
     _default_vm2_dns_runner_state,
+    _ensure_service_bundle,
     _ensure_vm2_available,
     _parse_info_section,
     _processing_stalled,
@@ -38,6 +39,69 @@ class HomelabWatchdogTests(unittest.TestCase):
 
     def test_parse_systemctl_states_keeps_only_nonempty_lines(self) -> None:
         self.assertEqual(parse_systemctl_states("active\n\nactive\r\nfailed\n"), ["active", "active", "failed"])
+
+    def test_service_bundle_restarts_only_unhealthy_units(self) -> None:
+        module = sys.modules["deploy.homelab_watchdog"]
+        original_run = module._run_command
+        original_sleep = module.time.sleep
+        commands: list[str] = []
+        responses = iter(
+            (
+                (3, "active\ninactive\nactive\n", ""),
+                (1, "", ""),
+                (0, "", ""),
+                (0, "active\nactive\nactive\n", ""),
+            )
+        )
+
+        def fake_run(_client: object, command: str, **_kwargs: object) -> tuple[int, str, str]:
+            commands.append(command)
+            return next(responses)
+
+        try:
+            module._run_command = fake_run
+            module.time.sleep = lambda _seconds: None
+            states = _ensure_service_bundle(
+                object(),
+                ["clickhouse-server", "siem-writer", "siem-stream-corr"],
+                sudo_password="secret",
+                restart_bundle="systemctl restart clickhouse-server siem-writer siem-stream-corr",
+            )
+        finally:
+            module._run_command = original_run
+            module.time.sleep = original_sleep
+
+        self.assertEqual(states, ["active", "active", "active"])
+        self.assertEqual(commands[2], "systemctl restart siem-writer")
+
+    def test_service_bundle_respects_maintenance_marker(self) -> None:
+        module = sys.modules["deploy.homelab_watchdog"]
+        original_run = module._run_command
+        commands: list[str] = []
+        responses = iter(
+            (
+                (3, "active\ninactive\n", ""),
+                (0, "", ""),
+            )
+        )
+
+        def fake_run(_client: object, command: str, **_kwargs: object) -> tuple[int, str, str]:
+            commands.append(command)
+            return next(responses)
+
+        try:
+            module._run_command = fake_run
+            states = _ensure_service_bundle(
+                object(),
+                ["clickhouse-server", "siem-writer"],
+                sudo_password="secret",
+                restart_bundle="systemctl restart clickhouse-server siem-writer",
+            )
+        finally:
+            module._run_command = original_run
+
+        self.assertEqual(states, ["active", "inactive"])
+        self.assertEqual(commands[-1], "test -e /run/siem-maintenance")
 
     def test_service_state_is_inactive_accepts_non_running_states(self) -> None:
         self.assertTrue(service_state_is_inactive("inactive"))

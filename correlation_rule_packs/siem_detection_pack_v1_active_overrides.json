@@ -486,6 +486,8 @@
     "expr": "((event.provider == 'linux.docker' or event.provider == 'linux.systemd') and (host.name == 'vuln-mgr-01' or log_source == 'vuln-mgr-01') and (event.original icontains 'openvas' or event.original icontains 'gvmd' or event.original icontains 'ospd' or event.original icontains 'gsa') and (event.original icontains 'entered failed state' or event.original icontains 'failed with result' or event.original icontains 'Main process exited' or event.original icontains 'start request repeated too quickly' or event.original icontains 'Failed to start' or event.original icontains 'status=failed' or event.original icontains 'status=1/FAILURE' or event.original icontains 'status=2/INVALIDARGUMENT' or event.original icontains 'unhealthy' or event.original icontains 'container die' or event.original icontains 'exited') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')"
   },
   "DCK-019": {
+    "status": "retired_asset",
+    "retirement_reason": "openclaw_gateway_decommissioned_2026_07_26",
     "hits_1h": 24,
     "hits_24h": 444,
     "hits_7d": 3235,
@@ -679,6 +681,8 @@
     "fp_remediation_reason": "page only on a host-runtime down transition or an explicit failed systemd state; planned stop/start is not an incident"
   },
   "GW-001": {
+    "status": "retired_asset",
+    "retirement_reason": "openclaw_gateway_decommissioned_2026_07_26",
     "hits_7d": 0,
     "selection_reason": "zero_7d"
   },
@@ -691,6 +695,8 @@
     "selection_reason": "zero_7d"
   },
   "GW-010": {
+    "status": "retired_asset",
+    "retirement_reason": "openclaw_gateway_decommissioned_2026_07_26",
     "batch_noise_tuning_audit_utc": "2026-05-14T19:47:00Z",
     "batch_noise_tuning_max_hits": 70,
     "batch_noise_tuning_open_alerts": 1,
@@ -2257,6 +2263,8 @@
     "dedupe_window_s": 86400
   },
   "CORR-023": {
+    "status": "retired_asset",
+    "retirement_reason": "openclaw_gateway_decommissioned_2026_07_26",
     "dedupe_window_s": 86400
   },
   "CORR-024": {

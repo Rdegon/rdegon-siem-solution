@@ -1042,6 +1042,7 @@ def build_pack(
         asset_groups = _asset_groups(row)
         rule_row = {**row, "id": rule_id, "asset_groups": asset_groups, "_index": str(index)}
         override = active_overrides.get(source_id) or {}
+        override_status = str(override.get("status") or "").strip().lower()
         override_expr = _override_stream_expr(override)
         if override.get("threshold") is not None:
             rule_row["_override_threshold"] = str(int(override.get("threshold") or 1))
@@ -1075,6 +1076,8 @@ def build_pack(
             status = "active_batch"
         elif status == "requires_correlation_engine":
             status = "active_correlation"
+        if override_status:
+            status = override_status
         common = {
             "id": rule_id,
             "source_id": source_id,

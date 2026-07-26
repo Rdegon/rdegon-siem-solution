@@ -1,8 +1,8 @@
 {
   "pack_id": "openclaw-behavior-v1",
   "title": "OpenClaw behavior correlation pack",
-  "version": "1.0.0",
-  "status": "active",
+  "version": "1.1.0",
+  "status": "retired_asset",
   "owner": "platform-release",
   "notes": [
     "This pack targets the OpenClaw gateway with full metadata monitoring.",
@@ -20,7 +20,7 @@
       "threshold": 20,
       "entity_field": "host.name",
       "suppression_key": "host.name + process.name + openclaw_behavior_v1",
-      "status": "active",
+      "status": "retired_asset",
       "operator_action": "Inspect the destination set and recent operator actions. Validate whether the burst is tied to the expected browser/session workload.",
       "sigma_yaml": "title: OpenClaw Outbound Connection Burst\nid: sigma-openclaw-outbound-connection-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    event.provider: linux.auditd\n    host.name: openclaw-gateway\n    event.type: linux_network_connection\n  condition: selection\nlevel: high\ntags:\n  - openclaw\n  - network\n  - egress\n"
     },
@@ -44,7 +44,7 @@
       "threshold": 1,
       "entity_field": "host.name",
       "suppression_key": "host.name + event.type + openclaw_behavior_v1",
-      "status": "active",
+      "status": "retired_asset",
       "operator_action": "Validate that the change belongs to an approved maintenance window. Review the exact file or command in the audit event payload.",
       "expr": "(event.provider == 'linux.auditd' and host.name == 'openclaw-gateway' and (event.type == 'linux_audit_config_changed' or event.type == 'linux_sudoers_modified' or event.type == 'linux_rsyslog_config_modified' or event.type == 'linux_sshd_config_modified' or event.type == 'linux_firewall_modified' or event.type == 'linux_firewall_disabled' or (event.type == 'linux_systemd_unit_modified' and (event.original icontains '/etc/systemd/system/' or event.original icontains '/lib/systemd/system/' or event.original icontains '/usr/lib/systemd/system/') and not event.original icontains '.dpkg-' and not event.original icontains 'dpkg-tmp' and not event.original icontains 'dpkg-new' and not event.original icontains 'dpkg-old' and not event.original icontains 'nametype=PARENT' and not event.original icontains 'apt.systemd.daily' and not event.original icontains 'unattended-upgrade')) and not tags icontains 'allowlist:')"
     },
@@ -56,7 +56,7 @@
       "threshold": 180,
       "entity_field": "host.name",
       "suppression_key": "host.name + process.name + openclaw_behavior_v1",
-      "status": "active",
+      "status": "retired_asset",
       "operator_action": "Inspect Xray/OpenClaw runtime logs and recent route changes. Only persistent non-allowlisted proxy failures should page the operator.",
       "sigma_yaml": "title: OpenClaw Proxy Error Burst\nid: sigma-openclaw-proxy-error-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: openclaw\ndetection:\n  selection_host:\n    host.name: openclaw-gateway\n  selection_process:\n    process.name:\n      - xray\n      - node\n  selection_message:\n    message|contains:\n      - error\n      - failed\n      - timeout\n      - broken pipe\n  condition: selection_host and selection_process and selection_message\nlevel: medium\ntags:\n  - openclaw\n  - proxy\n  - runtime\n"
     },
@@ -68,7 +68,7 @@
       "threshold": 1,
       "entity_field": "host.name",
       "suppression_key": "host.name + user.name + openclaw_behavior_v1",
-      "status": "active",
+      "status": "retired_asset",
       "operator_action": "Review the exact SSH or privileged control-change event and confirm whether the activity belongs to an approved operator maintenance window.",
       "sigma_yaml": "title: OpenClaw Suspicious Interactive Privilege Activity\nid: sigma-openclaw-suspicious-interactive-privilege-activity\nstatus: experimental\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection_host:\n    host.name: openclaw-gateway\n  selection_type:\n    event.type:\n      - audit_exec_as_root\n      - linux_root_ssh_login\n      - linux_user_added_to_admin_group\n      - linux_systemd_service_disabled\n      - linux_systemd_service_enabled\n  condition: selection_host and selection_type\nlevel: high\ntags:\n  - openclaw\n  - privilege\n  - interactive\n"
     }

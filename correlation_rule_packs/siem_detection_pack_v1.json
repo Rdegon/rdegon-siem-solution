@@ -5609,7 +5609,7 @@
       "source_id": "DCK-019",
       "title": "DCK-019 OpenClaw gateway container down",
       "severity": "critical",
-      "status": "active",
+      "status": "retired_asset",
       "asset_groups": [
         "linux_common",
         "public_services",
@@ -6502,7 +6502,7 @@
       "source_id": "GW-001",
       "title": "GW-001 OpenClaw gateway container down",
       "severity": "critical",
-      "status": "active",
+      "status": "retired_asset",
       "asset_groups": [
         "public_services",
         "edge_gateway"
@@ -9177,7 +9177,7 @@
       "source_id": "GW-010",
       "title": "GW-010 Gateway logs stopped",
       "severity": "critical",
-      "status": "active_batch",
+      "status": "retired_asset",
       "asset_groups": [
         "siem_core",
         "public_services",
@@ -9187,10 +9187,7 @@
       "sources": "SIEM last_seen",
       "detection_logic": "source=openclaw-gateway last_seen>10m",
       "operator_action": "Создать alert, приложить host, user/src_ip, service/container, raw event, счетчики окна.",
-      "description": "GW-010: source=openclaw-gateway last_seen>10m Источники: SIEM last_seen.",
-      "window_s": 600,
-      "threshold": 1,
-      "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8354,\n    'GW-010 Gateway logs stopped',\n    'critical',\n    candidate.ts_first,\n    candidate.ts_last,\n    {WINDOW_S},\n    candidate.entity_key,\n    candidate.hits,\n    candidate.context_json,\n    candidate.source,\n    'open'\nFROM\n(\n    SELECT\n        'openclaw-gateway' AS entity_key,\n        'openclaw-gateway' AS source,\n        max(ts) AS ts_first,\n        max(ts) AS ts_last,\n        count() AS hits,\n        concat(\n            '{\"event_type\":\"gateway_telemetry_stale\",\"source_id\":\"GW-010\",',\n            '\"source\":\"openclaw-gateway\",\"last_seen\":\"',\n            toString(max(ts)),\n            '\"}'\n        ) AS context_json\n    FROM siem.events\n    PREWHERE ts >= now() - INTERVAL 1 DAY\n    WHERE lowerUTF8(host_name) = 'openclaw-gateway'\n      AND device_product = 'host.metrics'\n      AND subcategory = 'host_runtime_snapshot'\n      AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0\n      AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0\n      AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0\n    HAVING ts_last > toDateTime(0)\n       AND ts_last < now() - INTERVAL {WINDOW_S} SECOND\n) AS candidate\nLEFT JOIN\n(\n    SELECT entity_key\n    FROM siem.alerts_raw\n    WHERE rule_id = 8354\n      AND ts >= now() - INTERVAL 86400 SECOND\n      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')\n    GROUP BY entity_key\n) AS existing\nON candidate.entity_key = existing.entity_key\nWHERE existing.entity_key = ''"
+      "description": "GW-010: source=openclaw-gateway last_seen>10m Источники: SIEM last_seen."
     },
     {
       "id": 8357,
@@ -10505,7 +10502,7 @@
       "source_id": "CORR-023",
       "title": "CORR-023 OpenClaw gateway route change → inbound spike",
       "severity": "high",
-      "status": "active_correlation",
+      "status": "retired_asset",
       "asset_groups": [
         "public_services",
         "edge_gateway"
@@ -10514,10 +10511,7 @@
       "sources": "Correlation engine",
       "detection_logic": "GW-004 then GW-002/006/007",
       "operator_action": "Создать incident, связать дочерние alerts, показать timeline и affected assets.",
-      "description": "CORR-023: GW-004 then GW-002/006/007 Источники: Correlation engine.",
-      "window_s": 300,
-      "threshold": 5,
-      "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8470,\n    'CORR-023 OpenClaw gateway route change → inbound spike',\n    'high',\n    candidate.corr_ts_first,\n    candidate.corr_ts_last,\n    {WINDOW_S},\n    candidate.corr_entity_key,\n    candidate.hits,\n    candidate.context_json,\n    candidate.correlation_source,\n    'open'\nFROM\n(\n    SELECT\n        if(child.entity_key != '' AND child.entity_key != '-', child.entity_key, child.source) AS corr_entity_key,\n        concat('assignment-correlation:', if(child.entity_key != '' AND child.entity_key != '-', child.entity_key, child.source)) AS correlation_source,\n        min(child.ts_first) AS corr_ts_first,\n        max(child.ts_last) AS corr_ts_last,\n        count() AS hits,\n        concat(\n            '{\"event_type\":\"assignment_correlation_rule\",\"source_id\":\"CORR-023\",\"required\":3,\"child_rule_ids\":[',\n            arrayStringConcat(arrayMap(x -> toString(x), groupUniqArray(child.rule_id)), ','),\n            ']}'\n        ) AS context_json,\n        uniqExact(child.rule_id) AS matched_rules\n    FROM siem.alerts_raw AS child\n    WHERE child.ts_last >= now() - INTERVAL {WINDOW_S} SECOND\n      AND child.rule_id IN (8348, 8346, 8350)\n      AND lower(child.status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')\n    GROUP BY corr_entity_key, correlation_source\n    HAVING matched_rules >= 3\n) AS candidate\nLEFT JOIN\n(\n    SELECT entity_key\n    FROM siem.alerts_raw\n    WHERE rule_id = 8470\n      AND ts >= now() - INTERVAL 86400 SECOND\n      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')\n    GROUP BY entity_key\n) AS existing\nON candidate.corr_entity_key = existing.entity_key\nWHERE existing.entity_key = ''"
+      "description": "CORR-023: GW-004 then GW-002/006/007 Источники: Correlation engine."
     },
     {
       "id": 8471,
