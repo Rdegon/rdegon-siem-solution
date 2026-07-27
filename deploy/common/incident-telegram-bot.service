@@ -1,7 +1,7 @@
 [Unit]
 Description=SIEM incident Telegram bot
-After=network-online.target postgresql.service
-Wants=network-online.target
+After=network-online.target postgresql.service siem-telegram-egress.service
+Wants=network-online.target siem-telegram-egress.service
 
 [Service]
 Type=simple

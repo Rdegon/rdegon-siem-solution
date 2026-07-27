@@ -20,13 +20,10 @@ if str(ROOT) not in sys.path:
 from deploy.proxmox_fleet_wave_deploy import PROXMOX_HOST, GuestSpec, _connect, _env, _guest_exec, _guest_write_text
 
 PILOT_DB = GuestSpec(124, "qemu", "pilot-db-01", "pilot-db", ("postgresql@14-main", "ssh", "rsyslog", "incident-telegram-bot"))
-OPENCLAW = GuestSpec(126, "qemu", "openclaw-gateway", "openclaw-gateway", ("openclaw-vless", "ssh"))
 BOT_ROOT = "/opt/siem/incident-telegram-bot"
 SERVICE_ACCOUNT_ID = "incident-telegram-bot"
-VM4_HOST = "192.168.1.39"
-OPENCLAW_PROXY_IP = "10.20.30.126"
-OPENCLAW_PROXY_HOST = "openclaw-gateway.lab.home.arpa"
-OPENCLAW_PROXY_PORT = 10809
+VM4_HOST = "10.20.10.107"
+WEB_PUBLIC_URL = "https://192.168.3.102"
 
 
 def _stdout_setup() -> None:
@@ -203,45 +200,19 @@ def _ensure_host_runtime_service(proxmox) -> None:
             if raw.startswith("SIEM_HOST_RUNTIME_SERVICES="):
                 _, value = raw.split("=", 1)
                 services = [item.strip() for item in value.split(",") if item.strip()]
-                if "incident-telegram-bot" not in services:
-                    services.append("incident-telegram-bot")
+                for service in ("incident-telegram-bot", "siem-telegram-egress"):
+                    if service not in services:
+                        services.append(service)
                 raw = "SIEM_HOST_RUNTIME_SERVICES=" + ",".join(services)
                 updated = True
             output.append(raw)
         if not updated:
-            output.append("SIEM_HOST_RUNTIME_SERVICES=postgresql@14-main,ssh,rsyslog,incident-telegram-bot")
+            output.append("SIEM_HOST_RUNTIME_SERVICES=postgresql@14-main,ssh,rsyslog,incident-telegram-bot,siem-telegram-egress")
         env_path.write_text("\\n".join(output) + "\\n", encoding="utf-8")
         PY
         """
     ).strip()
     _guest_exec(proxmox, PILOT_DB, script, timeout=120)
-
-
-def _ensure_openclaw_proxy(proxmox, *, allow_from: str, proxy_ip: str) -> None:
-    script = textwrap.dedent(
-        f"""
-        python3 - <<'PY'
-        import json
-        from pathlib import Path
-
-        path = Path("/home/openclaw/.config/xray/openclaw-vless-client.json")
-        data = json.loads(path.read_text(encoding="utf-8"))
-        changed = False
-        for inbound in data.get("inbounds", []):
-            if inbound.get("tag") == "http-in" and inbound.get("listen") != "{proxy_ip}":
-                inbound["listen"] = "{proxy_ip}"
-                changed = True
-        if changed:
-            path.write_text(json.dumps(data, indent=2) + "\\n", encoding="utf-8")
-        PY
-        systemctl restart openclaw-vless.service
-        if command -v ufw >/dev/null 2>&1; then
-          ufw allow from {allow_from} to any port {OPENCLAW_PROXY_PORT} proto tcp >/dev/null 2>&1 || true
-        fi
-        systemctl is-active openclaw-vless.service
-        """
-    ).strip()
-    _guest_exec(proxmox, OPENCLAW, script, timeout=240)
 
 
 def _deploy_files(
@@ -252,11 +223,12 @@ def _deploy_files(
     telegram_bot_token: str,
     telegram_chat_id: str,
     telegram_proxy_url: str,
+    open_base_url: str,
 ) -> None:
     env_text = textwrap.dedent(
         f"""
         SIEM_BOT_BASE_URL=https://{VM4_HOST}
-        SIEM_BOT_OPEN_BASE_URL=https://{VM4_HOST}
+        SIEM_BOT_OPEN_BASE_URL={open_base_url}
         SIEM_BOT_API_TOKEN={service_token}
         SIEM_BOT_INCIDENT_VIEW=agg
         SIEM_BOT_INCIDENT_WINDOW=24h
@@ -273,6 +245,8 @@ def _deploy_files(
     ).strip() + "\n"
     _guest_write_text(proxmox, PILOT_DB, f"{BOT_ROOT}/incident_telegram_bot.py", _repo_text("services/incident_telegram_bot.py"), mode="0755")
     _guest_write_text(proxmox, PILOT_DB, "/etc/systemd/system/incident-telegram-bot.service", _repo_text("deploy/common/incident-telegram-bot.service"), mode="0644")
+    _guest_write_text(proxmox, PILOT_DB, "/usr/local/sbin/siem-telegram-egress", _repo_text("deploy/common/telegram_egress_resolver.py"), mode="0755")
+    _guest_write_text(proxmox, PILOT_DB, "/etc/systemd/system/siem-telegram-egress.service", _repo_text("deploy/common/siem-telegram-egress.service"), mode="0644")
     _guest_write_text(proxmox, PILOT_DB, "/etc/siem/incident-telegram-bot.env", env_text, mode="0600")
 
 
@@ -290,6 +264,12 @@ def _install_bot_runtime(proxmox) -> None:
             {BOT_ROOT}/.venv/bin/pip install --upgrade pip setuptools wheel
             {BOT_ROOT}/.venv/bin/pip install psycopg[binary] requests
             systemctl daemon-reload
+            systemctl disable --now siem-telegram-egress.service >/dev/null 2>&1 || true
+            rm -f /etc/siem/telegram-egress.json
+            rm -f /usr/local/bin/xray
+            systemctl daemon-reload
+            systemctl enable siem-telegram-egress.service incident-telegram-bot.service
+            systemctl restart siem-telegram-egress.service || true
             systemctl enable incident-telegram-bot.service
             systemctl restart incident-telegram-bot.service
             """
@@ -300,6 +280,7 @@ def _install_bot_runtime(proxmox) -> None:
 
 def _smoke(proxmox) -> dict[str, object]:
     service_active = _guest_exec(proxmox, PILOT_DB, "systemctl is-active incident-telegram-bot.service", timeout=60).strip()
+    egress_active = _guest_exec(proxmox, PILOT_DB, "systemctl is-active siem-telegram-egress.service", timeout=60).strip()
     schema = _guest_exec(
         proxmox,
         PILOT_DB,
@@ -320,6 +301,7 @@ def _smoke(proxmox) -> dict[str, object]:
     ).strip()
     return {
         "service_active": service_active,
+        "egress_active": egress_active,
         "schema_tables": schema,
         "env_state": env_state.strip().splitlines(),
         "delivery_state": delivery_state,
@@ -337,7 +319,8 @@ def main() -> int:
     admin_user = _required_env("SIEM_WEB_ADMIN_USER")
     admin_password = _required_env("SIEM_WEB_ADMIN_PASSWORD")
     base_url = _env("SIEM_WEB_BASE_URL", f"https://{VM4_HOST}")
-    telegram_proxy_url = _env("SIEM_TELEGRAM_PROXY_URL", f"http://{OPENCLAW_PROXY_HOST}:{OPENCLAW_PROXY_PORT}")
+    telegram_proxy_url = _env("SIEM_TELEGRAM_PROXY_URL", "")
+    open_base_url = _env("SIEM_WEB_PUBLIC_URL", WEB_PUBLIC_URL)
     postgres_password = _env("SIEM_BOT_DB_PASSWORD", _strong_secret("pgbot-"))
 
     client = Client(base_url)
@@ -355,7 +338,6 @@ def main() -> int:
             raise RuntimeError("Telegram bot token is empty and no existing token was found on pilot-db-01")
         if not telegram_chat_id:
             raise RuntimeError("Telegram chat id is empty and no existing chat id was found on pilot-db-01")
-        _ensure_openclaw_proxy(proxmox, allow_from="10.20.30.124", proxy_ip=OPENCLAW_PROXY_IP)
         _configure_postgres(proxmox, db_password=postgres_password)
         _ensure_host_runtime_service(proxmox)
         _deploy_files(
@@ -365,6 +347,7 @@ def main() -> int:
             telegram_bot_token=telegram_bot_token,
             telegram_chat_id=telegram_chat_id,
             telegram_proxy_url=telegram_proxy_url,
+            open_base_url=open_base_url,
         )
         _install_bot_runtime(proxmox)
         summary = _smoke(proxmox)

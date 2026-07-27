@@ -1,0 +1,15 @@
+[Unit]
+Description=Select a reachable Telegram API endpoint
+After=network-online.target
+Wants=network-online.target
+Before=incident-telegram-bot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/siem-telegram-egress
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

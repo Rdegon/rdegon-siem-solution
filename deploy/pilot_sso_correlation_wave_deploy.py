@@ -34,13 +34,15 @@ from deploy.proxmox_fleet_wave_deploy import (
 )
 
 
-VM4_HOST = "192.168.1.39"
+VM4_HOST = "192.168.3.102"
 REMOTE_ROOT = "/opt/siem/siem-solution"
 VM4_WEB_PYTHON = "/opt/siem/venv-web/bin/python"
 PILOT_GITEA_VMID = 123
 NAVIDROME_VMID = 121
-KEYCLOAK_HOST = "192.168.1.39"
-KEYCLOAK_ISSUER = f"https://{KEYCLOAK_HOST}/realms/siem"
+KEYCLOAK_HOST = "10.20.10.107"
+KEYCLOAK_PUBLIC_HOST = "192.168.3.102"
+KEYCLOAK_ISSUER = f"https://{KEYCLOAK_PUBLIC_HOST}/realms/siem"
+KEYCLOAK_INTERNAL_BASE = f"https://{KEYCLOAK_HOST}/realms/siem"
 KEYCLOAK_DISCOVERY = f"{KEYCLOAK_ISSUER}/.well-known/openid-configuration"
 GITEA_HOST = "pilot-web-01.lab.home.arpa"
 GITEA_URL = f"http://{GITEA_HOST}:3000"
@@ -473,6 +475,10 @@ def _configure_navidrome(
         f"""
         provider = "oidc"
         oidc_issuer_url = "{KEYCLOAK_ISSUER}"
+        skip_oidc_discovery = true
+        login_url = "{KEYCLOAK_ISSUER}/protocol/openid-connect/auth"
+        redeem_url = "{KEYCLOAK_INTERNAL_BASE}/protocol/openid-connect/token"
+        oidc_jwks_url = "{KEYCLOAK_INTERNAL_BASE}/protocol/openid-connect/certs"
         provider_ca_files = ["/etc/ssl/certs/siem-keycloak.crt"]
         use_system_trust_store = true
         client_id = "navidrome-proxy"
