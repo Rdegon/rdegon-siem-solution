@@ -38,6 +38,23 @@ def _row(source_id: str, logic: str, sources: str = "auth.log/sudo") -> dict[str
 
 
 class AssignmentDetectionPackTests(unittest.TestCase):
+    def test_curated_cmdb_queries_use_clickhouse_final_after_alias(self) -> None:
+        for source_id, rule_id in (
+            ("HB-001", 8001),
+            ("HB-012", 8012),
+            ("HB-014", 8014),
+        ):
+            sql = curated_rules.curated_batch_sql(
+                {
+                    "id": rule_id,
+                    "source_id": source_id,
+                    "title": source_id,
+                    "severity": "high",
+                }
+            )
+            self.assertNotIn("FINAL AS", sql)
+            self.assertIn("AS c FINAL", sql)
+
     def test_curated_heartbeat_rules_use_timestamps_instead_of_keywords(self) -> None:
         base = {
             "id": 8002,
@@ -264,6 +281,21 @@ class AssignmentDetectionPackTests(unittest.TestCase):
         self.assertEqual("event.type == 'sudo_command' and event.original icontains 'COMMAND='", rule["expr"])
         self.assertEqual(2, rule["threshold"])
         self.assertNotIn("sigma_yaml", rule)
+
+    def test_stream_override_can_use_composite_entity_field(self) -> None:
+        rows = [_row("SVC-004", "message contains 'entered failed state'", sources="systemd")]
+
+        pack = builder.build_pack(
+            rows,
+            active_overrides={
+                "SVC-004": {
+                    "expr": "event.type == 'linux_systemd_unit_failed'",
+                    "entity_field": "host.name+service.name",
+                }
+            },
+        )
+
+        self.assertEqual("host.name+service.name", pack["stream_rules"][0]["entity_field"])
 
     def test_batch_override_can_extend_dedupe_window_without_widening_detection_window(self) -> None:
         rows = [_row("HB-006", "count > 3 in 5m baseline known_host inventory")]

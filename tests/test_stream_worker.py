@@ -174,6 +174,24 @@ class StreamWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(older["should_alert"])
         self.assertEqual(older["hits"], 1)
 
+    async def test_entity_key_supports_composite_field_specs(self) -> None:
+        module, _, _ = _load_worker_module()
+
+        self.assertEqual(
+            module._entity_key(
+                {
+                    "host.name": "navidrome-01",
+                    "service.name": "oauth2-proxy-navidrome.service",
+                },
+                "host.name+service.name",
+            ),
+            "navidrome-01|oauth2-proxy-navidrome.service",
+        )
+        self.assertEqual(
+            module._entity_key({"host.name": "navidrome-01"}, "host.name+service.name"),
+            "navidrome-01",
+        )
+
     async def test_event_epoch_marks_processing_time_fallback(self) -> None:
         module, Settings, _ = _load_worker_module()
         worker = module.StreamCorrWorker(Settings())

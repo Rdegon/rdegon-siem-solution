@@ -144,6 +144,22 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
     assert _matches(str(openclaw_rule["expr"]), direct_unit_change)
 
 
+def test_linux_file_and_process_rules_use_stable_composite_entities() -> None:
+    expected = {
+        2704: "host.name+file.path",
+        2706: "host.name+file.path",
+        2711: "host.name+process.executable",
+        2715: "host.name+file.path",
+        2716: "host.name+file.path",
+        2717: "host.name+file.path",
+    }
+    for rule_id, entity_field in expected.items():
+        assert _pack_rule("linux_activity_v1.json", rule_id)["entity_field"] == entity_field
+
+    for rule_id in (2702, 2705, 2707, 2709):
+        assert _pack_rule("linux_activity_v1.json", rule_id)["entity_field"] == "host.name"
+
+
 def test_linux_system_recon_replacement_excludes_openclaw_health_checks() -> None:
     rule = _pack_rule("linux_activity_v1.json", 2726)
 
@@ -198,18 +214,39 @@ def test_host_service_flapping_requires_repeated_flaps() -> None:
     assert int(fleet_rule["window_s"]) >= 1800
 
 
-def test_network_destination_rule_ignores_zeek_weird_but_keeps_firewall_blocks() -> None:
+def test_network_destination_rule_requires_repeated_high_signal_ids_alerts() -> None:
     rule = _pack_rule("diploma_core_stream_v1.json", 9005)
     expr = str(rule["expr"])
-    common = {
-        "event.category": "network",
-        "event.severity": "medium",
+    high_signal = {
+        "event.provider": "suricata",
+        "event.type": "suricata_alert",
+        "suricata.alert.severity": "2",
+        "source.ip": "198.51.100.10",
         "destination.ip": "198.51.100.20",
+        "rule.id": "2100001",
+        "rule.name": "ET EXPLOIT Possible RCE Attempt",
+        "rule.category": "Web Application Attack",
         "tags": "",
     }
 
-    assert not _matches(expr, {**common, "event.type": "zeek_weird"})
-    assert _matches(expr, {**common, "event.type": "linux_firewall_blocked"})
+    assert _matches(expr, high_signal)
+    assert not _matches(
+        expr,
+        {
+            **high_signal,
+            "rule.name": "ET INFO External IP Lookup Domain in DNS Lookup",
+            "rule.category": "Potentially Bad Traffic",
+        },
+    )
+    assert not _matches(
+        expr,
+        {
+            "event.provider": "opnsense",
+            "event.type": "firewall_connection_denied",
+            "destination.ip": "224.0.0.251",
+            "tags": "",
+        },
+    )
 
 
 def test_edge_service_rules_require_exact_service_and_terminal_state() -> None:
@@ -232,6 +269,8 @@ def test_edge_service_rules_require_exact_service_and_terminal_state() -> None:
     }
     unrelated_stop = {
         **common,
+        "event.type": "linux_systemd_unit_deactivated",
+        "service.name": "siem-host-runtime-agent.service",
         "event.original": "siem-host-runtime-agent.service: Deactivated successfully.",
     }
 
@@ -240,11 +279,30 @@ def test_edge_service_rules_require_exact_service_and_terminal_state() -> None:
     assert not _matches(str(rsyslog["expr"]), unrelated_stop)
     assert _matches(
         str(suricata["expr"]),
-        {**common, "event.original": "suricata.service: Failed with result 'exit-code'."},
+        {
+            **common,
+            "event.type": "linux_systemd_unit_failed",
+            "service.name": "suricata.service",
+            "event.original": "suricata.service: Failed with result 'exit-code'.",
+        },
+    )
+    assert not _matches(
+        str(unbound["expr"]),
+        {
+            **common,
+            "event.type": "linux_systemd_unit_stopped",
+            "service.name": "unbound.service",
+            "event.original": "Stopped unbound.service - Unbound DNS server.",
+        },
     )
     assert _matches(
         str(unbound["expr"]),
-        {**common, "event.original": "Stopped unbound.service - Unbound DNS server."},
+        {
+            **common,
+            "event.type": "linux_systemd_unit_failed",
+            "service.name": "unbound.service",
+            "event.original": "unbound.service: Failed with result 'exit-code'.",
+        },
     )
     assert not _matches(
         str(rsyslog["expr"]),
@@ -252,7 +310,81 @@ def test_edge_service_rules_require_exact_service_and_terminal_state() -> None:
     )
     assert _matches(
         str(rsyslog["expr"]),
-        {**common, "event.original": "rsyslog.service: Failed with result 'exit-code'."},
+        {
+            **common,
+            "event.type": "linux_systemd_unit_failed",
+            "service.name": "rsyslog.service",
+            "event.original": "rsyslog.service: Failed with result 'exit-code'.",
+        },
+    )
+
+
+def test_mongodb_package_and_dump_rules_require_source_specific_signals() -> None:
+    mongo = _pack_rule("siem_detection_pack_v1.json", 8279)
+    package = _pack_rule("siem_detection_pack_v1.json", 8090)
+    dump = _pack_rule("siem_detection_pack_v1.json", 8283)
+
+    assert not _matches(
+        str(mongo["expr"]),
+        {
+            "event.provider": "linux.systemd",
+            "event.type": "linux_systemd_unit_started",
+            "event.original": "Started Authorization Manager.",
+            "process.name": "systemd",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(mongo["expr"]),
+        {
+            "event.provider": "linux.mongod",
+            "event.dataset": "mongodb.mongodb",
+            "event.original": "Access control is not enabled for the database",
+            "process.name": "mongod",
+            "tags": "",
+        },
+    )
+
+    assert not _matches(
+        str(package["expr"]),
+        {
+            "event.provider": "linux.systemd",
+            "event.type": "linux_systemd_unit_started",
+            "event.original": "Started nginx.service",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(package["expr"]),
+        {
+            "event.provider": "linux.dpkg",
+            "event.type": "linux_package_removed",
+            "event.action": "package_removed",
+            "package.name": "suricata",
+            "event.original": "remove suricata:amd64 1:7.0.0",
+            "tags": "",
+        },
+    )
+
+    assert not _matches(
+        str(dump["expr"]),
+        {
+            "event.provider": "linux.python",
+            "event.type": "syslog",
+            "event.original": "temporary path /tmp/app.sock",
+            "file.path": "/tmp/app.sock",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(dump["expr"]),
+        {
+            "event.provider": "database.backup",
+            "event.type": "database_dump_created",
+            "event.original": "pg_dump wrote /var/www/html/export.sql",
+            "file.path": "/var/www/html/export.sql",
+            "tags": "",
+        },
     )
 
 
@@ -345,7 +477,7 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "not event.original icontains 'user.slice'" in str(overrides["AUTH-010"]["expr"])
     assert "userdel[" in str(overrides["AUTH-011"]["expr"])
     assert "nametype=DELETE" in str(overrides["AUTH-011"]["expr"])
-    assert "start request repeated too quickly" in str(overrides["SVC-003"]["expr"])
+    assert "linux_systemd_restart_scheduled" in str(overrides["SVC-003"]["expr"])
     assert "System Logging Service" in str(overrides["SVC-011"]["expr"])
     assert "Stopped System Logging Service" in str(overrides["SVC-011"]["expr"])
     assert "host.name == 'siem-ingest'" in str(overrides["ING-006"]["expr"])
@@ -379,7 +511,7 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "baseline_last >= now() - INTERVAL 2 HOUR" in str(overrides["EDGE-004"]["sql_template"])
     assert "other_edge_hits" in str(overrides["EDGE-004"]["sql_template"])
     assert "lower(status) IN ('open', 'false_positive', 'suppressed')" in str(overrides["EDGE-004"]["sql_template"])
-    assert int(overrides["HB-012"]["window_s"]) == 1800
+    assert int(overrides["HB-012"]["window_s"]) == 3600
     assert "baseline_30m >= 300" in str(overrides["HB-012"]["sql_template"])
     assert "b.baseline_30m * 0.05" in str(overrides["HB-012"]["sql_template"])
     assert "dropped_entities <= 2" in str(overrides["HB-012"]["sql_template"])
@@ -515,7 +647,7 @@ def test_assignment_overrides_reject_observed_false_positive_shapes() -> None:
             "tags": "",
         },
     )
-    assert not _matches(
+    assert _matches(
         str(overrides["DNS-005"]["expr"]),
         {
             "event.provider": "zeek",
@@ -551,7 +683,7 @@ def test_assignment_overrides_reject_observed_false_positive_shapes() -> None:
             "tags": "",
         },
     )
-    assert not _matches(
+    assert _matches(
         str(overrides["DNS-005"]["expr"]),
         {
             "event.provider": "zeek",
@@ -568,7 +700,9 @@ def test_assignment_overrides_reject_observed_false_positive_shapes() -> None:
 def test_ssh_batch_rules_ignore_trusted_admin_source_ip() -> None:
     seed_sql = (ROOT / "sql" / "13_batch_corr_seed.sql").read_text(encoding="utf-8")
 
-    assert "''192.168.1.25'', ''192.168.1.29'', ''192.168.1.102''" in seed_sql
+    assert "''192.168.3.81'', ''192.168.3.101''" in seed_sql
+    assert "''10.20.30.122'', ''10.66.66.4''" in seed_sql
+    assert "ts_last >= now() - INTERVAL 86400 SECOND" in seed_sql
     assert "lower(status) IN (''open'', ''false_positive'', ''suppressed'')" in seed_sql
 
 

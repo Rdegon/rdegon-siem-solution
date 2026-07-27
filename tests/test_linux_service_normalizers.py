@@ -111,3 +111,31 @@ def test_oauth2_proxy_startup_is_not_an_error() -> None:
     assert event["event.provider"] == "oauth2-proxy"
     assert event["event.type"] == "oauth2_proxy_configured"
     assert event["event.severity"] == "info"
+
+
+def test_pilot_nginx_access_extracts_request_fields() -> None:
+    event = _normalize(
+        "<134>1 2026-07-27T06:00:00Z pilot-web-01 pilot-nginx-access - - - "
+        '203.0.113.9 - - [27/Jul/2026:09:00:00 +0300] '
+        '"GET /login?next=%2Fadmin HTTP/1.1" 401 182 "-" "curl/8.0"'
+    )
+
+    assert event["event.provider"] == "linux.pilot-nginx-access"
+    assert event["event.type"] == "http_request"
+    assert event["source.ip"] == "203.0.113.9"
+    assert event["url.path"] == "/login"
+    assert event["event.outcome"] == "failure"
+
+
+def test_postgresql_connection_limit_is_structured() -> None:
+    event = _normalize(
+        "<131>1 2026-07-27T06:00:00Z pilot-db-01 postgres 2841 - - "
+        "user=app,db=pilot,app=api,client=10.20.30.123 "
+        "FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute"
+    )
+
+    assert event["event.provider"] == "postgresql"
+    assert event["event.type"] == "postgresql_too_many_connections"
+    assert event["database.name"] == "pilot"
+    assert event["source.ip"] == "10.20.30.123"
+    assert event["event.outcome"] == "failure"

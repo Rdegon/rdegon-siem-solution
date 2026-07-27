@@ -125,12 +125,16 @@ FROM
         FROM siem.events
         WHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
           AND positionCaseInsensitiveUTF8(toString(tags), ''allowlist:'') = 0
-          AND if(src_ip = 0, '''', IPv4NumToString(src_ip)) NOT IN (''192.168.1.25'', ''192.168.1.29'', ''192.168.1.102'')
+          AND if(src_ip = 0, '''', IPv4NumToString(src_ip)) NOT IN (
+              ''192.168.3.81'', ''192.168.3.101'',
+              ''10.20.10.1'', ''10.20.10.107'',
+              ''10.20.30.122'', ''10.66.66.4''
+          )
         GROUP BY src_ip_text
     )
     WHERE src_ip_text != ''''
       AND host_count >= 2
-      AND host_failures >= 6
+      AND host_failures >= 10
     GROUP BY src_ip_text, host_count
 ) AS candidate
 LEFT JOIN
@@ -138,7 +142,7 @@ LEFT JOIN
     SELECT entity_key
     FROM siem.alerts_raw
     WHERE rule_id = 4002
-      AND ts_last >= now() - INTERVAL {WINDOW_S} SECOND
+      AND ts_last >= now() - INTERVAL 86400 SECOND
       AND lower(status) IN (''open'', ''false_positive'', ''suppressed'')
     GROUP BY entity_key
 ) AS existing

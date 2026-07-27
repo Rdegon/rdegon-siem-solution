@@ -73,10 +73,10 @@
       "status": "active",
       "severity": "medium",
       "pattern": "threshold",
-      "window_s": 1800,
-      "threshold": 25,
-      "entity_field": "destination.ip",
-      "expr": "(((event.category == 'network' and destination.ip != '') and event.severity != 'info') and event.type != 'zeek_weird') and not tags icontains 'allowlist:'",
+      "window_s": 600,
+      "threshold": 3,
+      "entity_field": "source.ip+destination.ip+rule.id",
+      "expr": "(event.provider == 'suricata' and event.type == 'suricata_alert' and (suricata.alert.severity == '1' or suricata.alert.severity == '2') and destination.ip != '' and not destination.ip startswith '224.' and not destination.ip startswith '239.' and not destination.ip startswith '255.' and not rule.name startswith 'ET INFO' and not rule.category icontains 'Not Suspicious Traffic' and not rule.category icontains 'Potentially Bad Traffic' and not tags icontains 'allowlist:')",
       "operator_action": "Check if repeated non-informational network activity to the destination is expected; pivot to host and destination timeline.",
       "scenario": "Repeated suspicious destination"
     },
@@ -88,9 +88,9 @@
       "severity": "high",
       "pattern": "threshold",
       "window_s": 600,
-      "threshold": 5,
-      "entity_field": "source.ip",
-      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (((event.provider == 'suricata' or event.provider == 'zeek') and network.direction == 'inbound') or event.type == 'linux_firewall_blocked'))) and not tags icontains 'allowlist:'",
+      "threshold": 10,
+      "entity_field": "source.ip+destination.port",
+      "expr": "(((destination.ip == '192.168.3.102' or destination.ip == '10.20.10.107') and source.ip != '' and not source.ip startswith '10.' and not source.ip startswith '192.168.' and not source.ip startswith '172.' and (((event.provider == 'suricata' or event.provider == 'zeek') and network.direction == 'inbound') or (event.provider == 'opnsense' and event.type == 'firewall_connection_denied' and network.direction == 'in')))) and not tags icontains 'allowlist:'",
       "operator_action": "Pivot to Attack geography and IP detail, confirm target ports, then add the source to TI/deny list only after validating it is not expected monitoring.",
       "scenario": "Protected perimeter probing"
     },
@@ -103,8 +103,8 @@
       "pattern": "threshold",
       "window_s": 900,
       "threshold": 3,
-      "entity_field": "source.ip",
-      "expr": "(((destination.ip == '176.108.250.215' or destination.ip == '45.89.111.208') and source.ip != '' and (destination.port == '22' or event.type icontains 'ssh' or event.category == 'authentication'))) and not tags icontains 'allowlist:'",
+      "entity_field": "source.ip+destination.ip",
+      "expr": "((destination.ip == '192.168.3.102' or destination.ip == '10.20.10.107') and source.ip != '' and not source.ip startswith '10.' and not source.ip startswith '192.168.' and not source.ip startswith '172.' and destination.port == '22' and (event.type == 'ssh_login_failure' or event.type == 'linux_firewall_blocked' or (event.provider == 'suricata' and rule.name icontains 'SSH')) and not tags icontains 'allowlist:')",
       "operator_action": "Check whether the source is spraying SSH or auth endpoints, review related failures, and escalate if the address also appears in GeoIP/TI context.",
       "scenario": "Public SSH password spray"
     }

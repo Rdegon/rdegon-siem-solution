@@ -91,6 +91,12 @@ def _iso_from_epoch(value: float) -> str:
     return datetime.fromtimestamp(value, tz=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _entity_key(event: dict[str, Any], field_spec: str) -> str:
+    fields = [field.strip() for field in str(field_spec or "").split("+") if field.strip()]
+    values = [str(event.get(field) or "").strip() for field in fields]
+    return "|".join(value for value in values if value)
+
+
 class StreamCorrWorker:
     def __init__(self, settings: StreamCorrSettings) -> None:
         self._settings = settings
@@ -352,7 +358,7 @@ class StreamCorrWorker:
                     if not matches_rule(rule, event):
                         continue
 
-                    entity_key = str(event.get(rule.entity_field) or "")
+                    entity_key = _entity_key(event, rule.entity_field)
                     if not entity_key:
                         continue
 

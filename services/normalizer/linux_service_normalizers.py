@@ -31,6 +31,23 @@ PAM_FAILURE_RE = re.compile(
     r"(?:authentication failure|auth failure).*?(?:user=|ruser=)(?P<user>[^\s]+)",
     re.IGNORECASE,
 )
+NGINX_ACCESS_RE = re.compile(
+    r'^(?P<source_ip>\S+)\s+\S+\s+(?P<user>\S+)\s+'
+    r'\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>[A-Z]+)\s+'
+    r'(?P<target>\S+)(?:\s+HTTP/(?P<http_version>[^"]+))?"\s+'
+    r"(?P<status>\d{3})\s+(?P<bytes>\d+|-)"
+)
+POSTGRES_PREFIX_RE = re.compile(
+    r"(?:(?:user=(?P<user>[^,\s]+),)?db=(?P<database>[^,\s]+),"
+    r"(?:app=(?P<application>[^,\s]*),)?client=(?P<client>[^\s]+)\s+)?"
+    r"(?P<level>LOG|ERROR|FATAL|PANIC|WARNING|NOTICE|DETAIL|STATEMENT):\s*"
+    r"(?P<body>.*)",
+    re.IGNORECASE,
+)
+POSTGRES_AUTH_FAILURE_RE = re.compile(
+    r'password authentication failed for user "(?P<user>[^"]+)"',
+    re.IGNORECASE,
+)
 
 
 def _text(value: Any) -> str:
@@ -187,6 +204,99 @@ def parse_systemd_message(body: str) -> Dict[str, Any]:
     if unit:
         result["service.name"] = unit
         result["service.type"] = unit.rsplit(".", 1)[-1]
+    return result
+
+
+def parse_nginx_access_message(body: str, *, provider: str = "linux.nginx-access") -> Dict[str, Any]:
+    match = NGINX_ACCESS_RE.search(_text(body))
+    if not match:
+        return {}
+    status = int(match.group("status"))
+    target = match.group("target")
+    path = target.split("?", 1)[0]
+    user = match.group("user")
+    result = _base(
+        provider=provider,
+        dataset=f"{provider}.access",
+        category="web",
+        event_type="http_request",
+        action="http_request",
+        severity="medium" if status >= 500 else "info",
+        outcome="failure" if status >= 400 else "success",
+    )
+    result.update(
+        {
+            "source.ip": match.group("source_ip"),
+            "http.request.method": match.group("method"),
+            "http.version": _text(match.group("http_version")),
+            "http.response.status_code": str(status),
+            "http.response.body.bytes": "" if match.group("bytes") == "-" else match.group("bytes"),
+            "url.original": target,
+            "url.path": path,
+        }
+    )
+    if user != "-":
+        result["user.name"] = user
+    return result
+
+
+def parse_postgresql_message(body: str) -> Dict[str, Any]:
+    message = _text(body)
+    match = POSTGRES_PREFIX_RE.search(message)
+    if not match:
+        return {}
+    level = _text(match.group("level")).lower()
+    payload = _text(match.group("body"))
+    lowered = payload.lower()
+    severity = {
+        "panic": "critical",
+        "fatal": "high",
+        "error": "medium",
+        "warning": "low",
+    }.get(level, "info")
+    event_type = "postgresql_log"
+    action = "database_observe"
+    outcome = "unknown"
+    if (
+        "too many connections" in lowered
+        or "too many clients already" in lowered
+        or "remaining connection slots are reserved" in lowered
+    ):
+        event_type = "postgresql_too_many_connections"
+        action = "connection_rejected"
+        outcome = "failure"
+        severity = "high"
+    elif POSTGRES_AUTH_FAILURE_RE.search(payload):
+        event_type = "postgresql_authentication_failure"
+        action = "user_login"
+        outcome = "failure"
+        severity = "medium"
+
+    result = _base(
+        provider="postgresql",
+        dataset="postgresql.log",
+        category="database",
+        event_type=event_type,
+        action=action,
+        severity=severity,
+        outcome=outcome,
+    )
+    result["log.level"] = level
+    database = _text(match.group("database"))
+    user = _text(match.group("user"))
+    application = _text(match.group("application"))
+    client = _text(match.group("client"))
+    if database:
+        result["database.name"] = database
+    if user:
+        result["user.name"] = user
+    if application:
+        result["process.name"] = application
+    if client and client not in {"[local]", "local"}:
+        result["source.ip"] = client.split("(", 1)[0]
+    auth_failure = POSTGRES_AUTH_FAILURE_RE.search(payload)
+    if auth_failure:
+        result["user.name"] = auth_failure.group("user")
     return result
 
 

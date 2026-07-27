@@ -28,9 +28,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover - CI fallback when option
 from .config import NormalizerSettings
 from .linux_service_normalizers import (
     parse_minecraft_message,
+    parse_nginx_access_message,
     parse_oauth2_proxy_message,
     parse_opnsense_filterlog,
     parse_pam_message,
+    parse_postgresql_message,
     parse_systemd_message,
 )
 from .security_tool_normalizers import parse_security_tool_event, parse_suricata_payload
@@ -2117,6 +2119,18 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
             return _merge_non_empty(enriched, pam)
     if program == "oauth2-proxy":
         return _merge_non_empty(enriched, parse_oauth2_proxy_message(body))
+    if program in {"postgres", "postgresql", "postgresql-log"}:
+        return _merge_non_empty(enriched, parse_postgresql_message(body))
+    if program in {
+        "nginx-access",
+        "gamepanel-nginx-access",
+        "pilot-nginx-access",
+        "nextcloud-nginx-access",
+    }:
+        return _merge_non_empty(
+            enriched,
+            parse_nginx_access_message(body, provider=f"linux.{program}"),
+        )
     if program == "bash" and _canonical_host_name(enriched.get("host.name", "")) == "minecraft-01":
         return _merge_non_empty(enriched, parse_minecraft_message(body))
 

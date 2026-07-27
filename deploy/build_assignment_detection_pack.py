@@ -1120,7 +1120,10 @@ def build_pack(
             **common,
             "window_s": int(override.get("window_s") or _window_s(row["logic"])),
             "threshold": int(override.get("threshold") or _safe_stream_threshold(rule_row)),
-            "entity_field": _entity_field(row["logic"], row["source_id"]),
+            "entity_field": str(
+                override.get("entity_field")
+                or _entity_field(row["logic"], row["source_id"])
+            ).strip(),
             "suppression_key": "host.name + source.ip + assignment.siem_detection_pack_v1",
         }
         if override_expr:

@@ -86,6 +86,14 @@ def load_pack_inventory() -> list[RuleInventoryItem]:
 
 
 def _clickhouse_execute(query: str) -> list[tuple[Any, ...]]:
+    try:
+        from deploy.runtime_imports import import_app_module
+
+        client = import_app_module("deps").get_ch_client()
+        return [tuple(row) for row in client.query(query).result_rows]
+    except (ImportError, ModuleNotFoundError, RuntimeError):
+        pass
+
     host = os.getenv("SIEM_CH_HOST", "127.0.0.1")
     port = int(os.getenv("SIEM_CH_PORT", "9000"))
     user = os.getenv("SIEM_CH_USER", "siem_admin")
@@ -130,6 +138,21 @@ def _clickhouse_execute(query: str) -> list[tuple[Any, ...]]:
 def load_live_alert_metrics(days: int) -> dict[int, dict[str, Any]]:
     rows = _clickhouse_execute(
         f"""
+        WITH latest AS
+        (
+            SELECT
+                alert_id,
+                argMax(rule_id, ts) AS rule_id,
+                argMax(status, ts) AS status,
+                argMax(entity_key, ts) AS entity_key,
+                argMax(source, ts) AS source,
+                argMax(hits, ts) AS hits,
+                argMax(context_json, ts) AS context_json,
+                max(ts) AS last_seen
+            FROM siem.alerts_raw
+            WHERE ts >= now() - INTERVAL {max(1, int(days))} DAY
+            GROUP BY alert_id
+        )
         SELECT
             rule_id,
             count() AS alert_count,
@@ -137,10 +160,13 @@ def load_live_alert_metrics(days: int) -> dict[int, dict[str, Any]]:
             uniqExact(source) AS unique_sources,
             countIf(lower(status) NOT IN {tuple(sorted(TERMINAL_STATUSES))}) AS open_count,
             countIf(lower(status) = 'false_positive') AS false_positive_count,
+            sum(hits) AS raw_hits,
             max(hits) AS max_hits,
-            max(ts_last) AS last_seen
-        FROM siem.alerts_raw
-        WHERE ts >= now() - INTERVAL {max(1, int(days))} DAY
+            uniqExactIf(JSONExtractString(context_json, 'user'), JSONExtractString(context_json, 'user') != '') AS unique_users,
+            uniqExactIf(JSONExtractString(context_json, 'src_ip'), JSONExtractString(context_json, 'src_ip') != '') AS unique_ips,
+            groupUniqArray(5)(entity_key) AS examples,
+            max(last_seen) AS last_seen
+        FROM latest
         GROUP BY rule_id
         """
     )
@@ -153,10 +179,137 @@ def load_live_alert_metrics(days: int) -> dict[int, dict[str, Any]]:
             "unique_sources": _safe_int(row[3]),
             "open_count": _safe_int(row[4]),
             "false_positive_count": _safe_int(row[5]),
-            "max_hits": _safe_int(row[6]),
-            "last_seen": str(row[7] or ""),
+            "raw_hits": _safe_int(row[6]),
+            "max_hits": _safe_int(row[7]),
+            "unique_users": _safe_int(row[8]),
+            "unique_ips": _safe_int(row[9]),
+            "examples": [str(value) for value in list(row[10] or [])],
+            "last_seen": str(row[11] or ""),
         }
+        metrics[rule_id]["false_positive_ratio"] = round(
+            metrics[rule_id]["false_positive_count"] / max(1, metrics[rule_id]["alert_count"]),
+            4,
+        )
     return metrics
+
+
+def load_runtime_inventory() -> dict[str, list[dict[str, Any]]]:
+    queries = {
+        "stream": """
+            SELECT
+                id,
+                argMax(name, updated_ts),
+                argMax(enabled, updated_ts),
+                argMax(severity, updated_ts),
+                argMax(window_s, updated_ts),
+                argMax(threshold, updated_ts),
+                argMax(entity_field, updated_ts)
+            FROM siem.correlation_rules_stream
+            GROUP BY id
+            ORDER BY id
+        """,
+        "batch": """
+            SELECT
+                id,
+                argMax(name, updated_ts),
+                argMax(enabled, updated_ts),
+                argMax(severity, updated_ts),
+                argMax(window_s, updated_ts),
+                0,
+                ''
+            FROM siem.correlation_rules_batch
+            GROUP BY id
+            ORDER BY id
+        """,
+        "catalog": """
+            SELECT
+                id,
+                argMax(title, updated_ts),
+                argMax(enabled, updated_ts),
+                argMax(level, updated_ts),
+                argMax(window_s, updated_ts),
+                argMax(threshold, updated_ts),
+                argMax(entity_field, updated_ts)
+            FROM siem.detection_rule_catalog
+            GROUP BY id
+            ORDER BY id
+        """,
+        "normalizer": """
+            SELECT
+                id,
+                argMax(source_type, updated_ts),
+                argMax(enabled, updated_ts),
+                '',
+                0,
+                argMax(priority, updated_ts),
+                argMax(event_matcher, updated_ts)
+            FROM siem.normalizer_rules
+            GROUP BY id
+            ORDER BY id
+        """,
+        "filter": """
+            SELECT
+                id,
+                argMax(name, updated_ts),
+                argMax(enabled, updated_ts),
+                argMax(action, updated_ts),
+                0,
+                argMax(priority, updated_ts),
+                argMax(expr, updated_ts)
+            FROM siem.filter_rules
+            GROUP BY id
+            ORDER BY id
+        """,
+    }
+    inventory: dict[str, list[dict[str, Any]]] = {}
+    for layer, query in queries.items():
+        rows: list[dict[str, Any]] = []
+        for row in _clickhouse_execute(query):
+            enabled = bool(_safe_int(row[2]))
+            rows.append(
+                {
+                    "rule_id": _safe_int(row[0]),
+                    "name": str(row[1] or ""),
+                    "enabled": enabled,
+                    "severity_or_action": str(row[3] or ""),
+                    "window_s": _safe_int(row[4]),
+                    "threshold_or_priority": _safe_int(row[5]),
+                    "entity_or_matcher": str(row[6] or ""),
+                    "audit_decision": "reviewed_active" if enabled else "review_disabled",
+                }
+            )
+        inventory[layer] = rows
+    return inventory
+
+
+def load_source_coverage(days: int) -> list[dict[str, Any]]:
+    rows = _clickhouse_execute(
+        f"""
+        SELECT
+            device_product,
+            subcategory,
+            count() AS events,
+            uniqExact(if(host_name != '' AND host_name != '-', host_name, log_source)) AS hosts,
+            max(ts) AS last_seen
+        FROM siem.events
+        PREWHERE ts >= now() - INTERVAL {max(1, int(days))} DAY
+        WHERE positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+        GROUP BY device_product, subcategory
+        ORDER BY events DESC
+        """
+    )
+    return [
+        {
+            "event_provider": str(row[0] or ""),
+            "event_type": str(row[1] or ""),
+            "events": _safe_int(row[2]),
+            "hosts": _safe_int(row[3]),
+            "last_seen": str(row[4] or ""),
+        }
+        for row in rows
+    ]
 
 
 def _has_source_semantics(item: RuleInventoryItem) -> bool:
@@ -182,6 +335,7 @@ def _decision(item: RuleInventoryItem, metrics: dict[str, Any]) -> str:
     fp = _safe_int(metrics.get("false_positive_count"))
     open_count = _safe_int(metrics.get("open_count"))
     unique_entities = _safe_int(metrics.get("unique_entities"))
+    fp_ratio = float(metrics.get("false_positive_ratio") or 0.0)
 
     if "retired" in status or "duplicate" in status:
         return "deduplicate"
@@ -189,6 +343,8 @@ def _decision(item: RuleInventoryItem, metrics: dict[str, Any]) -> str:
         return "tune_threshold"
     if source_id.startswith(NOISY_SOURCE_PREFIXES):
         return "scope_asset_group"
+    if fp_ratio >= 0.8 and alerts >= 3:
+        return "narrow_condition"
     if alerts >= 100 and unique_entities <= 3:
         return "add_allowlist"
     if alerts >= 100 or open_count >= 25:
@@ -200,9 +356,26 @@ def _decision(item: RuleInventoryItem, metrics: dict[str, Any]) -> str:
     return "keep"
 
 
+def _execution_cost(item: RuleInventoryItem) -> str:
+    text = item.sql_template if item.layer == "batch" else item.expr
+    weighted = len(text)
+    lowered = text.lower()
+    weighted += lowered.count(" join ") * 800
+    weighted += lowered.count("group by") * 400
+    weighted += lowered.count("positioncaseinsensitive") * 150
+    weighted += lowered.count("icontains") * 30
+    if weighted >= 12000:
+        return "high"
+    if weighted >= 3000:
+        return "medium"
+    return "low"
+
+
 def build_audit(days: int, *, live: bool) -> dict[str, Any]:
     inventory = load_pack_inventory()
     metrics_by_rule = load_live_alert_metrics(days) if live else {}
+    runtime_inventory = load_runtime_inventory() if live else {}
+    source_coverage = load_source_coverage(days) if live else []
     duplicates: dict[int, list[str]] = defaultdict(list)
     for item in inventory:
         duplicates[item.rule_id].append(f"{item.pack_id}:{item.layer}:{item.source_id}")
@@ -227,12 +400,26 @@ def build_audit(days: int, *, live: bool) -> dict[str, Any]:
                 "severity": item.severity,
                 "window_s": item.window_s,
                 "threshold": item.threshold,
+                "execution_cost": _execution_cost(item),
                 "decision": decision,
                 "duplicate_refs": duplicate_refs if len(duplicate_refs) > 1 else [],
                 "metrics_30d": metrics,
             }
         )
 
+    runtime_summary = {
+        layer: {
+            "total": len(items),
+            "enabled": sum(1 for item in items if item["enabled"]),
+            "disabled": sum(1 for item in items if not item["enabled"]),
+        }
+        for layer, items in runtime_inventory.items()
+    }
+    runtime_decisions_complete = all(
+        bool(item.get("audit_decision"))
+        for items in runtime_inventory.values()
+        for item in items
+    )
     return {
         "generated_ts": _utc_now(),
         "days": int(days),
@@ -242,8 +429,13 @@ def build_audit(days: int, *, live: bool) -> dict[str, Any]:
             "layers": dict(sorted(layers.items())),
             "decisions": dict(sorted(decisions.items())),
             "all_rules_have_decision": len(rows) == sum(decisions.values()),
+            "runtime": runtime_summary,
+            "all_runtime_rules_have_decision": runtime_decisions_complete,
+            "normalized_source_pairs": len(source_coverage),
         },
         "rules": rows,
+        "runtime_inventory": runtime_inventory,
+        "source_coverage": source_coverage,
     }
 
 
@@ -257,18 +449,37 @@ def render_markdown(audit: dict[str, Any]) -> str:
         f"- Live metrics: {audit.get('live_metrics')}",
         f"- Total rules: {summary.get('total_rules', 0)}",
         f"- All rules have decision: {summary.get('all_rules_have_decision')}",
+        f"- All runtime rules have decision: {summary.get('all_runtime_rules_have_decision')}",
+        f"- Normalized provider/type pairs: {summary.get('normalized_source_pairs', 0)}",
         "",
         "## Decisions",
         "",
     ]
     for decision, count in dict(summary.get("decisions") or {}).items():
         lines.append(f"- {decision}: {count}")
-    lines.extend(["", "## Rules", "", "| rule_id | source_id | layer | severity | decision | title |", "| --- | --- | --- | --- | --- | --- |"])
+    lines.extend(["", "## Runtime Inventory", ""])
+    for layer, values in dict(summary.get("runtime") or {}).items():
+        lines.append(
+            f"- {layer}: {values.get('total', 0)} total, "
+            f"{values.get('enabled', 0)} enabled, {values.get('disabled', 0)} disabled"
+        )
+    lines.extend(
+        [
+            "",
+            "## Rules",
+            "",
+            "| rule_id | source_id | layer | severity | cost | alerts | fp | open | decision | title |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
     for item in audit.get("rules") or []:
         title = str(item.get("title") or "").replace("|", "\\|")
+        metrics = dict(item.get("metrics_30d") or {})
         lines.append(
             f"| {item.get('rule_id')} | {item.get('source_id')} | {item.get('layer')} | "
-            f"{item.get('severity')} | {item.get('decision')} | {title} |"
+            f"{item.get('severity')} | {item.get('execution_cost')} | "
+            f"{metrics.get('alert_count', 0)} | {metrics.get('false_positive_count', 0)} | "
+            f"{metrics.get('open_count', 0)} | {item.get('decision')} | {title} |"
         )
     return "\n".join(lines) + "\n"
 

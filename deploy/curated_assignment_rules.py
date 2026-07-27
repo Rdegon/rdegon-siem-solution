@@ -47,7 +47,7 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
       AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+      AND lower(status) IN ('open', 'false_positive', 'suppressed')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key
@@ -149,7 +149,7 @@ def _unexpected_known_host_port_sql(item: dict[str, Any]) -> str:
             c.hostname, '","destination_ip":"', c.ip, '","hits":', toString(count()), '}'
         ) AS context_json
     FROM siem.events AS e
-    INNER JOIN siem.cmdb_assets FINAL AS c
+    INNER JOIN siem.cmdb_assets AS c FINAL
       ON c.ip = IPv4NumToString(e.dst_ip)
     PREWHERE e.ts >= now() - INTERVAL {WINDOW_S} SECOND
     WHERE c.enabled = 1
@@ -235,7 +235,7 @@ FROM
             '"source":"', c.hostname, '","last_seen":"',
             toString(e.last_seen_ts), '","silence_hours":{silence_hours}}}'
         ) AS context_json
-    FROM siem.cmdb_assets FINAL AS c
+    FROM siem.cmdb_assets AS c FINAL
     INNER JOIN
     (
         SELECT
@@ -269,11 +269,122 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
       AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+      AND lower(status) IN ('open', 'false_positive', 'suppressed')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key
 WHERE existing.entity_key = ''"""
+
+
+def _host_volume_spike_sql(item: dict[str, Any]) -> str:
+    candidate_sql = """    WITH recent AS
+    (
+        SELECT
+            if(host_name != '' AND host_name != '-', host_name, log_source) AS entity_key,
+            count() AS recent_hits,
+            min(ts) AS ts_first,
+            max(ts) AS ts_last
+        FROM siem.events
+        PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
+        WHERE if(host_name != '' AND host_name != '-', host_name, log_source) != ''
+          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+        GROUP BY entity_key
+    ), baseline AS
+    (
+        SELECT
+            if(host_name != '' AND host_name != '-', host_name, log_source) AS entity_key,
+            greatest(count() / 144, 1) AS baseline_10m
+        FROM siem.events
+        PREWHERE ts >= now() - INTERVAL 24 HOUR
+        WHERE ts < now() - INTERVAL {WINDOW_S} SECOND
+          AND if(host_name != '' AND host_name != '-', host_name, log_source) != ''
+          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+        GROUP BY entity_key
+    )
+    SELECT
+        r.entity_key AS entity_key,
+        r.entity_key AS source,
+        r.ts_first AS ts_first,
+        r.ts_last AS ts_last,
+        r.recent_hits AS hits,
+        concat(
+            '{"event_type":"host_volume_spike","source_id":"HB-011","source":"',
+            r.entity_key, '","recent_hits":', toString(r.recent_hits),
+            ',"baseline_10m":', toString(b.baseline_10m), '}'
+        ) AS context_json
+    FROM recent AS r
+    INNER JOIN baseline AS b ON r.entity_key = b.entity_key
+    WHERE b.baseline_10m >= 100
+      AND r.recent_hits >= greatest(toUInt64(50000), toUInt64(b.baseline_10m * 10))"""
+    return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
+
+
+def _host_volume_drop_sql(item: dict[str, Any]) -> str:
+    candidate_sql = """    SELECT
+        entity_key,
+        source,
+        ts_first,
+        ts_last,
+        hits,
+        context_json
+    FROM
+    (
+        WITH recent AS
+        (
+            SELECT
+                if(host_name != '' AND host_name != '-', host_name, log_source) AS entity_key,
+                count() AS recent_hits
+            FROM siem.events
+            PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
+            WHERE if(host_name != '' AND host_name != '-', host_name, log_source) != ''
+              AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+            GROUP BY entity_key
+        ), baseline AS
+        (
+            SELECT
+                if(host_name != '' AND host_name != '-', host_name, log_source) AS entity_key,
+                greatest(count() / 23, 1) AS baseline_1h
+            FROM siem.events
+            PREWHERE ts >= now() - INTERVAL 24 HOUR
+            WHERE ts < now() - INTERVAL {WINDOW_S} SECOND
+              AND if(host_name != '' AND host_name != '-', host_name, log_source) != ''
+              AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+            GROUP BY entity_key
+        )
+        SELECT
+            b.entity_key AS entity_key,
+            b.entity_key AS source,
+            now() - INTERVAL {WINDOW_S} SECOND AS ts_first,
+            now() AS ts_last,
+            toUInt64(ifNull(r.recent_hits, 0)) AS hits,
+            concat(
+                '{"event_type":"host_volume_drop","source_id":"HB-012","source":"',
+                b.entity_key, '","recent_hits":', toString(ifNull(r.recent_hits, 0)),
+                ',"baseline_1h":', toString(b.baseline_1h), '}'
+            ) AS context_json,
+            count() OVER () AS dropped_entities
+        FROM baseline AS b
+        LEFT JOIN recent AS r ON r.entity_key = b.entity_key
+        INNER JOIN siem.cmdb_assets AS c FINAL ON lowerUTF8(c.hostname) = lowerUTF8(b.entity_key)
+        WHERE c.enabled = 1
+          AND positionCaseInsensitiveUTF8(c.tags, 'planned_offline') = 0
+          AND b.baseline_1h >= 500
+          AND ifNull(r.recent_hits, 0) < greatest(toUInt64(5), toUInt64(b.baseline_1h * 0.01))
+    )
+    WHERE dropped_entities <= 2"""
+    return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
 
 
 def _future_event_sql(item: dict[str, Any]) -> str:
@@ -346,7 +457,7 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
       AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+      AND lower(status) IN ('open', 'false_positive', 'suppressed')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key
@@ -443,7 +554,7 @@ WHERE NOT EXISTS
     WHERE rule_id = {rule_id}
       AND entity_key = 'siem-stream-corr'
       AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+      AND lower(status) IN ('open', 'false_positive', 'suppressed')
 )"""
 
 
@@ -497,7 +608,7 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
       AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+      AND lower(status) IN ('open', 'false_positive', 'suppressed')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key
@@ -574,7 +685,7 @@ LEFT JOIN
     FROM siem.alerts_raw
     WHERE rule_id = {rule_id}
       AND ts >= now() - INTERVAL {dedupe_window_s} SECOND
-      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')
+      AND lower(status) IN ('open', 'false_positive', 'suppressed')
     GROUP BY entity_key
 ) AS existing
 ON candidate.entity_key = existing.entity_key
@@ -583,6 +694,8 @@ WHERE existing.entity_key = ''"""
 
 def curated_batch_sql(item: dict[str, Any]) -> str:
     source_id = str(item.get("source_id") or "").upper()
+    if source_id == "HB-001":
+        return _host_silence_sql(item, source_id=source_id, silence_hours=24)
     if source_id == "HB-002":
         return _host_silence_sql(item, source_id=source_id, silence_hours=48)
     if source_id == "HB-003":
@@ -603,6 +716,10 @@ def curated_batch_sql(item: dict[str, Any]) -> str:
         return _sustained_cpu_pressure_sql(item)
     if source_id == "HB-006":
         return _new_internal_ip_sql(item)
+    if source_id == "HB-011":
+        return _host_volume_spike_sql(item)
+    if source_id == "HB-012":
+        return _host_volume_drop_sql(item)
     if source_id == "HB-013":
         return _unmonitored_discovered_host_sql(item)
     if source_id == "HB-014":

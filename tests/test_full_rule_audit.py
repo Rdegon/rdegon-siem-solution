@@ -10,6 +10,8 @@ def test_full_rule_audit_assigns_decision_to_every_pack_rule() -> None:
     assert audit["summary"]["all_rules_have_decision"] is True
     assert len(audit["rules"]) == audit["summary"]["total_rules"]
     assert {item["decision"] for item in audit["rules"]}
+    assert audit["runtime_inventory"] == {}
+    assert audit["source_coverage"] == []
 
 
 def test_full_rule_audit_marks_known_noisy_families_for_calibration() -> None:
@@ -27,4 +29,4 @@ def test_full_rule_audit_markdown_contains_summary_and_rule_rows() -> None:
 
     assert "# Full Rule Audit" in markdown
     assert "All rules have decision: True" in markdown
-    assert "| rule_id | source_id | layer | severity | decision | title |" in markdown
+    assert "| rule_id | source_id | layer | severity | cost | alerts | fp | open | decision | title |" in markdown
