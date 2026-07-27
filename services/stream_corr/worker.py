@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from clickhouse_driver import Client
+from services.filter.filter_core import parse_expr
 from services.redis_runtime import connection_settings_from_object, create_resilient_async_redis_client
 from services.stream_state import SQLiteStreamState, stream_state_settings_from_env
 from services.transport_runtime import create_transport_consumer, transport_backend
@@ -49,7 +50,6 @@ _RULE_INDEX_FIELDS = {
     "collector_profile",
     "ingest_profile",
 }
-_EXACT_FIELD_RE = re.compile(r"(?P<field>[A-Za-z0-9_.-]+)\s*==\s*'(?P<value>[^']+)'")
 
 
 def _event_field_lower(event: dict[str, Any], *fields: str) -> str:
@@ -198,17 +198,39 @@ class StreamCorrWorker:
         return f"{field}\x00{str(value or '').strip().lower()}"
 
     @classmethod
+    def _ast_index_keys(cls, ast: tuple[Any, ...]) -> tuple[set[str], bool]:
+        node_type = ast[0]
+        if node_type == "cmp":
+            _, field, operator, value = ast
+            if operator == "==" and field in _RULE_INDEX_FIELDS and str(value).strip():
+                return {cls._index_key(str(field), value)}, True
+            return set(), False
+        if node_type == "not":
+            return set(), False
+        left_keys, left_guaranteed = cls._ast_index_keys(ast[1])
+        right_keys, right_guaranteed = cls._ast_index_keys(ast[2])
+        if node_type == "and":
+            if left_guaranteed and right_guaranteed:
+                return left_keys | right_keys, True
+            if left_guaranteed:
+                return left_keys, True
+            if right_guaranteed:
+                return right_keys, True
+            return set(), False
+        if node_type == "or" and left_guaranteed and right_guaranteed:
+            return left_keys | right_keys, True
+        return set(), False
+
+    @classmethod
     def _rule_index_keys(cls, rule: StreamCorrRule) -> set[str]:
-        expr = str(getattr(rule, "expr_text", "") or "")
-        keys: set[str] = set()
-        for match in _EXACT_FIELD_RE.finditer(expr):
-            field = str(match.group("field") or "").strip()
-            if field not in _RULE_INDEX_FIELDS:
-                continue
-            value = str(match.group("value") or "").strip()
-            if value:
-                keys.add(cls._index_key(field, value))
-        return keys
+        ast = getattr(rule, "expr_ast", None)
+        if ast is None:
+            try:
+                ast = parse_expr(str(getattr(rule, "expr_text", "") or ""))
+            except ValueError:
+                return set()
+        keys, guaranteed = cls._ast_index_keys(ast)
+        return keys if guaranteed else set()
 
     def _rebuild_rule_index(self) -> None:
         index: dict[str, list[StreamCorrRule]] = {}

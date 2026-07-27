@@ -282,6 +282,38 @@ class StreamWorkerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual({rule.id for rule in candidates}, {2901, 9001})
 
+    async def test_rule_index_keeps_mixed_or_rules_in_fallback(self) -> None:
+        module, Settings, Rule = _load_worker_module()
+        worker = module.StreamCorrWorker(Settings())
+        mixed_rule = Rule(id=8283, window_s=300, threshold=1)
+        mixed_rule.expr_text = (
+            "event.type == 'database_dump_created' "
+            "or event.provider icontains 'backup'"
+        )
+        exact_or_rule = Rule(id=8102, window_s=300, threshold=1)
+        exact_or_rule.expr_text = (
+            "event.provider == 'suricata' "
+            "or event.provider == 'zeek'"
+        )
+        worker._rules = [mixed_rule, exact_or_rule]
+        worker._rebuild_rule_index()
+
+        backup_candidates = worker._candidate_rules(
+            {
+                "event.provider": "linux.database-backup",
+                "event.type": "syslog",
+            }
+        )
+        zeek_candidates = worker._candidate_rules(
+            {
+                "event.provider": "zeek",
+                "event.type": "zeek_conn",
+            }
+        )
+
+        self.assertEqual({rule.id for rule in backup_candidates}, {8283})
+        self.assertEqual({rule.id for rule in zeek_candidates}, {8102, 8283})
+
     async def test_benchmark_events_are_skipped_before_rule_evaluation(self) -> None:
         module, Settings, _ = _load_worker_module()
         worker = module.StreamCorrWorker(Settings())
