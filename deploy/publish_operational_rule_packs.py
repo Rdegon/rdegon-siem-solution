@@ -27,6 +27,7 @@ PACK_FILES = (
     "navidrome_activity_v1.json",
     "scanner_runtime_v1.json",
     "source_coverage_v1.json",
+    "security_services_v1.json",
     "diploma_core_stream_v1.json",
     "siem_detection_pack_v1.json",
 )

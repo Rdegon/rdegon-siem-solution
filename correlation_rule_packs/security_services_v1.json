@@ -1,0 +1,71 @@
+{
+  "pack_id": "security-services-v1",
+  "title": "Source-specific correlation for SOC security services",
+  "version": "1.0.0",
+  "status": "active",
+  "owner": "soc-platform",
+  "notes": [
+    "Rules require normalized fields produced by the dedicated Zeek, Falco, Velociraptor and malware-analysis adapters.",
+    "Zeek capture-loss notices remain health telemetry and do not become attack incidents.",
+    "MISP indicator publication is inventory input, not an incident. Only sightings in protected-source telemetry should alert.",
+    "Service-down events require two observations to exclude boot and restart transients."
+  ],
+  "stream_rules": [
+    {
+      "id": 3001,
+      "title": "NDR Zeek Security Notice",
+      "description": "High-confidence Zeek security notices; capture loss and generic protocol anomalies remain on the NDR health page.",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 1,
+      "entity_field": "rule.name",
+      "status": "active",
+      "expr": "(event.provider == 'zeek' and event.type == 'zeek_notice' and (rule.name icontains 'Password_Guessing' or rule.name icontains 'Port_Scan' or rule.name icontains 'Sensitive_Signature' or rule.name icontains 'Intel::Notice' or rule.name icontains 'MalwareHashRegistry::Match') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3002,
+      "title": "Falco High Confidence Runtime Detection",
+      "description": "Falco high or critical runtime findings, excluding pipeline canaries and explicitly allowlisted maintenance.",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "status": "active",
+      "expr": "(event.provider == 'falco' and event.type == 'falco_runtime_alert' and (event.severity == 'high' or event.severity == 'critical') and not rule.name icontains 'canary' and not process.command_line icontains 'siem-falco-e2e' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3003,
+      "title": "Confirmed Static Malware Verdict",
+      "description": "A static-analysis engine returned a confirmed malicious, infected, detected or signature-match verdict.",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 1,
+      "entity_field": "file.sha256",
+      "status": "active",
+      "expr": "(event.type == 'malware_analysis_result' and event.outcome == 'failure' and (tags icontains 'verdict:malicious' or tags icontains 'verdict:infected' or tags icontains 'verdict:detected' or tags icontains 'verdict:match') and file.sha256 != '' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3004,
+      "title": "Velociraptor High Confidence Artifact Detection",
+      "description": "Velociraptor artifact output explicitly classified high, critical or malicious; routine collection results never match.",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 1,
+      "entity_field": "host.name",
+      "status": "active",
+      "expr": "(event.provider == 'velociraptor' and event.type == 'velociraptor_artifact_result' and (event.severity == 'high' or event.severity == 'critical' or tags icontains 'detection:malicious') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3005,
+      "title": "SOC Security Service Component Down",
+      "description": "A monitored component on NDR, DFIR, malware analysis, TIP, PKI or evidence storage remained down for two runtime snapshots.",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "status": "active",
+      "expr": "(event.provider == 'host.metrics' and event.type == 'host_service_down' and (host.name == 'soc-ndr-01' or host.name == 'soc-dfir-01' or host.name == 'soc-analysis-01' or host.name == 'soc-ti-01' or host.name == 'soc-pki-01' or host.name == 'soc-evidence-01') and service.name != '' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    }
+  ],
+  "batch_rules": []
+}

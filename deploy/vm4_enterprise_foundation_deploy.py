@@ -67,6 +67,8 @@ def _directory_mappings(local_root: str, remote_root: str) -> tuple[FileMapping,
     for path in sorted(base.rglob("*")):
         if not path.is_file():
             continue
+        if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+            continue
         local_rel = path.relative_to(ROOT).as_posix()
         remote_rel = posixpath.join(remote_root.rstrip("/"), path.relative_to(base).as_posix())
         mappings.append(FileMapping(local_rel, remote_rel))
@@ -149,6 +151,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/backup_runtime.py", "services/web/app/backup_runtime.py"),
     FileMapping("services/web/app/asset_catalog_runtime.py", "services/web/app/asset_catalog_runtime.py"),
     FileMapping("services/web/app/clickhouse_runtime.py", "services/web/app/clickhouse_runtime.py"),
+    FileMapping("services/web/app/security_services_runtime.py", "services/web/app/security_services_runtime.py"),
     FileMapping("services/web/app/content_runtime.py", "services/web/app/content_runtime.py"),
     FileMapping("services/web/app/control_plane_health.py", "services/web/app/control_plane_health.py"),
     FileMapping("services/web/app/control_plane_access_ops.py", "services/web/app/control_plane_access_ops.py"),
@@ -196,6 +199,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/routes/console_health_routes.py", "services/web/app/routes/console_health_routes.py"),
     FileMapping("services/web/app/routes/console_operations_routes.py", "services/web/app/routes/console_operations_routes.py"),
     FileMapping("services/web/app/routes/console_router_registry.py", "services/web/app/routes/console_router_registry.py"),
+    FileMapping("services/web/app/routes/console_security_services_routes.py", "services/web/app/routes/console_security_services_routes.py"),
     FileMapping("services/web/app/routes/console_response_routes.py", "services/web/app/routes/console_response_routes.py"),
     FileMapping("services/web/app/routes/alerts.py", "services/web/app/routes/alerts.py"),
     FileMapping("services/web/app/routes/events.py", "services/web/app/routes/events.py"),
@@ -244,6 +248,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("frontend-react/src/shell/pages/DocumentationPage.tsx", "services/web/frontend-react/src/shell/pages/DocumentationPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/InventoryPage.tsx", "services/web/frontend-react/src/shell/pages/InventoryPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/ResponsePage.tsx", "services/web/frontend-react/src/shell/pages/ResponsePage.tsx"),
+    FileMapping("frontend-react/src/shell/pages/SecurityServicePage.tsx", "services/web/frontend-react/src/shell/pages/SecurityServicePage.tsx"),
     FileMapping("frontend-react/src/shell/pages/SourcesPage.tsx", "services/web/frontend-react/src/shell/pages/SourcesPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/ThreatIntelPage.tsx", "services/web/frontend-react/src/shell/pages/ThreatIntelPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/TopologyPage.tsx", "services/web/frontend-react/src/shell/pages/TopologyPage.tsx"),
@@ -307,6 +312,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("tests/test_content_store_runtime.py", "tests/test_content_store_runtime.py"),
     FileMapping("tests/test_homelab_watchdog.py", "tests/test_homelab_watchdog.py"),
     FileMapping("tests/test_security_runtime.py", "tests/test_security_runtime.py"),
+    FileMapping("tests/test_security_services_runtime.py", "tests/test_security_services_runtime.py"),
     FileMapping("tests/test_response_maturity.py", "tests/test_response_maturity.py"),
     FileMapping("tests/test_source_discovery.py", "tests/test_source_discovery.py"),
     FileMapping("tests/test_topology_runtime.py", "tests/test_topology_runtime.py"),
@@ -407,10 +413,10 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     "correlation_rule_packs",
     "correlation_rule_packs",
 ) + _directory_mappings(
-    "query",
+    "services/web/app/query",
     "query",
 ) + _directory_mappings(
-    "query",
+    "services/web/app/query",
     "services/web/app/query",
 )
 
@@ -510,25 +516,66 @@ def _run_command(
 def _connect_client(host: str, user: str, password: str, *, attempts: int = 5, delay_seconds: float = 3.0) -> paramiko.SSHClient:
     if paramiko is None:
         raise RuntimeError("paramiko is required to deploy VM4 enterprise foundation")
+    jump_host = str(os.getenv("SIEM_VM4_JUMP_HOST", "") or "").strip()
+    jump_user = str(
+        os.getenv("SIEM_VM4_JUMP_USER", "")
+        or os.getenv("SIEM_PROXMOX_USER", "")
+        or ""
+    ).strip()
+    jump_password = str(
+        os.getenv("SIEM_VM4_JUMP_PASSWORD", "")
+        or os.getenv("SIEM_PROXMOX_PASSWORD", "")
+        or ""
+    )
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        jump_client: paramiko.SSHClient | None = None
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
+            target_socket = None
+            if jump_host:
+                if not jump_user or not jump_password:
+                    raise RuntimeError("VM4 jump host requires a user and password")
+                jump_client = paramiko.SSHClient()
+                jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                jump_client.connect(
+                    jump_host,
+                    username=jump_user,
+                    password=jump_password,
+                    timeout=20,
+                    banner_timeout=20,
+                    auth_timeout=20,
+                    look_for_keys=False,
+                    allow_agent=False,
+                )
+                jump_transport = jump_client.get_transport()
+                if jump_transport is None:
+                    raise RuntimeError("VM4 jump host transport is not connected")
+                target_socket = jump_transport.open_channel(
+                    "direct-tcpip",
+                    (host, 22),
+                    ("127.0.0.1", 0),
+                )
             client.connect(
                 host,
                 username=user,
                 password=password,
+                sock=target_socket,
                 timeout=20,
                 banner_timeout=20,
                 auth_timeout=20,
                 look_for_keys=False,
                 allow_agent=False,
             )
+            if jump_client is not None:
+                setattr(client, "_siem_jump_client", jump_client)
             return client
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             client.close()
+            if jump_client is not None:
+                jump_client.close()
             if attempt == attempts:
                 break
             print(f"ssh connect attempt {attempt}/{attempts} failed: {exc}")
@@ -903,6 +950,7 @@ def main() -> int:
             "app/incident_ai_runtime.py "
             "app/vuln_asset_binding.py "
             "app/clickhouse_runtime.py "
+            "app/security_services_runtime.py "
             "app/content_runtime.py "
             "app/control_plane_health.py "
             "app/health_surfaces.py "
@@ -928,6 +976,7 @@ def main() -> int:
             "app/routes/console_assets_routes.py "
             "app/routes/console_auth_routes.py "
             "app/routes/console_router_registry.py "
+            "app/routes/console_security_services_routes.py "
             "app/routes/alerts.py "
             "app/routes/events.py "
             "app/enterprise_control_plane.py "
@@ -973,6 +1022,7 @@ def main() -> int:
             "tests.test_keycloak_admin_runtime "
             "tests.test_response_maturity "
             "tests.test_security_runtime "
+            "tests.test_security_services_runtime "
             "tests.test_source_discovery "
             "tests.test_topology_runtime "
             "tests.test_host_access_runtime "
@@ -1427,6 +1477,12 @@ def main() -> int:
             transport = client.get_transport()
             if transport is not None:
                 transport.close()
+        except Exception:
+            pass
+        try:
+            jump_client = getattr(client, "_siem_jump_client", None)
+            if jump_client is not None:
+                jump_client.close()
         except Exception:
             pass
 

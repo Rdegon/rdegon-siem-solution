@@ -61,6 +61,31 @@ class ClickHouseRuntimeTests(unittest.TestCase):
 
         self.assertIs(client, fake_clients[("vm5", 8123)])
 
+    def test_get_clickhouse_client_reuses_recent_healthcheck(self) -> None:
+        client = _FakeClient("vm3", 8123)
+
+        with patch("clickhouse_runtime.configured_clickhouse_endpoints", return_value=(ClickHouseEndpoint("vm3", 8123),)):
+            with patch("clickhouse_runtime._build_client", return_value=client):
+                first = get_clickhouse_client()
+                second = get_clickhouse_client()
+
+        self.assertIs(first, client)
+        self.assertIs(second, client)
+        self.assertEqual(["SELECT 1"], client.commands)
+
+    def test_get_clickhouse_client_rechecks_after_healthcheck_ttl(self) -> None:
+        client = _FakeClient("vm3", 8123)
+
+        with patch("clickhouse_runtime.configured_clickhouse_endpoints", return_value=(ClickHouseEndpoint("vm3", 8123),)):
+            with patch("clickhouse_runtime._build_client", return_value=client):
+                with patch("clickhouse_runtime.monotonic", side_effect=(10.0, 10.0, 13.0, 13.0)):
+                    first = get_clickhouse_client()
+                    second = get_clickhouse_client()
+
+        self.assertIs(first, client)
+        self.assertIs(second, client)
+        self.assertEqual(["SELECT 1", "SELECT 1"], client.commands)
+
     def test_clickhouse_failover_status_reports_active_and_failed_nodes(self) -> None:
         fake_clients = {
             ("vm3", 8123): _FakeClient("vm3", 8123, broken=False),

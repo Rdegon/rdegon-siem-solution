@@ -201,6 +201,9 @@ class SecurityRuntimeTests(unittest.TestCase):
         _clear_fake_modules()
         _install_dependency_stubs()
         _load_package_module("config", "config.py")
+        control_plane_stub = types.ModuleType(f"{PACKAGE_NAME}.enterprise_control_plane")
+        control_plane_stub.load_local_user_auth_records = lambda: []
+        sys.modules[f"{PACKAGE_NAME}.enterprise_control_plane"] = control_plane_stub
         return _load_package_module("security", "security.py")
 
     def test_plaintext_user_records_remain_backward_compatible(self) -> None:

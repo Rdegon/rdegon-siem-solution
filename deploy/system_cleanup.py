@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -88,15 +89,52 @@ def _build_marker_delete_clause(columns: set[str], field_names: tuple[str, ...])
     return " OR ".join(clauses)
 
 
-def _cleanup_clickhouse_table(client, table: str, field_names: tuple[str, ...]) -> str:
+def _cleanup_lookback_days() -> int:
+    try:
+        value = int(str(os.getenv("SIEM_SYSTEM_CLEANUP_LOOKBACK_DAYS", "3") or "3"))
+    except ValueError:
+        value = 3
+    return max(1, min(31, value))
+
+
+def _has_pending_mutation(client, table_name: str) -> bool:
+    database, table = table_name.split(".", 1)
+    result = client.query(
+        """
+        SELECT count()
+        FROM system.mutations
+        WHERE database = %(database)s
+          AND table = %(table)s
+          AND is_done = 0
+        """,
+        parameters={"database": database, "table": table},
+    ).result_rows
+    return bool(result and int(result[0][0] or 0) > 0)
+
+
+def _cleanup_clickhouse_table(
+    client,
+    table: str,
+    field_names: tuple[str, ...],
+    *,
+    time_column: str = "",
+) -> str:
     columns = _table_columns(client, table)
     if not columns:
         return "missing-or-empty-schema"
+    if _has_pending_mutation(client, table):
+        return "deferred: pending mutation"
     marker_clause = _build_marker_delete_clause(columns, field_names)
     if not marker_clause:
         return "no-compatible-columns"
-    client.command(f"ALTER TABLE {table} DELETE WHERE {marker_clause} SETTINGS mutations_sync = 0")
-    return "schema-aware marker cleanup"
+    delete_clause = f"({marker_clause})"
+    if time_column and time_column in columns:
+        delete_clause = (
+            f"{time_column} >= now() - toIntervalDay({_cleanup_lookback_days()}) "
+            f"AND {delete_clause}"
+        )
+    client.command(f"ALTER TABLE {table} DELETE WHERE {delete_clause} SETTINGS mutations_sync = 0")
+    return "bounded schema-aware marker cleanup" if time_column else "schema-aware marker cleanup"
 
 
 def _cleanup_clickhouse() -> dict[str, str]:
@@ -121,7 +159,7 @@ def _cleanup_clickhouse() -> dict[str, str]:
         "target_user",
     )
     for table in ("siem.events", "siem.events_cold", "siem.events_shadow"):
-        results[table] = _cleanup_clickhouse_table(client, table, event_fields)
+        results[table] = _cleanup_clickhouse_table(client, table, event_fields, time_column="ts")
     alert_fields = (
         "source",
         "context_json",
@@ -133,11 +171,12 @@ def _cleanup_clickhouse() -> dict[str, str]:
         "status",
     )
     for table in ("siem.alerts_raw", "siem.alerts_agg"):
-        results[table] = _cleanup_clickhouse_table(client, table, alert_fields)
+        results[table] = _cleanup_clickhouse_table(client, table, alert_fields, time_column="ts_last")
     results[deps.ALERT_HISTORY_TABLE] = _cleanup_clickhouse_table(
         client,
         deps.ALERT_HISTORY_TABLE,
         ("record_id", "changed_by", "next_assignee", "note", "details_json"),
+        time_column="changed_ts",
     )
     for table in ("siem.cmdb_assets", "siem.threat_intel_iocs", "siem.active_list_items"):
         results[table] = _cleanup_clickhouse_table(

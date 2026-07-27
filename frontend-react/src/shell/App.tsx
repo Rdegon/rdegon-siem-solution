@@ -37,6 +37,7 @@ const HostRuntimePage = lazyPage(() => import("./pages/HostRuntimePage"), "HostR
 const IngestPage = lazyPage(() => import("./pages/IngestPage"), "IngestPage");
 const IncidentsPage = lazyPage(() => import("./pages/IncidentsPage"), "IncidentsPage");
 const ResponsePage = lazyPage(() => import("./pages/ResponsePage"), "ResponsePage");
+const SecurityServicePage = lazyPage(() => import("./pages/SecurityServicePage"), "SecurityServicePage");
 const SourcesPage = lazyPage(() => import("./pages/SourcesPage"), "SourcesPage");
 const ThreatIntelPage = lazyPage(() => import("./pages/ThreatIntelPage"), "ThreatIntelPage");
 const TopologyPage = lazyPage(() => import("./pages/TopologyPage"), "TopologyPage");
@@ -80,6 +81,7 @@ function routeLoadingMessage(title: string) {
     access: "Загрузка раздела доступа...",
     response: "Загрузка оркестрации...",
     "host runtime": "Загрузка состояния узлов...",
+    "security service": "Загрузка сервиса безопасности...",
     builders: "Загрузка конструкторов...",
     documentation: "Загрузка документации...",
     "control panel": "Загрузка панели управления...",
@@ -184,6 +186,12 @@ export function App() {
     "/access": "access",
     "/response": "response",
     "/host-runtime": "host-runtime",
+    "/security/ndr": "sources",
+    "/security/dfir": "sources",
+    "/security/analysis": "sources",
+    "/security/threat-intel": "sources",
+    "/security/pki": "sources",
+    "/security/evidence": "sources",
     "/threat-intel": "threat-intel",
     "/builders": "builders",
     "/docs": "docs",
@@ -205,6 +213,12 @@ export function App() {
     { to: "/access", label: t(uiLang, { en: "Access", ru: "\u0414\u043e\u0441\u0442\u0443\u043f" }), icon: "access" as const },
     { to: "/response", label: t(uiLang, { en: "SOAR", ru: "Оркестрация" }), icon: "control" as const },
     { to: "/host-runtime", label: t(uiLang, { en: "Host Runtime", ru: "Состояние узлов" }), icon: "dashboard" as const },
+    { to: "/security/ndr", label: "NDR", icon: "map" as const },
+    { to: "/security/dfir", label: "DFIR", icon: "incidents" as const },
+    { to: "/security/analysis", label: t(uiLang, { en: "Analysis", ru: "Анализ файлов" }), icon: "vuln" as const },
+    { to: "/security/threat-intel", label: "MISP", icon: "intel" as const },
+    { to: "/security/pki", label: "PKI", icon: "access" as const },
+    { to: "/security/evidence", label: t(uiLang, { en: "Evidence", ru: "Хранилище данных" }), icon: "cases" as const },
     { to: "/threat-intel", label: t(uiLang, { en: "Threat Intel", ru: "Киберразведка" }), icon: "intel" as const },
     { to: "/builders", label: t(uiLang, { en: "Builders", ru: "\u041a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440\u044b" }), icon: "builders" as const },
     { to: "/docs", label: t(uiLang, { en: "Documentation", ru: "\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u0430\u0446\u0438\u044f" }), icon: "docs" as const },
@@ -234,6 +248,11 @@ export function App() {
       id: "automation",
       title: t(uiLang, { en: "Response & Runtime", ru: "\u0420\u0435\u0430\u043a\u0446\u0438\u044f \u0438 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435" }),
       routes: ["/response", "/host-runtime", "/access"],
+    },
+    {
+      id: "security-systems",
+      title: t(uiLang, { en: "Security Systems", ru: "Системы безопасности" }),
+      routes: ["/security/ndr", "/security/dfir", "/security/analysis", "/security/threat-intel", "/security/pki", "/security/evidence"],
     },
     {
       id: "content",
@@ -425,6 +444,7 @@ export function App() {
             <Route path="/access" element={routeElement("access", <AccessPage />)} />
             <Route path="/response" element={routeElement("response orchestration", <ResponsePage />)} />
             <Route path="/host-runtime" element={routeElement("host runtime", <HostRuntimePage />)} />
+            <Route path="/security/:serviceId" element={routeElement("security service", <SecurityServicePage />)} />
             <Route path="/builders" element={routeElement("builders", <BuildersPage />)} />
           </Routes>
         </main>

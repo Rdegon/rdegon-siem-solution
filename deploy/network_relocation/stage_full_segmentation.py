@@ -193,6 +193,9 @@ table ip nat {{
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 80 dnat to {sec["hosts"]["siem-web"]}:80
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 443 dnat to {sec["hosts"]["siem-web"]}:443
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8443 dnat to {sec["hosts"]["siem-ingest"]}:443
+    iifname "eth2" ip saddr {sec["hosts"]["siem-web"]} ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 80 dnat to {sec["hosts"]["siem-web"]}:80
+    iifname "eth2" ip saddr {sec["hosts"]["siem-web"]} ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 443 dnat to {sec["hosts"]["siem-web"]}:443
+    iifname "eth2" ip saddr {sec["hosts"]["siem-web"]} ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8443 dnat to {sec["hosts"]["siem-ingest"]}:443
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8000 dnat to {sec["hosts"]["soc-dfir-01"]}:8000
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 1514-1518 dnat to {sec["hosts"]["siem-ingest"]}
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} udp dport 1514-1518 dnat to {sec["hosts"]["siem-ingest"]}
@@ -208,6 +211,8 @@ table ip nat {{
   }}
   chain postrouting {{
     type nat hook postrouting priority srcnat; policy accept;
+    ip saddr {sec["hosts"]["siem-web"]} ip daddr {sec["hosts"]["siem-web"]} tcp dport {{ 80, 443 }} snat to {sec["gateway"]}
+    ip saddr {sec["hosts"]["siem-web"]} ip daddr {sec["hosts"]["siem-ingest"]} tcp dport 443 snat to {sec["gateway"]}
     ip saddr {{ {sec["cidr"]}, {servers["cidr"]}, {lab["cidr"]}, {users["cidr"]} }} oifname "eth0" masquerade
     ip saddr {{ 10.10.10.0/24, 10.66.66.0/24 }} oifname {{ "eth1", "eth2", "eth3", "eth4" }} masquerade
   }}

@@ -2,83 +2,70 @@
 
 ## Purpose
 
-This document explains how to connect to each lab VM directly from the LAN or through the jump host.
+Use this guide for current LAN and remote VPN access. Secrets and individual
+VPN profiles are intentionally kept outside Git in the operator access bundle.
 
-Sensitive values are not duplicated here. Use:
+## Entry Points
 
-- `C:\Users\Rdegon\Projects\siem_xfer_2026-03-25\access\operator_docs\SYSTEM_ACCESS_MATRIX.md`
-- `C:\Users\Rdegon\Projects\siem_xfer_2026-03-25\access\operator_docs\OPERATOR_ACCESS_BUNDLE.md`
+| Service | Address |
+| --- | --- |
+| OpenVPN | `176.108.250.215:443/TCP` |
+| SIEM Web and SSO | `https://192.168.3.102/app` |
+| SIEM ingest | `https://192.168.3.102:8443` |
+| Proxmox | `https://192.168.3.101:8006` |
+| Operator workstation RDP | `192.168.3.81:3389` |
+| OPNsense staging | `https://192.168.3.103` |
 
-## Role Separation
+`45.89.111.208` is an outbound VLESS host. It is not a management entry
+point.
 
-- `176.108.250.215` is the public jump host for access into the home lab
-- `45.89.111.208` is the outbound VLESS host and is not the management entry point
+## Current Inventory
 
-## VM Inventory
-
-| VM | IP | Role |
+| ID | Address | Role |
 | --- | --- | --- |
-| `VM1` | `192.168.1.35` | ingest, syslog and HTTP collectors |
-| `VM2` | `192.168.1.37` | Kafka processing, normalizer, filter |
-| `VM3` | `192.168.1.38` | ClickHouse primary, writer, correlation |
-| `VM4` | `192.168.1.39` | web UI, API, Postgres, Mongo, access plane |
-| `VM5` | `192.168.1.40` | Kafka transport, standby processing, standby storage |
+| PVE | `192.168.3.101` | Proxmox hypervisor |
+| 102 | `192.168.3.102`, `10.20.10/20/30/40.1` | production router, DNS, IDS, published SIEM entry |
+| 103 | `192.168.3.103`, `10.20.10/20/30/40.254` | staged OPNsense NGFW and inline IPS |
+| 104 | `10.20.10.104` | SIEM ingest |
+| 105 | `10.20.10.105` | SIEM processing |
+| 106 | `10.20.10.106` | SIEM storage and correlation |
+| 107 | `10.20.10.107` | SIEM Web, Keycloak, Vault, VPN anchor |
+| 108 | `10.20.10.108` | SIEM transport and standby |
+| 111 | `192.168.3.81` | Windows operator workstation and source |
+| 120 | `10.20.20.120` | Nextcloud |
+| 121 | `10.20.20.121` | Navidrome |
+| 122 | `10.20.30.122` | Greenbone/OpenVAS |
+| 123-125 | `10.20.30.123-125` | pilot Web, DB and cache |
+| 127 | `10.20.10.127` | Zeek NDR |
+| 128 | `10.20.10.128` | Velociraptor DFIR |
+| 129 | `10.20.30.129` | static analysis |
+| 130 | `10.20.20.130` | Gamepanel and Pterodactyl Wings |
+| 131-133 | `10.20.30.131-133` | MISP, PKI and evidence storage |
 
-## Direct LAN Access
+## OpenVPN Access
 
-Use direct SSH on the home LAN:
+Import the individual `siem-full-lab` profile into OpenVPN Connect or the
+OpenVPN Community Client. The profile installs split routes for:
 
-```bash
-ssh rdegon@192.168.1.35
-ssh rdegon@192.168.1.37
-ssh rdegon@192.168.1.38
-ssh rdegon@192.168.1.39
-ssh rdegon@192.168.1.40
+- `192.168.3.0/24`;
+- `10.20.10.0/24`;
+- `10.20.20.0/24`;
+- `10.20.30.0/24`;
+- `10.20.40.0/24`.
+
+The VPN profile contains a private key. Do not commit, share or place it in a
+public cloud. Revoke and reissue the certificate if the file is lost.
+
+OPNsense Web access is intentionally restricted. When direct access to
+`192.168.3.103` is denied, connect by RDP to `192.168.3.81` and manage
+OPNsense from the operator workstation.
+
+## Access-Plane Health
+
+`openvpn-client@home-gateway` and `siem-jump-tunnels` on VM107, plus
+`openvpn-server@nextcloud` on the public jump host, are mandatory access-plane
+services. The checked remote path is:
+
+```text
+operator -> OpenVPN 176.108.250.215:443 -> VM107 -> routed lab networks
 ```
-
-Primary web URLs:
-
-- `https://192.168.1.35/health`
-- `https://192.168.1.39`
-- `https://192.168.1.39/app`
-
-## Jump-Host Reverse Tunnels
-
-`VM4` maintains reverse tunnels through `siem-jump-tunnels` over the `home-gateway` OpenVPN path.
-
-Documented operational forwards:
-
-- `127.0.0.1:20035` -> `192.168.1.35:22`
-- `127.0.0.1:20037` -> `192.168.1.37:22`
-- `127.0.0.1:20038` -> `192.168.1.38:22`
-- `127.0.0.1:20039` -> `192.168.1.39:22`
-- `127.0.0.1:20435` -> `192.168.1.35:443`
-- `127.0.0.1:20439` -> `192.168.1.39:443`
-- `127.0.0.1:20121` -> `192.168.1.121:22`
-
-The `20121` mapping is the vulnerability-scanner reverse tunnel and is part of the supported operator entry points.
-
-## Remote Access Examples
-
-Web UI through the jump host:
-
-```bash
-ssh -L 8443:127.0.0.1:20439 vpnadmin_rdegon@176.108.250.215
-```
-
-Ingest health through the jump host:
-
-```bash
-ssh -L 8435:127.0.0.1:20435 vpnadmin_rdegon@176.108.250.215
-```
-
-Scanner SSH through the jump host:
-
-```bash
-ssh -L 20121:127.0.0.1:20121 vpnadmin_rdegon@176.108.250.215
-ssh -p 20121 scanneradmin@127.0.0.1
-```
-
-## Access-Plane Note
-
-`openvpn-client@home-gateway` and `siem-jump-tunnels` are both mandatory green-state services on `VM4`. If either is unhealthy, treat it as an access-plane incident.

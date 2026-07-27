@@ -63,15 +63,18 @@
     "dedupe_window_s": 86400
   },
   "AUTH-007": {
+    "expr": "(event.provider == 'linux.sudo' and event.type == 'sudo_command' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
     "hits_7d": 0,
     "noise_tuning_audit_utc": "2026-05-15T15:05:00+00:00",
     "noise_tuning_live_hits_1h": 40,
     "noise_tuning_live_hits_24h": 600,
     "noise_tuning_live_hits_window": 46,
-    "noise_tuning_reason": "sudo_command_info_rule_mass_activity_guard_after_e2e_maintenance_noise",
+    "noise_tuning_reason": "require a successfully parsed non-allowlisted sudo command and group by host and user",
     "selection_reason": "zero_7d",
-    "threshold": 120,
-    "window_s": 3600
+    "threshold": 12,
+    "window_s": 300,
+    "entity_field": "host.name+user.name",
+    "fp_remediation_utc": "2026-07-27T10:30:00Z"
   },
   "AUTH-008": {
     "hits_7d": 0,
@@ -139,16 +142,19 @@
     "window_s": 86400
   },
   "AUTH-017": {
+    "expr": "((event.type == 'pam_authentication_failure' or event.type == 'audit_user_auth_failure' or event.type == 'audit_user_acct_failure' or event.type == 'ssh_login_failure' or event.action == 'authentication_failed' or (((event.provider == 'linux.sshd' or event.provider == 'linux.sudo' or event.provider == 'linux.auditd' or event.provider == 'linux.syslog' or event.provider == 'linux.pam') and (event.original icontains 'authentication failure' or event.original icontains 'res=failed' or event.original icontains 'pam_authenticate failed')))) and event.outcome != 'success' and not event.original icontains 'res=success' and not event.original icontains 'session opened' and not event.original icontains 'session closed' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
     "hits_1h": 16,
     "hits_24h": 3359,
     "hits_7d": 20141,
     "noise_tuning_audit_utc": "2026-05-14T15:55:14.945354+00:00",
     "noise_tuning_live_hits_24h": 2885,
     "noise_tuning_live_hits_window": 2885,
-    "noise_tuning_reason": "final_full_audit_80pct_guard",
+    "noise_tuning_reason": "match explicit PAM authentication failures instead of generic PAM and authentication text",
     "selection_reason": "has_current",
-    "threshold": 4338,
-    "window_s": 86400
+    "threshold": 20,
+    "window_s": 600,
+    "entity_field": "host.name+source.ip",
+    "fp_remediation_utc": "2026-07-27T10:30:00Z"
   },
   "AUTH-018": {
     "hits_7d": 0,
@@ -576,12 +582,12 @@
     "fp_remediation_reason": "require a threat-intelligence or denylist match on a structured DNS event"
   },
   "DNS-005": {
-    "expr": "(((event.provider == 'suricata' and event.type == 'suricata_flow') or (event.provider == 'zeek' and event.type == 'zeek_conn')) and network.direction == 'outbound' and destination.port == '53' and destination.ip != '10.20.10.1' and destination.ip != '10.20.20.1' and destination.ip != '10.20.30.1' and destination.ip != '10.20.40.1' and destination.ip != '10.20.50.1' and source.ip != '10.20.10.1' and source.ip != '10.20.20.1' and source.ip != '10.20.30.1' and source.ip != '10.20.40.1' and source.ip != '10.20.50.1' and source.ip != '192.168.3.102' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+    "expr": "(((event.provider == 'suricata' and event.type == 'suricata_flow') or (event.provider == 'zeek' and event.type == 'zeek_conn')) and network.direction == 'outbound' and destination.port == '53' and (source.ip icontains '10.20.10.' or source.ip icontains '10.20.20.' or source.ip icontains '10.20.30.' or source.ip icontains '10.20.40.' or source.ip icontains '10.20.50.') and destination.ip != '10.20.10.1' and destination.ip != '10.20.20.1' and destination.ip != '10.20.30.1' and destination.ip != '10.20.40.1' and destination.ip != '10.20.50.1' and source.ip != '10.20.10.1' and source.ip != '10.20.20.1' and source.ip != '10.20.30.1' and source.ip != '10.20.40.1' and source.ip != '10.20.50.1' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
     "threshold": 10,
     "window_s": 300,
     "entity_field": "source.ip+destination.ip",
     "fp_remediation_utc": "2026-07-27T07:30:00Z",
-    "fp_remediation_reason": "alert on sustained direct external DNS from a client; only segmented resolvers and the OPNsense upstream source are exempt"
+    "fp_remediation_reason": "alert only on sustained direct external DNS from protected 10.20.x segments; management-LAN clients are outside this policy"
   },
   "DNS-006": {
     "expr": "(((((event.provider == 'suricata' and event.type == 'suricata_flow') or (event.provider == 'zeek' and event.type == 'zeek_conn')) and network.direction == 'outbound' and destination.port == '853') or (event.provider == 'suricata' and event.type == 'suricata_alert' and (rule.name icontains 'DNS over HTTPS' or rule.name icontains 'DoH' or rule.name icontains 'DNS over TLS' or rule.name icontains 'DoT'))) and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
@@ -735,7 +741,6 @@
     "batch_noise_tuning_reason": "open_alerts_after_publish",
     "threshold": 1,
     "dedupe_window_s": 604800,
-    "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8001,\n    'HB-001 ??? ??????? ?? ????? 24 ????',\n    'medium',\n    candidate.ts_first,\n    candidate.ts_last,\n    {WINDOW_S},\n    candidate.entity_key,\n    candidate.hits,\n    candidate.context_json,\n    candidate.source,\n    'open'\nFROM\n(\n    SELECT\n        c.hostname AS entity_key,\n        c.hostname AS source,\n        if(ifNull(e.last_seen_ts, toDateTime(0)) = toDateTime(0), now() - INTERVAL {WINDOW_S} SECOND, e.last_seen_ts) AS ts_first,\n        if(ifNull(e.last_seen_ts, toDateTime(0)) = toDateTime(0), now(), e.last_seen_ts) AS ts_last,\n        1 AS hits,\n        concat('{\"event_type\":\"assignment_batch_rule\",\"source_id\":\"HB-001\",\"source\":\"', c.hostname, '\",\"last_seen\":\"', toString(ifNull(e.last_seen_ts, toDateTime(0))), '\"}') AS context_json\n    FROM siem.cmdb_assets AS c\n    LEFT JOIN\n    (\n        SELECT\n            lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)) AS host_key,\n            max(ts) AS last_seen_ts\n        FROM siem.events\n        WHERE ts >= now() - INTERVAL 7 DAY\n          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0\n          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0\n          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0\n          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0\n          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'e2e') = 0\n          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'assignment-full') = 0\n          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'validation') = 0\n          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'eps-bench') = 0\n          AND if(host_name != '' AND host_name != '-', host_name, log_source) != ''\n        GROUP BY host_key\n    ) AS e\n    ON lowerUTF8(c.hostname) = e.host_key OR lowerUTF8(c.ip) = e.host_key\n    WHERE ifNull(e.last_seen_ts, toDateTime(0)) != toDateTime(0)\n      AND ifNull(e.last_seen_ts, toDateTime(0)) < now() - INTERVAL {WINDOW_S} SECOND\n\n      AND c.enabled = 1\n      AND c.hostname != ''\n      AND positionCaseInsensitiveUTF8(c.tags, 'planned_offline') = 0\n      AND positionCaseInsensitiveUTF8(c.tags, 'auto-discovered') = 0\n      AND positionCaseInsensitiveUTF8(c.tags, 'operator') = 0\n      AND match(c.hostname, '^[0-9]{1,3}(\\.[0-9]{1,3}){3}$') = 0\n      AND (\n          positionCaseInsensitiveUTF8(c.tags, 'proxmox-fleet') > 0\n          OR positionCaseInsensitiveUTF8(c.tags, 'siem') > 0\n          OR positionCaseInsensitiveUTF8(c.tags, 'pilot') > 0\n          OR positionCaseInsensitiveUTF8(c.tags, 'public_services') > 0\n          OR positionCaseInsensitiveUTF8(c.tags, 'game') > 0\n          OR c.hostname IN ('pve', 'lab-edge-01')\n      )\n) AS candidate\nLEFT JOIN\n(\n    SELECT entity_key\n    FROM siem.alerts_raw\n    WHERE rule_id = 8001\n      AND ts_last >= now() - INTERVAL 86400 SECOND\n      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')\n    GROUP BY entity_key\n) AS existing\nON candidate.entity_key = existing.entity_key\nWHERE existing.entity_key = ''",
     "fp_remediation_utc": "2026-05-20T02:18:00+03:00",
     "fp_remediation_reason": "require_prior_last_seen_for_no_events_rule"
   },
@@ -1994,6 +1999,9 @@
     "dedupe_window_s": 86400
   },
   "CORR-B-002": {
+    "status": "retired_duplicate",
+    "replacement_rule_id": 8081,
+    "retirement_reason": "batch service health is covered by SVC-001 and host-runtime monitoring; keyword matching last_success/batch_corr produced alerts on healthy status payloads",
     "batch_noise_tuning_audit_utc": "2026-05-15T15:00:00Z",
     "batch_noise_tuning_reason": "require_correlator_service_identity_to_reduce_siem_host_keyword_noise",
     "dedupe_window_s": 86400
@@ -2472,12 +2480,12 @@
     "fp_remediation_reason": "container_cpu_ram_rule_requires_docker_metrics_not_systemd_text"
   },
   "SVC-004": {
-    "threshold": 1,
+    "threshold": 3,
     "window_s": 600,
     "entity_field": "host.name+service.name",
     "expr": "(event.provider == 'linux.systemd' and event.type == 'linux_systemd_unit_failed' and service.name != '' and service.name != 'nginx.service' and service.name != 'ssh.service' and service.name != 'sshd.service' and service.name != 'docker.service' and service.name != 'containerd.service' and not service.name startswith 'postgresql' and not service.name startswith 'clickhouse' and not service.name startswith 'kafka' and not service.name startswith 'redis' and not service.name startswith 'valkey' and not service.name startswith 'navidrome' and not service.name startswith 'wings' and not service.name startswith 'pterodactyl' and not service.name startswith 'siem-' and not service.name startswith 'pveproxy' and not service.name startswith 'pvedaemon' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
     "fp_remediation_utc": "2026-07-27T07:30:00Z",
-    "fp_remediation_reason": "match normalized failed-state events for non-critical units; critical units are owned by SVC-001 to prevent duplicate incidents"
+    "fp_remediation_reason": "require a repeated failed-state sequence for non-critical units so a single self-recovered restart remains a health signal; critical units are owned by SVC-001"
   },
   "SVC-005": {
     "threshold": 1,

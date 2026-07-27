@@ -2185,6 +2185,43 @@ export type SecretsRequiredResponse = {
   items: SecretRequirementRecord[];
 };
 
+export type SecurityServiceRecord = RuntimeBlob & {
+  service_id: string;
+  title: string;
+  product: string;
+  host_name: string;
+  address: string;
+  placement: string;
+  role: string;
+  asset_group: string;
+  expected_products?: string[];
+  capabilities?: string[];
+  telemetry_state?: string;
+  events_15m?: number;
+  events_1h?: number;
+  events_24h?: number;
+  latest_event?: string;
+  products?: string[];
+  signal_types?: string[];
+  pivots?: Record<string, string>;
+};
+
+export type SecurityServicesResponse = {
+  generated_at?: string;
+  healthy: number;
+  total: number;
+  items: SecurityServiceRecord[];
+};
+
+export type SecurityServiceDetailResponse = {
+  generated_at?: string;
+  service: SecurityServiceRecord;
+  telemetry: RuntimeBlob;
+  signal_breakdown: RuntimeBlob[];
+  recent_events: RuntimeBlob[];
+  recent_alerts: RuntimeBlob[];
+};
+
 export type IncidentListResponse = {
   view?: string;
   scope?: string;

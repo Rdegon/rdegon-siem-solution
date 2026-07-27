@@ -88,6 +88,8 @@ import type {
   SavedSearchesResponse,
   SavedSearchMutationResponse,
   SecretsRequiredResponse,
+  SecurityServiceDetailResponse,
+  SecurityServicesResponse,
   ServiceAccountDetailResponse,
   ServiceAccountsResponse,
   ServiceAccountSummary,
@@ -207,13 +209,26 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-    },
-  });
-  return parseResponse<T>(response);
+  const controller = new AbortController();
+  const timeoutMs = 15_000;
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+    return await parseResponse<T>(response);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 async function postJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
@@ -518,6 +533,9 @@ export const api = {
   activeLists: () => getJson<ActiveListsResponse>("/api/lists/active"),
   saveActiveList: (body: Record<string, unknown>) => postJson<ActiveListRecord>("/api/lists/active", body),
   secretsRequired: () => getJson<SecretsRequiredResponse>("/api/secrets/required"),
+  securityServices: () => getJson<SecurityServicesResponse>("/api/security-services"),
+  securityService: (serviceId: string) =>
+    getJson<SecurityServiceDetailResponse>(`/api/security-services/${encodeURIComponent(serviceId)}`),
   incidents: (params: { view?: string; q?: string; scope?: string; window?: string; limit?: number; from_ts?: string; to_ts?: string } = {}) =>
     getJson<IncidentListResponse>(`/api/incidents${toQuery(params)}`),
   incidentDetail: (

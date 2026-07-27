@@ -541,6 +541,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--spool-max-bytes", type=int, default=_env_int("SIEM_SENSOR_SPOOL_MAX_BYTES", 536_870_912, 1_048_576, 10_737_418_240))
     parser.add_argument("--timeout", type=int, default=_env_int("SIEM_SENSOR_TIMEOUT_SECONDS", 15, 2, 120))
     parser.add_argument("--interval", type=int, default=_env_int("SIEM_SENSOR_INTERVAL_SECONDS", 2, 1, 300))
+    parser.add_argument(
+        "--status-interval",
+        type=int,
+        default=_env_int("SIEM_SENSOR_STATUS_INTERVAL_SECONDS", 60, 10, 3600),
+    )
     parser.add_argument("--once", action="store_true")
     return parser
 
@@ -558,6 +563,10 @@ def main() -> int:
 
     state_path = Path(args.state_path)
     state = _load_state(state_path)
+    last_status_at = 0.0
+    last_reported_error = ""
+    status_collected = 0
+    status_delivered = 0
     while True:
         collected = 0
         delivered = 0
@@ -583,20 +592,29 @@ def main() -> int:
                 error = f"http_{exc.code}" if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__
         spool_size = Path(args.spool_path).stat().st_size if Path(args.spool_path).exists() else 0
         spool_bytes = max(0, spool_size - max(0, int(state.get("spool_offset") or 0)))
-        print(
-            json.dumps(
-                {
-                    "sensor": args.sensor,
-                    "kind": args.kind,
-                    "collected": collected,
-                    "delivered": delivered,
-                    "spool_bytes": spool_bytes,
-                    "error": error,
-                },
-                ensure_ascii=True,
-            ),
-            flush=True,
-        )
+        status_collected += collected
+        status_delivered += delivered
+        now = time.monotonic()
+        error_changed = bool(error) and error != last_reported_error
+        if args.once or error_changed or now - last_status_at >= args.status_interval:
+            print(
+                json.dumps(
+                    {
+                        "sensor": args.sensor,
+                        "kind": args.kind,
+                        "collected": status_collected,
+                        "delivered": status_delivered,
+                        "spool_bytes": spool_bytes,
+                        "error": error,
+                    },
+                    ensure_ascii=True,
+                ),
+                flush=True,
+            )
+            status_collected = 0
+            status_delivered = 0
+            last_status_at = now
+            last_reported_error = error
         if args.once:
             return 0 if not error else 1
         time.sleep(args.interval)

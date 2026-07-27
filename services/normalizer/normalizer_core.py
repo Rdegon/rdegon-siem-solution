@@ -77,7 +77,9 @@ XRAY_ACCESS_RE = re.compile(
     re.IGNORECASE,
 )
 SUDO_COMMAND_RE = re.compile(
-    r"^\s*(?P<user>\S+)\s*:\s*PWD=(?P<pwd>[^;]+)\s*;\s*USER=(?P<target>[^;]+)\s*;\s*COMMAND=(?P<command>.+)$"
+    r"^\s*(?P<user>\S+)\s*:\s*"
+    r"(?:(?!PWD=)[A-Z_]+=[^;]*\s*;\s*)*"
+    r"PWD=(?P<pwd>[^;]+)\s*;\s*USER=(?P<target>[^;]+)\s*;\s*COMMAND=(?P<command>.+)$"
 )
 SUDO_SESSION_RE = re.compile(
     r"pam_unix\(sudo:session\): session (?P<state>opened|closed) for user (?P<target>\S+)",

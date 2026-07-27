@@ -225,43 +225,49 @@ SELECT
 FROM
 (
     SELECT
-        c.hostname AS entity_key,
-        c.hostname AS source,
-        e.last_seen_ts AS ts_first,
-        e.last_seen_ts AS ts_last,
+        heartbeat.hostname AS entity_key,
+        heartbeat.hostname AS source,
+        heartbeat.last_seen_ts AS ts_first,
+        heartbeat.last_seen_ts AS ts_last,
         1 AS hits,
         concat(
             '{{"event_type":"source_silence","source_id":"{source_id}",',
-            '"source":"', c.hostname, '","last_seen":"',
-            toString(e.last_seen_ts), '","silence_hours":{silence_hours}}}'
+            '"source":"', heartbeat.hostname, '","last_seen":"',
+            toString(heartbeat.last_seen_ts), '","silence_hours":{silence_hours}}}'
         ) AS context_json
-    FROM siem.cmdb_assets AS c FINAL
-    INNER JOIN
+    FROM
     (
         SELECT
-            lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)) AS host_key,
-            max(ts) AS last_seen_ts
-        FROM siem.events
-        PREWHERE ts >= now() - INTERVAL 30 DAY
-        WHERE if(host_name != '' AND host_name != '-', host_name, log_source) != ''
-          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
-          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
-          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
-          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
-          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'assignment-full') = 0
-          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'validation') = 0
-          AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'eps-bench') = 0
-        GROUP BY host_key
-    ) AS e
-      ON lowerUTF8(c.hostname) = e.host_key OR lowerUTF8(c.ip) = e.host_key
-    WHERE c.enabled = 1
-      AND c.hostname != ''
-      AND e.last_seen_ts < now() - INTERVAL {silence_hours} HOUR
-      AND positionCaseInsensitiveUTF8(c.tags, 'planned_offline') = 0
-      AND positionCaseInsensitiveUTF8(c.tags, 'auto-discovered') = 0
-      AND positionCaseInsensitiveUTF8(c.tags, 'operator') = 0
-      AND match(c.hostname, '^[0-9]{{1,3}}(\\.[0-9]{{1,3}}){{3}}$') = 0
-      {scope_clause}
+            c.hostname AS hostname,
+            max(e.last_seen_ts) AS last_seen_ts
+        FROM siem.cmdb_assets AS c FINAL
+        INNER JOIN
+        (
+            SELECT
+                lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)) AS host_key,
+                max(ts) AS last_seen_ts
+            FROM siem.events
+            PREWHERE ts >= now() - INTERVAL 30 DAY
+            WHERE if(host_name != '' AND host_name != '-', host_name, log_source) != ''
+              AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+              AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+              AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'assignment-full') = 0
+              AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'validation') = 0
+              AND positionCaseInsensitiveUTF8(lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)), 'eps-bench') = 0
+            GROUP BY host_key
+        ) AS e
+          ON lowerUTF8(c.hostname) = e.host_key OR lowerUTF8(c.ip) = e.host_key
+        WHERE c.enabled = 1
+          AND c.hostname != ''
+          AND positionCaseInsensitiveUTF8(c.tags, 'planned_offline') = 0
+          AND positionCaseInsensitiveUTF8(c.tags, 'auto-discovered') = 0
+          AND positionCaseInsensitiveUTF8(c.tags, 'operator') = 0
+          AND match(c.hostname, '^[0-9]{{1,3}}(\\.[0-9]{{1,3}}){{3}}$') = 0
+          {scope_clause}
+        GROUP BY c.hostname
+        HAVING max(e.last_seen_ts) < now() - INTERVAL {silence_hours} HOUR
+    ) AS heartbeat
 ) AS candidate
 LEFT JOIN
 (
@@ -707,8 +713,8 @@ def curated_batch_sql(item: dict[str, Any]) -> str:
             silence_hours=1,
             siem_core_only=True,
         ).replace(
-            "e.last_seen_ts < now() - INTERVAL 1 HOUR",
-            "e.last_seen_ts < now() - INTERVAL 15 MINUTE",
+            "max(e.last_seen_ts) < now() - INTERVAL 1 HOUR",
+            "max(e.last_seen_ts) < now() - INTERVAL 15 MINUTE",
         )
     if source_id == "HB-010":
         return _future_event_sql(item)

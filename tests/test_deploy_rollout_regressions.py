@@ -250,6 +250,10 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         self.assertIn("deploy/vm4/siem-vault-unseal.sh", remote_paths)
         self.assertIn("deploy/vm4/siem-ingest-recovery-watchdog.service", remote_paths)
         self.assertIn("deploy/vm4/siem-ingest-recovery-watchdog.timer", remote_paths)
+        self.assertIn("query/__init__.py", remote_paths)
+        self.assertIn("services/web/app/query/__init__.py", remote_paths)
+        self.assertFalse(any("__pycache__" in path for path in remote_paths))
+        self.assertFalse(any(path.endswith((".pyc", ".pyo")) for path in remote_paths))
 
     def test_vm4_runtime_bridge_sets_meaningful_watchdog_event_floor(self) -> None:
         import deploy.vm4_enterprise_foundation_deploy as vm4_deploy
@@ -299,6 +303,44 @@ class DeployRolloutRegressionTests(unittest.TestCase):
 
         self.assertIn("timeout 240s", deploy_text)
         self.assertIn("timeout_seconds=270.0", deploy_text)
+
+    def test_vm4_openvpn_routes_cover_current_management_and_user_segments(self) -> None:
+        up_script = (ROOT / "deploy" / "vm4" / "home-gateway-up.sh").read_text(encoding="utf-8")
+        down_script = (ROOT / "deploy" / "vm4" / "home-gateway-down.sh").read_text(encoding="utf-8")
+        full_profile_routes = (
+            ROOT / "deploy" / "windows-agent" / "openvpn-routes-04-siem-full-lab.txt"
+        ).read_text(encoding="utf-8")
+
+        for script in (up_script, down_script):
+            self.assertIn("192.168.3.0/24", script)
+            self.assertIn("10.20.40.0/24", script)
+            self.assertIn("LAN_SUBNETS", script)
+            self.assertIn("SEG_SUBNETS", script)
+        self.assertIn("route 192.168.3.0 255.255.255.0 vpn_gateway", full_profile_routes)
+        self.assertIn("route 10.20.40.0 255.255.255.0 vpn_gateway", full_profile_routes)
+
+    def test_segmented_edge_supports_vpn_hairpin_to_public_siem_entrypoint(self) -> None:
+        staging = (
+            ROOT / "deploy" / "network_relocation" / "stage_full_segmentation.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'iifname "eth2" ip saddr {sec["hosts"]["siem-web"]} '
+            'ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 443',
+            staging,
+        )
+        self.assertIn(
+            'ip saddr {sec["hosts"]["siem-web"]} '
+            'ip daddr {sec["hosts"]["siem-web"]} tcp dport {{ 80, 443 }} '
+            'snat to {sec["gateway"]}',
+            staging,
+        )
+        self.assertIn(
+            'ip saddr {sec["hosts"]["siem-web"]} '
+            'ip daddr {sec["hosts"]["siem-ingest"]} tcp dport 443 '
+            'snat to {sec["gateway"]}',
+            staging,
+        )
 
     def test_vm4_deploy_prepares_writable_vuln_runtime_dirs(self) -> None:
         deploy_text = (ROOT / "deploy" / "vm4_enterprise_foundation_deploy.py").read_text(encoding="utf-8")

@@ -74,8 +74,15 @@ class AssignmentDetectionPackTests(unittest.TestCase):
         )
 
         self.assertIn("max(ts) AS last_seen_ts", silence_sql)
-        self.assertIn("e.last_seen_ts < now() - INTERVAL 48 HOUR", silence_sql)
+        self.assertIn(
+            "HAVING max(e.last_seen_ts) < now() - INTERVAL 48 HOUR",
+            silence_sql,
+        )
+        self.assertIn("GROUP BY c.hostname", silence_sql)
+        self.assertIn("heartbeat.last_seen_ts AS ts_last", silence_sql)
         self.assertIn("INNER JOIN", silence_sql)
+        self.assertNotIn("positionCaseInsensitiveUTF8(toString(tags), 'allowlist:')", silence_sql)
+        self.assertIn("positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0", silence_sql)
         self.assertNotIn("positionCaseInsensitiveUTF8(toString(message), 'last_seen')", silence_sql)
         self.assertIn("PREWHERE ts > now() + INTERVAL 2 MINUTE", future_sql)
         self.assertIn("lowerUTF8(if(host_name != '' AND host_name != '-', host_name, log_source)) = 'vpn-host-khanov'", future_sql)
@@ -529,6 +536,8 @@ class AssignmentDetectionPackTests(unittest.TestCase):
                 "event.provider": "suricata",
                 "event.type": "suricata_flow",
                 "network.direction": "outbound",
+                "source.ip": "10.20.20.100",
+                "destination.ip": "8.8.8.8",
                 "destination.port": "53",
             },
             8122: {

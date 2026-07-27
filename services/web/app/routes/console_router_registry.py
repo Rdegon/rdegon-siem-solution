@@ -9,6 +9,7 @@ from .console_docs_routes import router as docs_router
 from .console_health_routes import router as health_router
 from .console_operations_routes import router as operations_router
 from .console_response_routes import router as response_router
+from .console_security_services_routes import router as security_services_router
 
 
 ROUTERS = (
@@ -19,6 +20,7 @@ ROUTERS = (
     dashboard_router,
     docs_router,
     assets_router,
+    security_services_router,
 )
 
 

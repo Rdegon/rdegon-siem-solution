@@ -134,7 +134,7 @@ host in a failed systemd state. Apache/Postfix on CT120 were also recovered.
 
 ## Acceptance evidence
 
-- public Web health at `https://192.168.3.102/health` returned HTTP 200;
+- public Web health at `https://192.168.3.102/healthz` returned HTTP 200;
 - break-glass login redirected to `/app/dashboards`;
 - ingest overview, source list, collector list, incident list and incident
   detail returned HTTP 200;
@@ -161,6 +161,29 @@ host in a failed systemd state. Apache/Postfix on CT120 were also recovered.
 - OPNsense remains staged until a controlled gateway cutover can be performed
   without losing operator access.
 - CAPE remains deferred to an isolated physical node.
-- Web cold-cache query decomposition and source-specific rule/normalizer
-  calibration are the next product phase; they are not claimed as complete by
-  this rollout record.
+- Continue measuring new telemetry and recalibrating source-specific rules as
+  source versions and normal behavior change.
+
+## Final rule and remote-access closure
+
+- Runtime rules `2703` and `8084` now require sustained rather than transient
+  administrative/service activity.
+- False alerts from strict PostgreSQL and pilot Web patterns were closed after
+  verifying the deployed normalized expressions.
+- `CORR-B-002` was retired as an invalid keyword-based duplicate; batch
+  service health remains actively covered by `SVC-001` and host-runtime
+  monitoring.
+- `GW-010` is suppressed because OpenClaw is an intentionally retired asset.
+- `HB-001` through `HB-004` aggregate the newest event timestamp across both
+  hostname and IP aliases before evaluating silence. This prevents a stale IP
+  alias from opening an incident while the same asset is reporting under its
+  hostname; two complete production batch cycles remained at zero open alerts.
+- The final incident queue contained zero open aggregate alerts.
+- OpenVPN server and client routes cover `192.168.3.0/24` and all
+  `10.20.10/20/30/40.0/24` segments.
+- An isolated OpenVPN client received `10.66.66.11` and reached the Windows
+  RDP endpoint, Proxmox, public SIEM Web/ingest, and representative hosts in
+  every internal segment.
+- The individual OpenVPN profile and current address map were delivered to
+  the confirmed private Telegram chat `@Rdegon_Mef`; the profile is not
+  stored in this repository.

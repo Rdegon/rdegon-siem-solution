@@ -100,12 +100,20 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
         "host.name": "openclaw-gateway",
         "tags": "",
     }
+    managed_siem_unit_change = {
+        "event.provider": "linux.auditd",
+        "event.type": "linux_systemd_unit_modified",
+        "event.original": 'type=PATH name="/etc/systemd/system/siem-web.service" nametype=NORMAL',
+        "host.name": "siem-web",
+        "tags": "siem-core",
+    }
 
     assert "sigma_yaml" not in linux_rule
     assert "dpkg-tmp" in str(linux_rule["expr"])
     assert "ubuntu-advantage.service" in str(linux_rule["expr"])
     assert "ua-timer.service" in str(linux_rule["expr"])
     assert not _matches(str(linux_rule["expr"]), dpkg_path_event)
+    assert not _matches(str(linux_rule["expr"]), managed_siem_unit_change)
     assert _matches(str(linux_rule["expr"]), direct_unit_change)
     assert "sigma_yaml" not in tmp_exec_rule
     assert "apt-dpkg-install" in str(tmp_exec_rule["expr"])
@@ -391,13 +399,38 @@ def test_mongodb_package_and_dump_rules_require_source_specific_signals() -> Non
 def test_linux_sudo_and_openclaw_proxy_rules_have_operational_noise_guards() -> None:
     sudo_rule = _pack_rule("linux_activity_v1.json", 2703)
     proxy_rule = _pack_rule("openclaw_behavior_v1.json", 2304)
+    systemd_failed_rule = _pack_rule("siem_detection_pack_v1.json", 8084)
 
     assert "sigma_yaml" not in sudo_rule
-    assert int(sudo_rule["threshold"]) >= 6
+    assert int(sudo_rule["threshold"]) >= 12
     assert "python3 deploy/" in str(sudo_rule["expr"])
     assert "systemctl restart siem-" in str(sudo_rule["expr"])
+    assert "systemctl is-active " in str(sudo_rule["expr"])
     assert int(proxy_rule["threshold"]) >= 180
     assert int(proxy_rule["window_s"]) >= 1800
+    assert int(systemd_failed_rule["threshold"]) >= 3
+
+
+def test_invalid_batch_overdue_keyword_rule_is_replaced_by_runtime_health_coverage() -> None:
+    payload = json.loads(
+        (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    overdue_rule = next(
+        rule
+        for rule in payload.get("batch_rules") or []
+        if isinstance(rule, dict) and int(rule.get("id") or 0) == 8215
+    )
+    publisher = (ROOT / "deploy" / "publish_rule_noise_tuning.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert overdue_rule["status"] == "retired_duplicate"
+    assert int(overdue_rule["replacement_rule_id"]) == 8081
+    assert "ACTIVE_ASSIGNMENT_BATCH_STATUSES" in publisher
+    assert "RESOLVE_OPEN_ALERT_RULE_IDS" in publisher
+    assert "SUPPRESS_OPEN_ALERT_RULE_IDS" in publisher
 
 
 def test_batch_rules_exclude_internal_edge_and_emit_valid_numeric_json() -> None:
@@ -434,8 +467,10 @@ def test_filter_seed_republishes_rules_without_async_delete_race() -> None:
 def test_rule_noise_publisher_refreshes_second_layer_targets() -> None:
     publish_text = (ROOT / "deploy" / "publish_rule_noise_tuning.py").read_text(encoding="utf-8")
 
-    for rule_id in ("2303", "2601", "2605", "2607", "2612", "2616", "2701", "2702", "2703", "2706", "2708", "2907", "8056", "8070", "8071", "8091", "8093", "8134", "8213", "8224", "8225", "8226", "8227", "8228", "8231", "8232", "8263", "8269", "8286", "8307", "8308", "8331", "8339", "8367", "9006", "1001", "1003", "1013", "1018", "1019", "1020", "1021", "2000", "2302", "2718", "2723", "4002", "4003", "4004", "8012", "8442", "8431", "8432", "8481"):
+    for rule_id in ("2601", "2605", "2607", "2612", "2616", "2701", "2702", "2703", "2706", "2708", "2907", "8056", "8067", "8077", "8070", "8071", "8091", "8093", "8134", "8213", "8224", "8225", "8226", "8227", "8228", "8231", "8232", "8263", "8269", "8286", "8307", "8308", "8331", "8339", "8367", "9006", "1001", "1003", "1013", "1018", "1019", "1020", "1021", "2000", "2302", "2718", "2723", "4002", "4003", "4004", "8012", "8442", "8431", "8432", "8481"):
         assert rule_id in publish_text
+    assert "    2303," not in publish_text
+    assert "    2304," not in publish_text
     assert "REFRESH_BATCH_RULE_IDS" in publish_text
     assert "REFRESH_ASSIGNMENT_BATCH_RULE_IDS" in publish_text
     assert "_refresh_batch_rules" in publish_text
@@ -455,6 +490,14 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     overrides = json.loads(
         (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1_active_overrides.json").read_text(encoding="utf-8")
     )
+    pack = json.loads(
+        (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1.json").read_text(encoding="utf-8")
+    )
+    heartbeat_sql = next(
+        str(rule["sql_template"])
+        for rule in pack["batch_rules"]
+        if int(rule["id"]) == 8001
+    )
 
     assert "process.name == 'su'" in str(overrides["AUTH-013"]["expr"])
     assert "cron:session" in str(overrides["AUTH-013"]["expr"])
@@ -467,7 +510,11 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "postgresql_connections" in str(overrides["MET-017"]["sql_template"])
     assert "mongodb_connections" in str(overrides["MET-018"]["sql_template"])
     assert "events_24h" in str(overrides["CORR-S-002"]["sql_template"])
-    assert "auto-discovered" in str(overrides["HB-001"]["sql_template"])
+    assert "sql_template" not in overrides["HB-001"]
+    assert "auto-discovered" in heartbeat_sql
+    assert "GROUP BY c.hostname" in heartbeat_sql
+    assert "HAVING max(e.last_seen_ts)" in heartbeat_sql
+    assert "positionCaseInsensitiveUTF8(toString(tags), 'allowlist:')" not in heartbeat_sql
     assert "baseline_30m" in str(overrides["HB-012"]["sql_template"])
     assert "linux.kafka" in str(overrides["KFK-004"]["expr"])
     assert "linux.kernel" in str(overrides["SVC-007"]["expr"])
@@ -692,6 +739,87 @@ def test_assignment_overrides_reject_observed_false_positive_shapes() -> None:
             "source.ip": "10.20.20.100",
             "destination.ip": "8.8.8.8",
             "destination.port": "53",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "192.168.3.81",
+            "destination.ip": "1.1.1.1",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
+
+
+def test_assignment_auth_rules_require_parsed_sudo_and_real_pam_failures() -> None:
+    overrides = json.loads(
+        (ROOT / "correlation_rule_packs" / "siem_detection_pack_v1_active_overrides.json").read_text(encoding="utf-8")
+    )
+    sudo_expr = str(overrides["AUTH-007"]["expr"])
+    pam_expr = str(overrides["AUTH-017"]["expr"])
+
+    assert _matches(
+        sudo_expr,
+        {
+            "event.provider": "linux.sudo",
+            "event.type": "sudo_command",
+            "user.name": "unexpected-admin",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        sudo_expr,
+        {
+            "event.provider": "linux.sudo",
+            "event.type": "sudo_event",
+            "user.name": "",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        sudo_expr,
+        {
+            "event.provider": "linux.sudo",
+            "event.type": "sudo_command",
+            "user.name": "rdegon",
+            "tags": "allowlist:siem_operational_sudo",
+        },
+    )
+    assert _matches(
+        pam_expr,
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "audit_user_auth_failure",
+            "event.action": "authentication_failed",
+            "event.outcome": "failure",
+            "event.original": "op=PAM:authentication res=failed",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        pam_expr,
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "audit_user_auth_success",
+            "event.action": "authentication",
+            "event.outcome": "success",
+            "event.original": "op=PAM:authentication grantors=pam_permit res=success",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        pam_expr,
+        {
+            "event.provider": "linux.cron",
+            "event.type": "linux_cron_event",
+            "event.action": "observe",
+            "event.outcome": "",
+            "event.original": "pam_unix(cron:session): session opened for user root",
             "tags": "",
         },
     )

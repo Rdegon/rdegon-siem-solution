@@ -4,5 +4,4 @@ route 10.20.10.0 255.255.255.0 vpn_gateway
 route 10.20.20.0 255.255.255.0 vpn_gateway
 route 10.20.30.0 255.255.255.0 vpn_gateway
 route 10.20.40.0 255.255.255.0 vpn_gateway
-route 192.168.3.101 255.255.255.255 vpn_gateway
-route 192.168.3.102 255.255.255.255 vpn_gateway
+route 192.168.3.0 255.255.255.0 vpn_gateway

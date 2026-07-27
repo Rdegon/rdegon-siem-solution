@@ -15,7 +15,7 @@ Legacy pages such as `/dashboards` remain compatibility surfaces and are not the
 | `GET,POST` | `/auth/login` | Auth entrypoint; OIDC-first with break-glass local fallback |
 | `GET` | `/auth/oidc/start` | OIDC authorization start |
 | `GET` | `/auth/oidc/callback` | OIDC callback |
-| `GET` | `/health` | Base web health check |
+| `GET` | `/healthz` | Base web health check |
 | `GET` | `/alerts` | Alerts page |
 | `GET` | `/assets` | Assets page |
 | `GET,POST` | `/dashboards` | Legacy dashboards page and create |
@@ -96,6 +96,8 @@ Legacy pages such as `/dashboards` remain compatibility surfaces and are not the
 | `POST` | `/api/sources/discovery/{candidate_id}/prepare` | Onboarding package prepare |
 | `POST` | `/api/sources/discovery/jobs/{job_id}/execute` | Discovery execution |
 | `GET` | `/api/collectors` | Collector inventory |
+| `GET` | `/api/security-services` | SOC security-service telemetry catalog |
+| `GET` | `/api/security-services/{service_id}` | NDR, DFIR, analysis, TI, PKI, or evidence-store detail |
 | `POST` | `/api/assets/normalizers` | Asset normalizer save |
 
 ## Event, Incident, Case, And Entity APIs

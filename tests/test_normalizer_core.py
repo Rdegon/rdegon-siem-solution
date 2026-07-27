@@ -402,6 +402,28 @@ class NormalizerCoreTests(unittest.TestCase):
         self.assertEqual("sudo_command", normalized.get("event.type"))
         self.assertIn("allowlist:siem_operational_sudo", normalized.get("tags") or [])
 
+    def test_sudo_command_with_tty_metadata_is_parsed_and_allowlisted(self) -> None:
+        raw_event = {
+            "source_type": "syslog",
+            "message": (
+                "<85>Jul 27 10:15:18 siem-web sudo: rdegon : TTY=pts/0 ; "
+                "PWD=/home/rdegon ; USER=root ; COMMAND=/usr/bin/bash -lc "
+                "'/opt/siem/siem-solution/deploy/system_cleanup.py --check'"
+            ),
+            "source": "siem-web",
+            "log_source": "siem-web",
+        }
+
+        normalized = apply_rules([], raw_event)
+
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("sudo_command", normalized.get("event.type"))
+        self.assertEqual("rdegon", normalized.get("user.name"))
+        self.assertEqual("root", normalized.get("user.target.name"))
+        self.assertIn("system_cleanup.py", normalized.get("process.command_line") or "")
+        self.assertIn("allowlist:siem_operational_sudo", normalized.get("tags") or [])
+
     def test_windows_rdp_auth_success_is_normalized(self) -> None:
         raw_event = {
             "source_type": "json",

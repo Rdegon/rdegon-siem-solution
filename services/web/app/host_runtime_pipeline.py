@@ -307,8 +307,13 @@ def collect_local_snapshot(*, host_name: str = "", host_role: str = "", watched_
     service_rows = [_service_status(name) for name in services]
     failed_services = [item for item in service_rows if str(item.get("status") or "") not in {"active", "inactive"}]
     primary_ip = _detect_primary_ip()
+    try:
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii", errors="ignore").strip()
+    except OSError:
+        boot_id = ""
     snapshot = {
         "generated_ts": _now_iso(),
+        "boot_id": boot_id,
         "host_name": resolved_host,
         "host_role": resolved_role,
         "primary_ip": primary_ip,
@@ -485,6 +490,14 @@ def evaluate_snapshot(
     ):
         alerts.append(_base_event(snapshot, event_type="host_control_plane_pressure", severity="medium", message=f"Control-plane pressure on {host_name}"))
 
+    previous_host_state = dict(active_state.setdefault("hosts", {}).get(host_name) or {})
+    current_boot_id = str(snapshot.get("boot_id") or "").strip()
+    previous_boot_id = str(previous_host_state.get("boot_id") or "").strip()
+    same_boot = (
+        current_boot_id == previous_boot_id
+        if current_boot_id and previous_boot_id
+        else not current_boot_id
+    )
     service_state = active_state.setdefault("services", {}).setdefault(host_name, {})
     for service in snapshot.get("services") or []:
         service_name = str(service.get("name") or "").strip()
@@ -492,10 +505,14 @@ def evaluate_snapshot(
             continue
         previous = dict(service_state.get(service_name) or {})
         current_status = str(service.get("status") or "unknown")
-        change_epochs = [float(item) for item in (previous.get("change_epochs") or []) if _safe_float(item) > 0]
-        if previous and _service_transition_counts_as_flap(str(previous.get("status") or ""), current_status):
+        change_epochs = (
+            [float(item) for item in (previous.get("change_epochs") or []) if _safe_float(item) > 0]
+            if same_boot
+            else []
+        )
+        if same_boot and previous and _service_transition_counts_as_flap(str(previous.get("status") or ""), current_status):
             change_epochs.append(now_value)
-        if previous and str(previous.get("status") or "") == "active" and current_status != "active":
+        if same_boot and previous and str(previous.get("status") or "") == "active" and current_status != "active":
             alerts.append(
                 _base_event(
                     snapshot,
@@ -526,6 +543,7 @@ def evaluate_snapshot(
         "last_snapshot_ts": str(snapshot.get("generated_ts") or _now_iso()),
         "host_role": host_role,
         "primary_ip": str(snapshot.get("primary_ip") or ""),
+        "boot_id": current_boot_id,
         "metrics": metrics,
     }
     active_state.setdefault("stale", {}).pop(host_name, None)

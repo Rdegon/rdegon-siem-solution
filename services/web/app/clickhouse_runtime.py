@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock, get_ident
+from time import monotonic
 from typing import Any
 
 try:
@@ -35,6 +36,7 @@ class ClickHouseEndpoint:
 
 
 _CLIENT_CACHE: dict[tuple[str, int, str, str, str, int], Any] = {}
+_CLIENT_HEALTHCHECK_AT: dict[tuple[str, int, str, str, str, int], float] = {}
 _CACHE_LOCK = RLock()
 _PREFERRED_INDEX = 0
 
@@ -119,6 +121,13 @@ def _timeout_seconds(name: str, default: str) -> int:
         return max(1, int(default))
 
 
+def _healthcheck_ttl_seconds() -> float:
+    try:
+        return max(0.0, min(30.0, float(str(os.environ.get("SIEM_CH_HEALTHCHECK_TTL_SECONDS", "2") or "2"))))
+    except ValueError:
+        return 2.0
+
+
 def _build_client(endpoint: ClickHouseEndpoint) -> Any:
     if clickhouse_connect is None:
         raise RuntimeError("clickhouse_connect_unavailable")
@@ -138,6 +147,7 @@ def clear_clickhouse_runtime_cache() -> None:
     global _PREFERRED_INDEX
     with _CACHE_LOCK:
         _CLIENT_CACHE.clear()
+        _CLIENT_HEALTHCHECK_AT.clear()
         _PREFERRED_INDEX = 0
 
 
@@ -151,8 +161,14 @@ def get_clickhouse_client() -> Any:
         index = (start_index + offset) % len(endpoints)
         endpoint = endpoints[index]
         key = (*_cache_key(endpoint), get_ident())
+        now = monotonic()
         with _CACHE_LOCK:
             client = _CLIENT_CACHE.get(key)
+            last_healthcheck = _CLIENT_HEALTHCHECK_AT.get(key, 0.0)
+        if client is not None and now - last_healthcheck < _healthcheck_ttl_seconds():
+            with _CACHE_LOCK:
+                _PREFERRED_INDEX = index
+            return client
         try:
             if client is None:
                 client = _build_client(endpoint)
@@ -160,12 +176,14 @@ def get_clickhouse_client() -> Any:
                     _CLIENT_CACHE[key] = client
             client.command("SELECT 1")
             with _CACHE_LOCK:
+                _CLIENT_HEALTHCHECK_AT[key] = monotonic()
                 _PREFERRED_INDEX = index
             return client
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             with _CACHE_LOCK:
                 _CLIENT_CACHE.pop(key, None)
+                _CLIENT_HEALTHCHECK_AT.pop(key, None)
     raise RuntimeError(f"All ClickHouse endpoints failed: {last_error}") from last_error
 
 

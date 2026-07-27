@@ -209,6 +209,41 @@ class HostRuntimePipelineTests(unittest.TestCase):
         self.assertNotIn("host_service_flapping", {item["event.type"] for item in events})
         self.assertEqual([100.0, 200.0], next_state["services"]["siem-ingest"]["nginx"]["change_epochs"])
 
+    def test_service_transition_from_previous_boot_does_not_alert(self) -> None:
+        snapshot = {
+            "generated_ts": "2026-07-27T00:00:00Z",
+            "boot_id": "new-boot",
+            "host_name": "soc-evidence-01",
+            "host_role": "evidence-storage",
+            "primary_ip": "10.20.10.133",
+            "metrics": {},
+            "services": [{"name": "minio", "status": "activating"}],
+        }
+        state = {
+            "hosts": {
+                "soc-evidence-01": {
+                    "boot_id": "old-boot",
+                    "last_snapshot_ts": "2026-07-26T23:59:00Z",
+                }
+            },
+            "services": {
+                "soc-evidence-01": {
+                    "minio": {
+                        "status": "active",
+                        "change_epochs": [100.0, 200.0],
+                    }
+                }
+            },
+            "stale": {},
+        }
+
+        events, next_state = evaluate_snapshot(snapshot, state, now_epoch=300.0)
+
+        self.assertNotIn("host_service_down", {item["event.type"] for item in events})
+        self.assertNotIn("host_service_flapping", {item["event.type"] for item in events})
+        self.assertEqual("new-boot", next_state["hosts"]["soc-evidence-01"]["boot_id"])
+        self.assertEqual([], next_state["services"]["soc-evidence-01"]["minio"]["change_epochs"])
+
 
 if __name__ == "__main__":
     unittest.main()

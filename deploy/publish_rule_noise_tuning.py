@@ -37,8 +37,6 @@ from deploy.publish_assignment_detection_pack import (  # noqa: E402
 REPUBLISH_STREAM_RULE_IDS = {
     2108,
     2202,
-    2303,
-    2304,
     2604,
     2605,
     2607,
@@ -61,6 +59,8 @@ REPUBLISH_STREAM_RULE_IDS = {
     2726,
     2907,
     8056,
+    8067,
+    8077,
     8096,
     8097,
     8098,
@@ -126,6 +126,8 @@ RETIRE_STREAM_RULE_IDS = {
 }
 REFRESH_BATCH_RULE_IDS = {4001, 4002, 4003, 4004, 4005}
 REFRESH_ASSIGNMENT_BATCH_RULE_IDS = {
+    8001,
+    8215,
     8002,
     8003,
     8004,
@@ -160,6 +162,7 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     8050,
     8065,
     8067,
+    8077,
     8070,
     8071,
     8072,
@@ -181,6 +184,7 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     8138,
     8145,
     8213,
+    8215,
     8221,
     8222,
     8223,
@@ -197,6 +201,7 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     8260,
     8261,
     8263,
+    8267,
     8270,
     8279,
     8283,
@@ -216,6 +221,7 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     8286,
     8308,
     8328,
+    8329,
     8330,
     8325,
     8331,
@@ -304,7 +310,20 @@ RETIRE_OPEN_ALERT_RULE_IDS = {
     9003,
     9006,
 }
-TERMINAL_ALERT_STATUSES = ("closed", "false_positive", "resolved", "suppressed")
+RESOLVE_OPEN_ALERT_RULE_IDS = {8001, 8004}
+SUPPRESS_OPEN_ALERT_RULE_IDS = {8354}
+TERMINAL_ALERT_STATUSES = (
+    "closed",
+    "false_positive",
+    "resolved",
+    "suppressed",
+    "suppressed_by_tuning",
+)
+ACTIVE_ASSIGNMENT_BATCH_STATUSES = {
+    "active_batch",
+    "active_correlation",
+    "active_telemetry",
+}
 
 
 def _id_list(rule_ids: set[int]) -> str:
@@ -393,17 +412,29 @@ def _refresh_assignment_batch_rules() -> int:
     _delete_rule_rows(deps.DETECTION_RULE_TABLE, REFRESH_ASSIGNMENT_BATCH_RULE_IDS)
     _delete_rule_rows("siem.correlation_rules_batch", REFRESH_ASSIGNMENT_BATCH_RULE_IDS)
     placeholders = [_placeholder_row(found[rule_id], pack_id=pack_id) for rule_id in sorted(found)]
-    rows = [_publish_batch_rule(found[rule_id]) for rule_id in sorted(found)]
+    active_items = [
+        found[rule_id]
+        for rule_id in sorted(found)
+        if str(found[rule_id].get("status") or "").lower() in ACTIVE_ASSIGNMENT_BATCH_STATUSES
+        and str(found[rule_id].get("sql_template") or "").strip()
+    ]
+    rows = [_publish_batch_rule(item) for item in active_items]
     deps._insert_detection_rule_rows(placeholders, sync_stream=False)  # type: ignore[attr-defined]
-    deps.get_ch_client().insert(
-        "siem.correlation_rules_batch",
-        rows,
-        column_names=["id", "name", "description", "enabled", "severity", "window_s", "sql_template"],
-    )
+    if rows:
+        deps.get_ch_client().insert(
+            "siem.correlation_rules_batch",
+            rows,
+            column_names=["id", "name", "description", "enabled", "severity", "window_s", "sql_template"],
+        )
     return len(rows)
 
 
-def _retire_open_alerts(rule_ids: set[int]) -> dict[str, int]:
+def _transition_open_alerts(
+    rule_ids: set[int],
+    *,
+    status: str,
+    assignee: str,
+) -> dict[str, int]:
     if not rule_ids:
         return {}
     deps.ensure_incident_workflow_support()
@@ -424,8 +455,8 @@ def _retire_open_alerts(rule_ids: set[int]) -> dict[str, int]:
             f"""
             ALTER TABLE {table_name}
             UPDATE
-                status = 'false_positive',
-                assignee = 'system-fp-remediation',
+                status = '{status}',
+                assignee = '{assignee}',
                 updated_ts = now()
             WHERE rule_id IN ({ids})
               AND lower(status) NOT IN ({terminal})
@@ -433,6 +464,14 @@ def _retire_open_alerts(rule_ids: set[int]) -> dict[str, int]:
             """
         )
     return counts
+
+
+def _retire_open_alerts(rule_ids: set[int]) -> dict[str, int]:
+    return _transition_open_alerts(
+        rule_ids,
+        status="false_positive",
+        assignee="system-fp-remediation",
+    )
 
 
 def _open_alert_count(rule_ids: set[int]) -> int:
@@ -469,7 +508,22 @@ def main() -> int:
     _insert_detection_rules(target_rules)
     _insert_stream_rules(target_rules)
     retired_alerts = _retire_open_alerts(RETIRE_OPEN_ALERT_RULE_IDS)
-    remaining_open_alerts = _wait_for_alert_retire(RETIRE_OPEN_ALERT_RULE_IDS)
+    resolved_alerts = _transition_open_alerts(
+        RESOLVE_OPEN_ALERT_RULE_IDS,
+        status="resolved",
+        assignee="system-health-recovery",
+    )
+    suppressed_alerts = _transition_open_alerts(
+        SUPPRESS_OPEN_ALERT_RULE_IDS,
+        status="suppressed_by_tuning",
+        assignee="system-retired-asset",
+    )
+    transitioned_rule_ids = (
+        RETIRE_OPEN_ALERT_RULE_IDS
+        | RESOLVE_OPEN_ALERT_RULE_IDS
+        | SUPPRESS_OPEN_ALERT_RULE_IDS
+    )
+    remaining_open_alerts = _wait_for_alert_retire(transitioned_rule_ids)
     stream_ids = deps._query_existing_rule_ids("siem.correlation_rules_stream", sorted(REPUBLISH_STREAM_RULE_IDS))  # type: ignore[attr-defined]
     print(
         json.dumps(
@@ -481,6 +535,8 @@ def main() -> int:
                 "batch_refresh_statements": batch_refresh_statements,
                 "assignment_batch_rules": assignment_batch_rules,
                 "retired_open_alerts": retired_alerts,
+                "resolved_open_alerts": resolved_alerts,
+                "suppressed_open_alerts": suppressed_alerts,
                 "remaining_open_alerts": remaining_open_alerts,
                 "published_stream_ids_present": sorted(stream_ids),
             },
