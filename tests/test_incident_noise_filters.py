@@ -144,12 +144,7 @@ def _load_alerts_module():
 
 
 def _load_query_shared_module():
-    spec = importlib.util.spec_from_file_location("query_shared_for_tests", ROOT / "query" / "shared.py")
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["query_shared_for_tests"] = module
-    spec.loader.exec_module(module)
-    return module
+    return importlib.import_module("services.web.app.query.shared")
 
 
 class IncidentNoiseFilterTests(unittest.TestCase):

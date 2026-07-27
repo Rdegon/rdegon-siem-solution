@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from .auth import canonical_ui_redirect_path, get_current_user
 from ..control_plane_connector_ops import list_integration_templates
@@ -235,7 +236,13 @@ async def vuln_overview_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(fetch_vulnerability_inventory(days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                fetch_vulnerability_inventory,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -243,7 +250,12 @@ async def vuln_overview_api(
 @router.get("/api/vuln/runtime", response_class=JSONResponse)
 async def vuln_runtime_api(days: int = Query(14, ge=1, le=90), user=Depends(require_permissions("resources:view"))) -> JSONResponse:
     try:
-        return JSONResponse(build_vulnerability_runtime_status(days=days))
+        return JSONResponse(
+            await run_in_threadpool(
+                build_vulnerability_runtime_status,
+                days=days,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -255,7 +267,13 @@ async def vuln_maturity_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(build_vulnerability_maturity_status(days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                build_vulnerability_maturity_status,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -267,7 +285,13 @@ async def vuln_workbench_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(build_exposure_workbench(days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                build_exposure_workbench,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -316,7 +340,14 @@ async def vuln_findings_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(fetch_vulnerability_findings(query_text=q, days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                fetch_vulnerability_findings,
+                query_text=q,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -329,7 +360,14 @@ async def vuln_hosts_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(fetch_vulnerability_hosts(query_text=q, days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                fetch_vulnerability_hosts,
+                query_text=q,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -342,7 +380,14 @@ async def vuln_software_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(fetch_vulnerability_software(query_text=q, days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                fetch_vulnerability_software,
+                query_text=q,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -355,7 +400,14 @@ async def vuln_cves_api(
     user=Depends(require_permissions("resources:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(fetch_vulnerability_cves(query_text=q, days=days, limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(
+                fetch_vulnerability_cves,
+                query_text=q,
+                days=days,
+                limit=limit,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 

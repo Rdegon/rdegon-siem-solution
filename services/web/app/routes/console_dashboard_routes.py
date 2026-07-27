@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from functools import partial
 from time import time
 from pathlib import Path
 from threading import Lock
@@ -21,12 +22,24 @@ from ..query.dashboard import (
     save_dashboard_definition,
 )
 from ..security import require_permissions
+from ..stale_runtime_cache import StaleRuntimeCache
 from ..templates import templates
 from ..ui_text import ui_context
 
 router = APIRouter()
 
 _DASHBOARD_SUMMARY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_DASHBOARD_RUNTIME_CACHE = StaleRuntimeCache(
+    Path(
+        os.getenv(
+            "SIEM_DASHBOARD_RUNTIME_CACHE_FILE",
+            "/opt/siem/runtime-docs/dashboard_runtime_cache.json",
+        )
+    ),
+    ttl_seconds=int(
+        os.getenv("SIEM_DASHBOARD_RUNTIME_CACHE_TTL_SEC", "120") or "120"
+    ),
+)
 _PLATFORM_STATUS_CACHE_TTL_SEC = int(os.getenv("SIEM_PLATFORM_STATUS_CACHE_TTL_SEC", "300") or "300")
 _PLATFORM_STATUS_CACHE_FILE = Path(
     os.getenv("SIEM_PLATFORM_STATUS_CACHE_FILE", "/opt/siem/runtime-docs/platform_status_cache.json")
@@ -195,12 +208,16 @@ async def dashboard_summary_api(
         cached = _DASHBOARD_SUMMARY_CACHE.get(cache_key)
         if cached and now_ts - cached[0] < 300:
             return JSONResponse(cached[1])
-        payload = fetch_dashboard_snapshot(
-            window=window,
-            from_ts=from_ts,
-            to_ts=to_ts,
-            bucket_minutes=bucket_minutes,
-            recent_limit=recent_limit,
+        payload = await _DASHBOARD_RUNTIME_CACHE.get_or_refresh(
+            cache_key,
+            partial(
+                fetch_dashboard_snapshot,
+                window=window,
+                from_ts=from_ts,
+                to_ts=to_ts,
+                bucket_minutes=bucket_minutes,
+                recent_limit=recent_limit,
+            ),
         )
         _DASHBOARD_SUMMARY_CACHE[cache_key] = (now_ts, payload)
         if len(_DASHBOARD_SUMMARY_CACHE) > 32:

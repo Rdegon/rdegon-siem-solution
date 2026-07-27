@@ -24,7 +24,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
         self.assertFalse(filters.is_non_operational_record({"source": "siem-web", "message": "production audit event"}))
 
     def test_sources_filters_non_operational_records_and_sanitizes_collectors(self) -> None:
-        sources_module = importlib.import_module("query.sources")
+        sources_module = importlib.import_module("services.web.app.query.sources")
         sources_module._CACHE.clear()
 
         class FakeDeps:
@@ -56,7 +56,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
                     {"source_name": "127.0.0.1", "events": 1},
                 ]
 
-        with patch("query.sources.deps_module", return_value=FakeDeps):
+        with patch("services.web.app.query.sources.deps_module", return_value=FakeDeps):
             source_rows = sources_module.fetch_source_inventory(limit=20, hours=24)
             collector_rows = sources_module.fetch_collector_inventory(hours=24)
             top_rows = sources_module.fetch_top_sources(limit=20, hours=24)
@@ -67,7 +67,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
         self.assertEqual(["linux-prod-01"], [row["source_name"] for row in top_rows])
 
     def test_inventory_filter_does_not_hide_real_sources_because_of_event_message_noise(self) -> None:
-        shared_module = importlib.import_module("query.shared")
+        shared_module = importlib.import_module("services.web.app.query.shared")
 
         self.assertFalse(
             shared_module.is_non_operational_inventory_record(
@@ -84,7 +84,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
         self.assertTrue(shared_module.is_non_operational_inventory_record({"source_name": "127.0.0.1"}))
 
     def test_sources_fallback_to_ingest_runtime_when_clickhouse_inventory_is_empty(self) -> None:
-        sources_module = importlib.import_module("query.sources")
+        sources_module = importlib.import_module("services.web.app.query.sources")
         sources_module._CACHE.clear()
 
         class EmptyDeps:
@@ -123,9 +123,9 @@ class QueryOperationalFilterTests(unittest.TestCase):
             }
 
         with (
-            patch("query.sources.deps_module", return_value=EmptyDeps),
-            patch("query.sources.list_ingest_sources", side_effect=fake_ingest_sources),
-            patch("query.sources.list_ingest_collectors", side_effect=fake_ingest_collectors),
+            patch("services.web.app.query.sources.deps_module", return_value=EmptyDeps),
+            patch("services.web.app.query.sources.list_ingest_sources", side_effect=fake_ingest_sources),
+            patch("services.web.app.query.sources.list_ingest_collectors", side_effect=fake_ingest_collectors),
         ):
             source_rows = sources_module.fetch_source_inventory(limit=20, hours=24)
             collector_rows = sources_module.fetch_collector_inventory(hours=24)
@@ -136,7 +136,8 @@ class QueryOperationalFilterTests(unittest.TestCase):
         self.assertEqual("ingest-health-fallback", collector_rows[0]["inventory_source"])
 
     def test_assets_filter_non_operational_rows(self) -> None:
-        assets_module = importlib.import_module("query.assets")
+        assets_module = importlib.import_module("services.web.app.query.assets")
+        assets_module._CACHE.clear()
 
         class FakeDeps:
             @staticmethod
@@ -152,13 +153,13 @@ class QueryOperationalFilterTests(unittest.TestCase):
                     {"asset": "generic-http-refresh", "events": 2},
                 ]
 
-        with patch("query.assets.deps_module", return_value=FakeDeps):
+        with patch("services.web.app.query.assets.deps_module", return_value=FakeDeps):
             rows = assets_module.fetch_assets(limit=20, hours=24)
 
         self.assertEqual(["siem-web"], [row["asset"] for row in rows])
 
     def test_cmdb_assets_filter_non_operational_rows(self) -> None:
-        assets_module = importlib.import_module("query.assets")
+        assets_module = importlib.import_module("services.web.app.query.assets")
 
         class FakeDeps:
             @staticmethod
@@ -170,7 +171,7 @@ class QueryOperationalFilterTests(unittest.TestCase):
                     {"asset_id": "asset-generic-http", "hostname": "generic-http-refresh"},
                 ]
 
-        with patch("query.assets.deps_module", return_value=FakeDeps):
+        with patch("services.web.app.query.assets.deps_module", return_value=FakeDeps):
             rows = assets_module.fetch_cmdb_assets(limit=20)
 
         self.assertEqual(["asset-siem-web"], [row["asset_id"] for row in rows])

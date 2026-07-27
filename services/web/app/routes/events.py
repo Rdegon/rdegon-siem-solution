@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from .auth import canonical_ui_redirect_path, get_current_user
 from ..security import require_permissions
@@ -55,7 +56,8 @@ async def events_query_api(payload: dict = Body(default={}), user=Depends(requir
     include_count = bool(payload.get('include_count') or False)
     try:
         return JSONResponse(
-            execute_event_query(
+            await run_in_threadpool(
+                execute_event_query,
                 query_text=query_text,
                 window=window,
                 from_ts=from_ts,
@@ -80,7 +82,8 @@ async def events_facets_api(payload: dict = Body(default={}), user=Depends(requi
     storage = str(payload.get('storage', 'hot') or 'hot')
     try:
         return JSONResponse(
-            execute_event_facets_query(
+            await run_in_threadpool(
+                execute_event_facets_query,
                 query_text=query_text,
                 window=window,
                 from_ts=from_ts,

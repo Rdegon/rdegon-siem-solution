@@ -267,10 +267,13 @@ async def incidents_api(
     if cached and now_ts - cached[0] < INCIDENT_LIST_CACHE_TTL_SECONDS:
         return JSONResponse(cached[1])
     try:
-        rows = (
-            fetch_alerts_raw(limit=fetch_limit, window=window, from_ts=from_ts, to_ts=to_ts)
-            if safe_view == 'raw'
-            else fetch_alerts_agg(limit=fetch_limit, window=window, from_ts=from_ts, to_ts=to_ts)
+        fetcher = fetch_alerts_raw if safe_view == 'raw' else fetch_alerts_agg
+        rows = await run_in_threadpool(
+            fetcher,
+            limit=fetch_limit,
+            window=window,
+            from_ts=from_ts,
+            to_ts=to_ts,
         )
         filtered_rows = _filter_rows(rows, safe_scope, q)
         items = filtered_rows[:safe_limit]

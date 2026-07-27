@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -10,6 +11,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from ..asset_catalog_runtime import (
     archive_events_to_cold,
@@ -64,6 +66,7 @@ from ..ingest_runtime import (
     suppress_ingest_dlq,
 )
 from ..security import require_permissions
+from ..stale_runtime_cache import StaleRuntimeCache
 from ..source_discovery import (
     execute_source_onboarding,
     list_source_discovery_candidates,
@@ -96,6 +99,27 @@ _ASSETS_CATALOG_CACHE_FILE = Path(
     os.getenv("SIEM_ASSETS_CATALOG_CACHE_FILE", "/opt/siem/runtime-docs/assets_catalog_cache.json")
 )
 _ASSETS_CATALOG_CACHE_LOCK = Lock()
+_ASSET_SURFACE_CACHE = StaleRuntimeCache(
+    Path(
+        os.getenv(
+            "SIEM_ASSET_SURFACE_CACHE_FILE",
+            "/opt/siem/runtime-docs/asset_surface_cache.json",
+        )
+    ),
+    ttl_seconds=int(os.getenv("SIEM_ASSET_SURFACE_CACHE_TTL_SEC", "120") or "120"),
+)
+_INGEST_SURFACE_CACHE = StaleRuntimeCache(
+    Path(
+        os.getenv(
+            "SIEM_INGEST_SURFACE_CACHE_FILE",
+            "/opt/siem/runtime-docs/ingest_surface_cache.json",
+        )
+    ),
+    ttl_seconds=int(
+        os.getenv("SIEM_INGEST_SURFACE_CACHE_TTL_SEC", "15") or "15"
+    ),
+    max_stale_seconds=300,
+)
 
 
 def _read_sources_inventory_cache(cache_key: str) -> dict[str, Any] | None:
@@ -157,6 +181,19 @@ def _write_assets_catalog_cache(value: dict[str, Any]) -> None:
         tmp_path.replace(_ASSETS_CATALOG_CACHE_FILE)
     except Exception:  # noqa: BLE001
         return
+
+
+def _build_assets_catalog_payload() -> dict[str, Any]:
+    return {
+        "collectors": fetch_collector_inventory(hours=24),
+        "sources": fetch_source_inventory(limit=120, hours=24),
+        "detection_rules": fetch_detection_rules(limit=120),
+        "normalizers": fetch_normalizer_rules(limit=120),
+        "active_lists": fetch_active_list_items(limit=120),
+        "cmdb_assets": fetch_cmdb_assets(limit=120),
+        "threat_intel": fetch_threat_intel_entries(limit=120),
+    }
+
 
 DEFAULT_SIGMA_RULE_YAML = """
 title: Linux Custom Auditd Rule
@@ -272,7 +309,7 @@ def _render_assets_page(
 @router.get("/api/ingest/overview", response_class=JSONResponse)
 async def ingest_overview_api(user=Depends(require_permissions("ingest:view"))) -> JSONResponse:
     try:
-        return JSONResponse(get_ingest_overview())
+        return JSONResponse(await run_in_threadpool(get_ingest_overview))
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -280,7 +317,9 @@ async def ingest_overview_api(user=Depends(require_permissions("ingest:view"))) 
 @router.get("/api/ingest/sources", response_class=JSONResponse)
 async def ingest_sources_api(limit: int = Query(200, ge=1, le=500), user=Depends(require_permissions("ingest:view"))) -> JSONResponse:
     try:
-        return JSONResponse(list_ingest_sources(limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(list_ingest_sources, limit=limit)
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -288,7 +327,9 @@ async def ingest_sources_api(limit: int = Query(200, ge=1, le=500), user=Depends
 @router.get("/api/ingest/collectors", response_class=JSONResponse)
 async def ingest_collectors_api(limit: int = Query(200, ge=1, le=500), user=Depends(require_permissions("ingest:view"))) -> JSONResponse:
     try:
-        return JSONResponse(list_ingest_collectors(limit=limit))
+        return JSONResponse(
+            await run_in_threadpool(list_ingest_collectors, limit=limit)
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -296,7 +337,12 @@ async def ingest_collectors_api(limit: int = Query(200, ge=1, le=500), user=Depe
 @router.get("/api/ingest/dlq", response_class=JSONResponse)
 async def ingest_dlq_api(limit: int = Query(200, ge=1, le=500), user=Depends(require_permissions("ingest:view"))) -> JSONResponse:
     try:
-        return JSONResponse(list_ingest_dlq(limit=limit))
+        return JSONResponse(
+            await _INGEST_SURFACE_CACHE.get_or_refresh(
+                f"dlq:{limit}",
+                partial(list_ingest_dlq, limit=limit),
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -391,15 +437,7 @@ async def assets_catalog_api(user=Depends(require_permissions("assets:view"))) -
         cached = _read_assets_catalog_cache()
         if cached is not None:
             return JSONResponse(cached)
-        payload = {
-            "collectors": fetch_collector_inventory(hours=24),
-            "sources": fetch_source_inventory(limit=120, hours=24),
-            "detection_rules": fetch_detection_rules(limit=120),
-            "normalizers": fetch_normalizer_rules(limit=120),
-            "active_lists": fetch_active_list_items(limit=120),
-            "cmdb_assets": fetch_cmdb_assets(limit=120),
-            "threat_intel": fetch_threat_intel_entries(limit=120),
-        }
+        payload = await run_in_threadpool(_build_assets_catalog_payload)
         with _ASSETS_CATALOG_CACHE_LOCK:
             _write_assets_catalog_cache(payload)
         return JSONResponse(payload)
@@ -434,7 +472,8 @@ async def assets_inventory_api(
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse({"items": fetch_assets(limit=limit, hours=hours)})
+        items = await run_in_threadpool(fetch_assets, limit=limit, hours=hours)
+        return JSONResponse({"items": items})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -512,7 +551,13 @@ async def sources_inventory_api(
         cached = _read_sources_inventory_cache(cache_key)
         if cached is not None:
             return JSONResponse(cached)
-        payload = {"items": fetch_source_inventory(limit=limit, hours=hours)}
+        payload = {
+            "items": await run_in_threadpool(
+                fetch_source_inventory,
+                limit=limit,
+                hours=hours,
+            )
+        }
         with _SOURCES_INVENTORY_CACHE_LOCK:
             _write_sources_inventory_cache(cache_key, payload)
         return JSONResponse(payload)
@@ -534,7 +579,12 @@ async def proxmox_fleet_inventory_api(
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(list_proxmox_fleet_inventory(limit=limit))
+        return JSONResponse(
+            await _ASSET_SURFACE_CACHE.get_or_refresh(
+                f"proxmox-fleet:{limit}",
+                partial(list_proxmox_fleet_inventory, limit=limit),
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -601,7 +651,14 @@ async def sources_discovery_execute_api(job_id: str, payload: dict = Body(defaul
 @router.get("/api/collectors", response_class=JSONResponse)
 async def collectors_inventory_api(hours: int = Query(24, ge=1, le=720), user=Depends(require_permissions("assets:view"))) -> JSONResponse:
     try:
-        return JSONResponse({"items": fetch_collector_inventory(hours=hours)})
+        return JSONResponse(
+            await _ASSET_SURFACE_CACHE.get_or_refresh(
+                f"collectors:{hours}",
+                lambda: {
+                    "items": fetch_collector_inventory(hours=hours)
+                },
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -609,7 +666,16 @@ async def collectors_inventory_api(hours: int = Query(24, ge=1, le=720), user=De
 @router.get("/api/geo/sources", response_class=JSONResponse)
 async def geo_sources_api(hours: int = Query(24, ge=1, le=720), limit: int = Query(20, ge=1, le=100), user=Depends(get_current_user)) -> JSONResponse:
     try:
-        return JSONResponse(fetch_geo_source_activity(hours=hours, limit=limit))
+        return JSONResponse(
+            await _ASSET_SURFACE_CACHE.get_or_refresh(
+                f"geo-sources:{hours}:{limit}",
+                partial(
+                    fetch_geo_source_activity,
+                    hours=hours,
+                    limit=limit,
+                ),
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -621,7 +687,16 @@ async def network_topology_api(
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(build_network_topology(hours=hours, limit=limit))
+        return JSONResponse(
+            await _ASSET_SURFACE_CACHE.get_or_refresh(
+                f"network-topology:{hours}:{limit}",
+                partial(
+                    build_network_topology,
+                    hours=hours,
+                    limit=limit,
+                ),
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -678,7 +753,16 @@ async def geo_ip_detail_api(ip_text: str, hours: int = Query(72, ge=1, le=720), 
 @router.get("/api/geo/vpn", response_class=JSONResponse)
 async def geo_vpn_api(hours: int = Query(24, ge=1, le=720), limit: int = Query(20, ge=1, le=100), user=Depends(get_current_user)) -> JSONResponse:
     try:
-        return JSONResponse(fetch_geo_vpn_destinations(hours=hours, limit=limit))
+        return JSONResponse(
+            await _ASSET_SURFACE_CACHE.get_or_refresh(
+                f"geo-vpn:{hours}:{limit}",
+                partial(
+                    fetch_geo_vpn_destinations,
+                    hours=hours,
+                    limit=limit,
+                ),
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -704,7 +788,16 @@ async def threat_intel_overview_api(
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
-        return JSONResponse(fetch_threat_intel_overview(limit=limit, hours=hours))
+        return JSONResponse(
+            await _ASSET_SURFACE_CACHE.get_or_refresh(
+                f"threat-intel:{hours}:{limit}",
+                partial(
+                    fetch_threat_intel_overview,
+                    limit=limit,
+                    hours=hours,
+                ),
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 

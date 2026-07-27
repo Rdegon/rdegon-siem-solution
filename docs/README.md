@@ -21,6 +21,8 @@ and dated delivery records for the SIEM platform.
     missing analysis layers, target service map and rollout order.
 12. `home_soc_rollout_2026-07-27.md` - deployed SOC services, resource
     corrections, production integrations and deferred gates.
+13. `web_performance_2026-07-27.md` - deployed Web/API latency corrections
+    and concurrent acceptance results.
 
 ## Current Runtime Truth
 
