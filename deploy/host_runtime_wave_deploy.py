@@ -41,6 +41,7 @@ COMMON_FILES = (
     (POLICY_FILE, "correlation_rule_packs/host_runtime_policy_v1.json", "0644"),
     ("deploy/common/siem-host-runtime-agent.service", "/etc/systemd/system/siem-host-runtime-agent.service", "0644"),
     ("deploy/common/siem-host-runtime-agent.timer", "/etc/systemd/system/siem-host-runtime-agent.timer", "0644"),
+    ("deploy/common/00-siem-rsyslog-message-size.conf", "/etc/rsyslog.d/00-siem-rsyslog-message-size.conf", "0644"),
     ("deploy/common/10-siem-imfile.conf", "/etc/rsyslog.d/10-siem-imfile.conf", "0644"),
     ("deploy/common/91-siem-audit-imfile.conf", "/etc/rsyslog.d/91-siem-audit-imfile.conf", "0644"),
     ("deploy/common/90-siem-memory.conf", "/etc/systemd/journald.conf.d/90-siem-memory.conf", "0644"),

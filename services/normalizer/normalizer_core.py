@@ -26,6 +26,13 @@ except ModuleNotFoundError as exc:  # pragma: no cover - CI fallback when option
     _CLICKHOUSE_DRIVER_IMPORT_ERROR = exc
 
 from .config import NormalizerSettings
+from .linux_service_normalizers import (
+    parse_minecraft_message,
+    parse_oauth2_proxy_message,
+    parse_opnsense_filterlog,
+    parse_pam_message,
+    parse_systemd_message,
+)
 from .security_tool_normalizers import parse_security_tool_event, parse_suricata_payload
 
 logger = logging.getLogger(__name__)
@@ -92,6 +99,10 @@ RESOLVED_TRANSACTION_RE = re.compile(
 RESOLVED_CACHE_RE = re.compile(
     r"Added positive .* cache entry for (?P<query_name>\S+)\s+IN\s+(?P<query_type>[A-Z0-9]+)\s+(?P<ttl>\d+)s",
     re.IGNORECASE,
+)
+INNER_ISO_SYSLOG_RE = re.compile(
+    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}T\S+)\s+(?P<host>\S+)\s+"
+    r"(?P<program>[\w./@-]+)(?:\[(?P<pid>\d+)\])?:\s*(?P<body>.*)$"
 )
 WINDOWS_RENDERED_EVENT_HINTS: tuple[tuple[str, str], ...] = (
     ("an account failed to log on", "4625"),
@@ -959,6 +970,15 @@ def _classify_execve_activity(result: Dict[str, Any]) -> None:
     command_lower = command_line.lower()
     executable_path = _clean_value(result.get("process.executable", "") or result.get("process.name", "")).lower()
     executable = _basename(executable_path)
+    if command_line and executable in {"", "auditd"}:
+        try:
+            command_executable = shlex.split(command_line)[0]
+        except (ValueError, IndexError):
+            command_executable = command_line.split(maxsplit=1)[0] if command_line else ""
+        executable_path = _clean_value(command_executable).lower()
+        executable = _basename(executable_path)
+        if executable:
+            result["process.name"] = executable
     target_user = _extract_target_user(command_line)
     if target_user and not result.get("user.target.name"):
         result["user.target.name"] = target_user
@@ -986,8 +1006,19 @@ def _classify_execve_activity(result: Dict[str, Any]) -> None:
         elif " stop " in f" {command_lower} ":
             _set_event_shape(result, category="impact", action="service_stop", event_type="linux_systemd_service_stopped")
     elif executable in {"auditctl", "augenrules"} or "audit.rules" in command_lower:
-        if " -d" in command_lower or " -D" in command_line:
+        if " -d" in command_lower or " -D" in command_line or "--delete-all" in command_lower:
             _set_event_shape(result, category="defense_evasion", action="audit_rules_clear", event_type="linux_audit_rules_cleared")
+        elif re.search(r"(?:^|\s)-e\s*0(?:\s|$)", command_lower):
+            _set_event_shape(result, category="defense_evasion", action="audit_disable", event_type="linux_audit_disabled")
+        elif re.search(r"(?:^|\s)-e\s*[12](?:\s|$)", command_lower):
+            _set_event_shape(result, category="configuration", action="audit_enable", event_type="linux_audit_enabled")
+        elif executable == "augenrules" or any(
+            marker in f" {command_lower} "
+            for marker in (" -a ", " -A ", " -w ", " -W ", " -r ", " --load ")
+        ):
+            _set_event_shape(result, category="configuration", action="audit_rule_load", event_type="linux_audit_rule_loaded")
+        elif any(marker in f" {command_lower} " for marker in (" -l ", " -s ")):
+            _set_event_shape(result, category="configuration", action="audit_status_query", event_type="linux_audit_status_query")
         else:
             _set_event_shape(result, category="defense_evasion", action="audit_config_change", event_type="linux_audit_config_changed")
     elif executable in {"iptables", "ufw", "firewall-cmd"} or "firewalld" in command_lower:
@@ -1020,7 +1051,17 @@ def _classify_execve_activity(result: Dict[str, Any]) -> None:
 
     if any(token in command_lower for token in ("bash -i", "/dev/tcp/", "nc -e", "ncat -e", "mkfifo ", "socat exec", "python -c", "perl -e", "php -r")):
         _set_event_shape(result, category="command_and_control", action="reverse_shell", event_type="linux_reverse_shell_possible")
-    elif any(token in command_lower for token in ("whoami", "uname", "hostnamectl", "ip a", "ifconfig", "netstat", "ss -", "lsof -i", "cat /etc/passwd", "getent passwd", "last ", "w ", "who ")):
+    elif (
+        executable in {"whoami", "uname", "hostnamectl", "ifconfig", "netstat", "ss", "last", "w", "who"}
+        or executable == "ip"
+        and re.search(r"(?:^|\s)(?:a|addr|address|link|route)(?:\s|$)", command_lower)
+        or executable == "lsof"
+        and re.search(r"(?:^|\s)-i(?:\s|$)", command_lower)
+        or executable == "cat"
+        and "/etc/passwd" in command_lower
+        or executable == "getent"
+        and re.search(r"(?:^|\s)passwd(?:\s|$)", command_lower)
+    ):
         _set_event_shape(result, category="discovery", action="recon", event_type="linux_system_recon")
     elif executable_path.startswith(("/tmp/", "/var/tmp/", "/dev/shm/")) or re.match(
         r"^\s*(?:/usr/bin/env\s+)?(?:/tmp|/var/tmp|/dev/shm)/",
@@ -1069,6 +1110,11 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
     event_category = "audit"
     event_action = "audit"
     event_type = f"audit_{event_type_raw.lower()}"
+    audit_operation = _clean_value(values.get("op", "")).lower()
+    audit_rule_configuration = (
+        event_type_raw == "CONFIG_CHANGE"
+        and audit_operation in {"add_rule", "remove_rule", "update_rule"}
+    )
 
     if event_type_raw in {"USER_AUTH", "USER_ACCT", "USER_LOGIN"}:
         event_category = "authentication"
@@ -1092,6 +1138,14 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
         event_category = "privilege"
         event_action = "command"
         event_type = "audit_user_command"
+    elif audit_rule_configuration:
+        event_category = "configuration"
+        event_action = f"audit_{audit_operation}"
+        event_type = (
+            "linux_audit_rule_loaded"
+            if audit_operation == "add_rule"
+            else "linux_audit_rule_removed"
+        )
     elif event_type_raw in {"EXECVE", "SYSCALL", "PROCTITLE", "PATH", "CWD"}:
         event_category = "process"
         event_action = "execute"
@@ -1115,6 +1169,7 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "audit.type": event_type_raw,
         "audit.id": audit_id,
         "audit.key": audit_key,
+        "audit.operation": audit_operation,
         "session.id": values.get("ses", ""),
         "user.name": acct,
         "user.id": values.get("uid", ""),
@@ -1141,7 +1196,8 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
         _classify_execve_activity(result)
     if result.get("event.type", "").startswith("audit_") and result.get("destination.port") and values.get("syscall") in {"42", "connect"}:
         _set_event_shape(result, category="network", action="connection_attempt", event_type="linux_network_connection")
-    _apply_audit_key_shape(result, audit_key)
+    if not audit_rule_configuration:
+        _apply_audit_key_shape(result, audit_key)
     result["event.severity"] = _derive_severity("auditd", result["event.type"], outcome, str(base.get("log.level", "info")))
     return result
 
@@ -2025,12 +2081,44 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
         return _merge_non_empty(enriched, _parse_cron(program, body, enriched))
     if program in {"passwd", "useradd", "userdel", "usermod"}:
         return _merge_non_empty(enriched, _parse_account_tools(program, body, enriched))
+    if program == "systemd":
+        return _merge_non_empty(enriched, parse_systemd_message(body))
     if program == "systemd-resolved":
         return _merge_non_empty(enriched, _parse_systemd_resolved(body, enriched))
+    if program == "filterlog":
+        return _merge_non_empty(enriched, parse_opnsense_filterlog(body))
     if program == "suricata-eve":
         return _merge_non_empty(enriched, parse_suricata_payload(enriched, body))
     if program == "suricata-fast":
         return _merge_non_empty(enriched, parse_suricata_payload(enriched, body))
+    if program == "gamepanel-audit":
+        return _merge_non_empty(enriched, _parse_auditd(body, enriched))
+    if program == "gamepanel-auth":
+        inner = INNER_ISO_SYSLOG_RE.match(body)
+        if inner:
+            inner_program = _clean_value(inner.group("program")).lower()
+            inner_body = _clean_value(inner.group("body"))
+            _merge_non_empty(
+                enriched,
+                {
+                    "process.name": inner_program,
+                    "process.pid": _clean_value(inner.group("pid")),
+                },
+            )
+            if inner_program == "sshd":
+                return _merge_non_empty(enriched, _parse_sshd(inner_body, enriched))
+            if inner_program == "sudo":
+                return _merge_non_empty(enriched, _parse_sudo(inner_body, enriched))
+            pam = parse_pam_message(inner_body)
+            if pam:
+                return _merge_non_empty(enriched, pam)
+        pam = parse_pam_message(body)
+        if pam:
+            return _merge_non_empty(enriched, pam)
+    if program == "oauth2-proxy":
+        return _merge_non_empty(enriched, parse_oauth2_proxy_message(body))
+    if program == "bash" and _canonical_host_name(enriched.get("host.name", "")) == "minecraft-01":
+        return _merge_non_empty(enriched, parse_minecraft_message(body))
 
     return enriched
 

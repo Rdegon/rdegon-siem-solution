@@ -15,6 +15,7 @@ from deploy.soc_foundation_provision import Proxmox  # noqa: E402
 
 
 VMID = int(os.getenv("SIEM_EDGE_VMID", "102") or "102")
+REMOTE_MESSAGE_SIZE = "/etc/rsyslog.d/00-siem-rsyslog-message-size.conf"
 REMOTE_FORWARD = "/etc/rsyslog.d/90-siem-forward.conf"
 REMOTE_SURICATA = "/etc/rsyslog.d/91-suricata-imfile.conf"
 LEGACY_FORWARD = "/etc/rsyslog.d/90-lab-edge-forward.conf"
@@ -48,12 +49,18 @@ def main() -> int:
     backup = f"/var/backups/siem/edge-rsyslog-{_timestamp()}"
     with Proxmox() as pve:
         pve.guest_exec(VMID, f"install -d -m 0700 {shlex.quote(backup)}")
-        for remote_path in (REMOTE_FORWARD, REMOTE_SURICATA, LEGACY_FORWARD):
+        for remote_path in (REMOTE_MESSAGE_SIZE, REMOTE_FORWARD, REMOTE_SURICATA, LEGACY_FORWARD):
             pve.guest_exec(
                 VMID,
                 f"if [ -f {shlex.quote(remote_path)} ]; then "
                 f"cp -a {shlex.quote(remote_path)} {shlex.quote(backup + '/' + Path(remote_path).name)}; fi",
             )
+        _write_guest_file(
+            pve,
+            (ROOT / "deploy/common/00-siem-rsyslog-message-size.conf").read_bytes(),
+            REMOTE_MESSAGE_SIZE,
+            0o644,
+        )
         _write_guest_file(
             pve,
             (ROOT / "deploy/common/90-edge-siem-forward.conf").read_bytes(),

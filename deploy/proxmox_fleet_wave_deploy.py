@@ -96,6 +96,7 @@ COMMON_REMOTE_FILES: tuple[tuple[str, str, str], ...] = (
     ("correlation_rule_packs/host_runtime_policy_v1.json", f"{REMOTE_ROOT}/correlation_rule_packs/host_runtime_policy_v1.json", "0644"),
     ("deploy/common/siem-host-runtime-agent.service", "/etc/systemd/system/siem-host-runtime-agent.service", "0644"),
     ("deploy/common/siem-host-runtime-agent.timer", "/etc/systemd/system/siem-host-runtime-agent.timer", "0644"),
+    ("deploy/common/00-siem-rsyslog-message-size.conf", "/etc/rsyslog.d/00-siem-rsyslog-message-size.conf", "0644"),
     ("deploy/common/10-siem-imfile.conf", "/etc/rsyslog.d/10-siem-imfile.conf", "0644"),
     ("deploy/common/90-siem-memory.conf", "/etc/systemd/journald.conf.d/90-siem-memory.conf", "0644"),
     ("deploy/common/siem-log-maintenance.sh", "/usr/local/bin/siem-log-maintenance.sh", "0755"),

@@ -329,7 +329,7 @@ class NormalizerCoreTests(unittest.TestCase):
 
         self.assertIsNotNone(normalized)
         assert normalized is not None
-        self.assertEqual("linux_system_recon", normalized.get("event.type"))
+        self.assertEqual("audit_execve", normalized.get("event.type"))
         self.assertIn("allowlist:openclaw_research_activity", normalized.get("tags") or [])
 
     def test_openclaw_expected_aaaa_dns_is_allowlisted(self) -> None:
