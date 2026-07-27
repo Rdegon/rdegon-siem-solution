@@ -129,12 +129,61 @@ def _trivy(path: Path, timeout: int) -> dict[str, Any]:
         output_path.unlink(missing_ok=True)
 
 
+def _optional_analyzer(
+    engine: str,
+    executable: str,
+    arguments: list[str],
+    timeout: int,
+) -> dict[str, Any]:
+    resolved = shutil.which(executable)
+    if not resolved:
+        return {"engine": engine, "status": "not_installed"}
+    code, output = _run([resolved, *arguments], timeout)
+    return {
+        "engine": engine,
+        "status": "completed" if code == 0 else "error",
+        "exit_code": code,
+        "output": output,
+    }
+
+
+def _file_specific_analysis(path: Path, timeout: int) -> dict[str, dict[str, Any]]:
+    suffix = path.suffix.lower()
+    analyzers: dict[str, dict[str, Any]] = {}
+    if suffix in {".exe", ".dll", ".sys", ".scr", ".com", ".elf"}:
+        analyzers["capa"] = _optional_analyzer("capa", "capa", ["-j", str(path)], timeout)
+        analyzers["floss"] = _optional_analyzer(
+            "floss",
+            "floss",
+            ["--json", str(path)],
+            timeout,
+        )
+    if suffix in {
+        ".doc",
+        ".docm",
+        ".docx",
+        ".dotm",
+        ".ppt",
+        ".pptm",
+        ".pptx",
+        ".xls",
+        ".xlsm",
+        ".xlsx",
+        ".rtf",
+    }:
+        analyzers["oleid"] = _optional_analyzer("oleid", "oleid", [str(path)], timeout)
+    if suffix == ".pdf":
+        analyzers["pdfid"] = _optional_analyzer("pdfid", "pdfid", [str(path)], timeout)
+    return analyzers
+
+
 def analyze_file(path: Path, *, rules_dir: Path, timeout: int) -> dict[str, Any]:
     stat = path.stat()
     file_hash = _sha256(path)
     clamav = _clamav(path, timeout)
     yara = _yara(path, rules_dir, timeout)
     trivy = _trivy(path, max(timeout, 300))
+    file_specific = _file_specific_analysis(path, timeout)
     malicious = clamav["status"] == "malicious" or yara["status"] == "matched"
     finding = malicious or trivy["status"] == "findings"
     rule_names = []
@@ -163,6 +212,7 @@ def analyze_file(path: Path, *, rules_dir: Path, timeout: int) -> dict[str, Any]
             "clamav": clamav,
             "yara": yara,
             "trivy": trivy,
+            **file_specific,
         },
     }
 

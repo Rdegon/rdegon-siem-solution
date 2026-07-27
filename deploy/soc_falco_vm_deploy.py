@@ -13,6 +13,9 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
+    130: "gamepanel-01",
+}
+RETIRED_TARGETS = {
     104: "siem-ingest",
     105: "siem-processing",
     106: "siem-storage",
@@ -151,10 +154,35 @@ chmod 0640 /etc/siem/security-sensor-falco.env
 /usr/bin/python3 -m py_compile /opt/siem/deploy/security_sensor_forwarder.py
 systemctl daemon-reload
 systemctl enable --now siem-security-sensor-forwarder@falco.service
+systemctl restart siem-security-sensor-forwarder@falco.service
 systemctl is-active --quiet siem-security-sensor-forwarder@falco.service
 """,
         timeout=300,
     )
+
+
+def _retire_non_container_sensor(pve: Proxmox, vmid: int) -> dict[str, object]:
+    output = pve.guest_exec(
+        vmid,
+        """
+set -euo pipefail
+systemctl disable --now siem-security-sensor-forwarder@falco.service 2>/dev/null || true
+for unit in falco-modern-bpf.service falco-bpf.service falco-kmod.service falco.service; do
+  systemctl disable --now "$unit" 2>/dev/null || true
+done
+printf 'falco_active='
+systemctl is-active falco-modern-bpf.service falco-bpf.service falco-kmod.service falco.service \
+  2>/dev/null | grep -c '^active$' || true
+printf 'forwarder='
+systemctl is-active siem-security-sensor-forwarder@falco.service 2>/dev/null || true
+""",
+        timeout=180,
+    )
+    return {
+        "vmid": vmid,
+        "hostname": RETIRED_TARGETS[vmid],
+        "status": output.strip().splitlines(),
+    }
 
 
 def main() -> int:
@@ -170,7 +198,7 @@ def main() -> int:
             "/usr/bin/python3 -m http.server 18765 --bind 192.168.3.101 "
             "--directory /var/lib/vz/snippets"
         )
-        results = []
+        results: list[dict[str, object]] = []
         try:
             for vmid, hostname in TARGETS.items():
                 falco = _install_falco(pve, vmid)
@@ -183,11 +211,21 @@ def main() -> int:
                         "forwarder": "active",
                     }
                 )
+            retired = [
+                _retire_non_container_sensor(pve, vmid)
+                for vmid in RETIRED_TARGETS
+            ]
         finally:
             pve.run("systemctl stop soc-package-cache.service 2>/dev/null || true")
         import json
 
-        print(json.dumps(results, indent=2, ensure_ascii=True))
+        print(
+            json.dumps(
+                {"active_container_sensors": results, "retired_non_container_sensors": retired},
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
     return 0
 
 

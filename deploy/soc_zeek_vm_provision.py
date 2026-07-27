@@ -277,6 +277,7 @@ for interface in enp6s19 enp6s20 enp6s21 enp6s22 enp6s23; do
   systemctl enable --now "siem-zeek@$interface.service"
 done
 systemctl enable --now siem-security-sensor-forwarder@zeek.service
+systemctl restart siem-security-sensor-forwarder@zeek.service
 """,
         timeout=300,
     )

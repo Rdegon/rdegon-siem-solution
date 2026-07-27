@@ -25,6 +25,7 @@ Local management entry points:
 | Proxmox | `https://192.168.3.101:8006/` |
 | SIEM Web | `https://192.168.3.102/` |
 | SIEM Ingest health | `https://192.168.3.102:8443/health` |
+| Velociraptor endpoint | `https://192.168.3.102:8000/` |
 | Nextcloud | `https://192.168.3.102:9443/` |
 | Navidrome | `http://192.168.3.102:9444/` |
 | Gamepanel | `http://192.168.3.102:9445/` |

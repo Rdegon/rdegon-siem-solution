@@ -1,0 +1,20 @@
+[Unit]
+Description=Velociraptor endpoint DFIR client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/velociraptor --config /etc/velociraptor/client.config.yaml client
+Restart=always
+RestartSec=10
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/velociraptor
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

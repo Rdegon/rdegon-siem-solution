@@ -15,10 +15,10 @@ def _base_url() -> str:
 
 def _timeout_seconds() -> float:
     try:
-        timeout = float(os.getenv("SIEM_INGEST_TIMEOUT_SECONDS", "8") or "8")
+        timeout = float(os.getenv("SIEM_INGEST_TIMEOUT_SECONDS", "15") or "15")
     except ValueError:
-        timeout = 8.0
-    return max(1.0, min(30.0, timeout))
+        timeout = 15.0
+    return max(1.0, min(60.0, timeout))
 
 
 def _shared_secret() -> str:

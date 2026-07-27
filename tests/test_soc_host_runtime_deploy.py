@@ -16,7 +16,6 @@ def test_runtime_targets_cover_current_linux_fleet():
         123,
         124,
         125,
-        126,
         127,
         128,
         129,

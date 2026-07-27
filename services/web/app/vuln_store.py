@@ -23,6 +23,8 @@ def _deps():
 
 def _vuln_parse_ts(value: Any) -> datetime:
     deps = _deps()
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
     text = str(value or "").strip()
     if not text:
         return datetime.utcnow()
@@ -69,12 +71,42 @@ def _normalize_flag(value: Any, default: bool = False) -> bool:
 def ensure_vulnerability_support() -> bool:
     deps = _deps()
     deps.ensure_cmdb_ti_support()
-    deps.get_ch_client().command(f"ALTER TABLE {deps.CMDB_ASSET_TABLE} ADD COLUMN IF NOT EXISTS vuln_enabled UInt8 DEFAULT 0")
-    deps.get_ch_client().command(
-        f"ALTER TABLE {deps.CMDB_ASSET_TABLE} ADD COLUMN IF NOT EXISTS vuln_profile LowCardinality(String) DEFAULT 'network-basic'"
-    )
-    deps.get_ch_client().command(
-        f"""
+    client = deps.get_ch_client()
+    column_rows = client.query(
+        """
+        SELECT name
+        FROM system.columns
+        WHERE database = 'siem'
+          AND table = 'cmdb_assets'
+          AND name IN ('vuln_enabled', 'vuln_profile')
+        """
+    ).result_rows
+    existing_columns = {str(row[0]) for row in column_rows if row}
+    missing_columns = []
+    if "vuln_enabled" not in existing_columns:
+        missing_columns.append("ADD COLUMN IF NOT EXISTS vuln_enabled UInt8 DEFAULT 0")
+    if "vuln_profile" not in existing_columns:
+        missing_columns.append(
+            "ADD COLUMN IF NOT EXISTS vuln_profile "
+            "LowCardinality(String) DEFAULT 'network-basic'"
+        )
+    if missing_columns:
+        client.command(
+            f"ALTER TABLE {deps.CMDB_ASSET_TABLE} " + ", ".join(missing_columns)
+        )
+
+    table_rows = client.query(
+        """
+        SELECT name
+        FROM system.tables
+        WHERE database = 'siem'
+          AND name IN ('vuln_asset_bindings', 'vuln_scan_runs', 'vuln_findings')
+        """
+    ).result_rows
+    existing_tables = {str(row[0]) for row in table_rows if row}
+    if VULN_ASSET_BINDING_TABLE.rsplit(".", 1)[-1] not in existing_tables:
+        client.command(
+            f"""
         CREATE TABLE IF NOT EXISTS {VULN_ASSET_BINDING_TABLE}
         (
             asset_id String,
@@ -91,12 +123,13 @@ def ensure_vulnerability_support() -> bool:
             sync_message String DEFAULT '',
             last_sync_ts DateTime DEFAULT now()
         )
-        ENGINE = MergeTree
+        ENGINE = ReplacingMergeTree(last_sync_ts)
         ORDER BY (scanner_family, asset_id)
         """
-    )
-    deps.get_ch_client().command(
-        f"""
+        )
+    if VULN_SCAN_RUN_TABLE.rsplit(".", 1)[-1] not in existing_tables:
+        client.command(
+            f"""
         CREATE TABLE IF NOT EXISTS {VULN_SCAN_RUN_TABLE}
         (
             scan_run_id String,
@@ -136,9 +169,10 @@ def ensure_vulnerability_support() -> bool:
         ENGINE = MergeTree
         ORDER BY (finished_at, scan_run_id)
         """
-    )
-    deps.get_ch_client().command(
-        f"""
+        )
+    if VULN_FINDING_TABLE.rsplit(".", 1)[-1] not in existing_tables:
+        client.command(
+            f"""
         CREATE TABLE IF NOT EXISTS {VULN_FINDING_TABLE}
         (
             finding_id String,
@@ -178,7 +212,7 @@ def ensure_vulnerability_support() -> bool:
         ENGINE = MergeTree
         ORDER BY (last_seen, finding_id, scan_run_id)
         """
-    )
+        )
     return True
 
 
@@ -205,6 +239,7 @@ def fetch_cmdb_assets(limit: int = 200) -> List[Dict[str, Any]]:
             updated_ts
         FROM {deps.CMDB_ASSET_TABLE}
         ORDER BY updated_ts DESC, asset_id
+        LIMIT 1 BY asset_id
         LIMIT {int(limit)}
     """
     rows: List[Dict[str, Any]] = []
@@ -232,6 +267,90 @@ def fetch_cmdb_assets(limit: int = 200) -> List[Dict[str, Any]]:
     return rows
 
 
+CMDB_VERSION_COLUMNS = [
+    "asset_id",
+    "asset_type",
+    "hostname",
+    "ip",
+    "owner",
+    "criticality",
+    "environment",
+    "business_service",
+    "os_family",
+    "expected_ports",
+    "tags",
+    "notes",
+    "enabled",
+    "vuln_enabled",
+    "vuln_profile",
+]
+
+
+def _normalize_cmdb_version(item: Dict[str, Any]) -> tuple[List[Any], Dict[str, Any]]:
+    deps = _deps()
+    safe_asset_id = str(item.get("asset_id") or "").strip()
+    safe_asset_type = str(item.get("asset_type") or "server").strip().lower()
+    safe_hostname = str(item.get("hostname") or "").strip().lower()
+    safe_ip = str(item.get("ip") or "").strip()
+    safe_owner = str(item.get("owner") or "").strip()
+    safe_criticality = str(item.get("criticality") or "medium").strip().lower()
+    safe_environment = str(item.get("environment") or "prod").strip().lower()
+    safe_business_service = str(item.get("business_service") or "").strip()
+    safe_os_family = str(item.get("os_family") or "").strip().lower()
+    safe_expected_ports = deps._normalize_csv(str(item.get("expected_ports") or ""))
+    safe_tags = deps._normalize_csv(str(item.get("tags") or ""))
+    safe_notes = str(item.get("notes") or "").strip()
+    safe_vuln_enabled = 1 if _normalize_flag(item.get("vuln_enabled")) else 0
+    safe_vuln_profile = _normalize_vuln_profile(
+        str(item.get("vuln_profile") or "network-basic")
+    )
+    if not safe_asset_id:
+        raise ValueError("asset_id is required")
+    if safe_criticality not in {"low", "medium", "high", "critical"}:
+        raise ValueError("criticality must be low, medium, high or critical")
+    values = [
+            safe_asset_id,
+            safe_asset_type,
+            safe_hostname,
+            safe_ip,
+            safe_owner,
+            safe_criticality,
+            safe_environment,
+            safe_business_service,
+            safe_os_family,
+            safe_expected_ports,
+            safe_tags,
+            safe_notes,
+            1,
+            safe_vuln_enabled,
+            safe_vuln_profile,
+        ]
+    result = {
+        "asset_id": safe_asset_id,
+        "hostname": safe_hostname,
+        "ip": safe_ip,
+        "criticality": safe_criticality,
+        "environment": safe_environment,
+        "vuln_enabled": bool(safe_vuln_enabled),
+        "vuln_profile": safe_vuln_profile,
+    }
+    return values, result
+
+
+def save_cmdb_assets(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deps = _deps()
+    ensure_vulnerability_support()
+    normalized = [_normalize_cmdb_version(dict(item)) for item in items]
+    if not normalized:
+        return []
+    deps.get_ch_client().insert(
+        deps.CMDB_ASSET_TABLE,
+        [values for values, _ in normalized],
+        column_names=CMDB_VERSION_COLUMNS,
+    )
+    return [result for _, result in normalized]
+
+
 def save_cmdb_asset(
     *,
     asset_id: str,
@@ -249,73 +368,26 @@ def save_cmdb_asset(
     vuln_enabled: bool = False,
     vuln_profile: str = "network-basic",
 ) -> Dict[str, Any]:
-    deps = _deps()
-    ensure_vulnerability_support()
-    safe_asset_id = (asset_id or "").strip()
-    safe_asset_type = (asset_type or "server").strip().lower()
-    safe_hostname = (hostname or "").strip().lower()
-    safe_ip = (ip or "").strip()
-    safe_owner = (owner or "").strip()
-    safe_criticality = (criticality or "medium").strip().lower()
-    safe_environment = (environment or "prod").strip().lower()
-    safe_business_service = (business_service or "").strip()
-    safe_os_family = (os_family or "").strip().lower()
-    safe_expected_ports = deps._normalize_csv(expected_ports)
-    safe_tags = deps._normalize_csv(tags)
-    safe_notes = (notes or "").strip()
-    safe_vuln_enabled = 1 if _normalize_flag(vuln_enabled) else 0
-    safe_vuln_profile = _normalize_vuln_profile(vuln_profile)
-    if not safe_asset_id:
-        raise ValueError("asset_id is required")
-    if safe_criticality not in {"low", "medium", "high", "critical"}:
-        raise ValueError("criticality must be low, medium, high or critical")
-    deps.get_ch_client().command(f"ALTER TABLE {deps.CMDB_ASSET_TABLE} DELETE WHERE asset_id = {deps._sql_quote(safe_asset_id)}")
-    deps.get_ch_client().insert(
-        deps.CMDB_ASSET_TABLE,
-        [[
-            safe_asset_id,
-            safe_asset_type,
-            safe_hostname,
-            safe_ip,
-            safe_owner,
-            safe_criticality,
-            safe_environment,
-            safe_business_service,
-            safe_os_family,
-            safe_expected_ports,
-            safe_tags,
-            safe_notes,
-            1,
-            safe_vuln_enabled,
-            safe_vuln_profile,
-        ]],
-        column_names=[
-            "asset_id",
-            "asset_type",
-            "hostname",
-            "ip",
-            "owner",
-            "criticality",
-            "environment",
-            "business_service",
-            "os_family",
-            "expected_ports",
-            "tags",
-            "notes",
-            "enabled",
-            "vuln_enabled",
-            "vuln_profile",
-        ],
-    )
-    return {
-        "asset_id": safe_asset_id,
-        "hostname": safe_hostname,
-        "ip": safe_ip,
-        "criticality": safe_criticality,
-        "environment": safe_environment,
-        "vuln_enabled": bool(safe_vuln_enabled),
-        "vuln_profile": safe_vuln_profile,
-    }
+    return save_cmdb_assets(
+        [
+            {
+                "asset_id": asset_id,
+                "asset_type": asset_type,
+                "hostname": hostname,
+                "ip": ip,
+                "owner": owner,
+                "criticality": criticality,
+                "environment": environment,
+                "business_service": business_service,
+                "os_family": os_family,
+                "expected_ports": expected_ports,
+                "tags": tags,
+                "notes": notes,
+                "vuln_enabled": vuln_enabled,
+                "vuln_profile": vuln_profile,
+            }
+        ]
+    )[0]
 
 
 def import_cmdb_assets(payload: str) -> Dict[str, Any]:
@@ -440,6 +512,7 @@ def _fetch_vuln_asset_bindings(limit: int = 5000) -> List[Dict[str, Any]]:
             last_sync_ts
         FROM {VULN_ASSET_BINDING_TABLE}
         ORDER BY last_sync_ts DESC, asset_id
+        LIMIT 1 BY asset_id, scanner_family
         LIMIT {int(limit)}
     """
     items: List[Dict[str, Any]] = []
@@ -478,17 +551,17 @@ def _upsert_vuln_asset_bindings(items: List[Dict[str, Any]]) -> None:
     if not items:
         return
     ensure_vulnerability_support()
+    latest_by_key: Dict[tuple[str, str], Dict[str, Any]] = {}
     for item in items:
         asset_id = str(item.get("asset_id") or "").strip()
         scanner_family = str(item.get("scanner_family") or "greenbone").strip().lower()
         if not asset_id:
             continue
-        deps.get_ch_client().command(
-            f"ALTER TABLE {VULN_ASSET_BINDING_TABLE} DELETE WHERE asset_id = {deps._sql_quote(asset_id)} AND scanner_family = {deps._sql_quote(scanner_family)}"
-        )
-        deps.get_ch_client().insert(
-            VULN_ASSET_BINDING_TABLE,
-            [[
+        latest_by_key[(asset_id, scanner_family)] = dict(item)
+    rows: List[List[Any]] = []
+    for (asset_id, scanner_family), item in latest_by_key.items():
+        rows.append(
+            [
                 asset_id,
                 scanner_family,
                 _normalize_vuln_profile(str(item.get("profile") or "network-basic")),
@@ -502,7 +575,12 @@ def _upsert_vuln_asset_bindings(items: List[Dict[str, Any]]) -> None:
                 str(item.get("sync_status") or "pending"),
                 str(item.get("sync_message") or ""),
                 _vuln_parse_ts(item.get("last_sync_ts") or datetime.utcnow()),
-            ]],
+            ]
+        )
+    if rows:
+        deps.get_ch_client().insert(
+            VULN_ASSET_BINDING_TABLE,
+            rows,
             column_names=[
                 "asset_id",
                 "scanner_family",

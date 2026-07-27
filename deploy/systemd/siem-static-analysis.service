@@ -7,6 +7,8 @@ Wants=network-online.target
 Type=simple
 User=root
 Group=root
+Environment=HOME=/var/lib/siem-analysis
+Environment=XDG_CACHE_HOME=/var/lib/siem-analysis/cache
 ExecStart=/usr/bin/python3 /opt/siem/services/security_analysis/static_worker.py
 Restart=always
 RestartSec=5
@@ -14,7 +16,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/analysis /var/log/siem
+ReadWritePaths=/srv/analysis /var/log/siem /var/lib/siem-analysis
 UMask=0077
 
 [Install]

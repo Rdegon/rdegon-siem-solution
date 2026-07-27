@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -294,6 +295,25 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview["metrics"]["received_total"], 1)
         self.assertEqual(overview["sources"]["metrics"]["total"], 1)
         self.assertEqual(overview["collectors"]["metrics"]["total"], 1)
+
+    async def test_ingest_overview_uses_cached_resolved_dlq_total(self) -> None:
+        await self.fake_redis.hset(
+            self.redis_client.INGEST_METRICS_HASH_KEY,
+            mapping={
+                "dlq_total": "456914",
+                "resolved_dlq_total": "456900",
+            },
+        )
+
+        with mock.patch.object(
+            self.redis_client,
+            "_load_replay_records",
+            new=mock.AsyncMock(side_effect=AssertionError("full replay scan not expected")),
+        ):
+            overview = await self.redis_client.build_ingest_overview(self.fake_redis, self.app._settings)
+
+        self.assertEqual(overview["dlq"]["replayed"], 456900)
+        self.assertEqual(overview["dlq"]["outstanding"], 14)
 
     async def test_relocated_source_aliases_use_current_network_identities(self) -> None:
         expected = {
@@ -717,6 +737,83 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(collectors["items"][0]["status"], "delayed")
         self.assertEqual(collectors["metrics"]["stale"], 0)
         self.assertNotIn("Stale collectors detected: 1", overview["issues"])
+
+    async def test_event_driven_sensor_does_not_go_stale_between_findings(self) -> None:
+        await self.redis_client.push_raw_event(
+            self.fake_redis,
+            {
+                "source": "soc-ti-01",
+                "source_type": "misp",
+                "collector": "misp-forwarder",
+                "collector_profile": "misp-json",
+                "event.dataset": "misp.attribute",
+            },
+        )
+        aged_ts = (
+            datetime.now(tz=timezone.utc) - timedelta(days=1)
+        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        source_row = await self.redis_client._load_hash_record(
+            self.fake_redis,
+            self.redis_client.SOURCE_HEALTH_HASH_KEY,
+            "soc-ti-01",
+        )
+        collector_row = await self.redis_client._load_hash_record(
+            self.fake_redis,
+            self.redis_client.COLLECTOR_HEALTH_HASH_KEY,
+            "misp-json",
+        )
+        for row in (source_row, collector_row):
+            row["last_seen_ts"] = aged_ts
+            row["last_event_ts"] = aged_ts
+        await self.redis_client._save_hash_record(
+            self.fake_redis,
+            self.redis_client.SOURCE_HEALTH_HASH_KEY,
+            "soc-ti-01",
+            source_row,
+        )
+        await self.redis_client._save_hash_record(
+            self.fake_redis,
+            self.redis_client.COLLECTOR_HEALTH_HASH_KEY,
+            "misp-json",
+            collector_row,
+        )
+
+        sources = await self.redis_client.list_source_health(self.fake_redis)
+        collectors = await self.redis_client.list_collector_health(self.fake_redis)
+
+        self.assertEqual("healthy", sources["items"][0]["status"])
+        self.assertEqual("healthy", collectors["items"][0]["status"])
+
+    async def test_retired_and_malformed_sensor_sources_are_not_health_gates(self) -> None:
+        for event in (
+            {
+                "source": "openclaw-gateway",
+                "source_type": "platform_host_runtime",
+                "collector_profile": "openclaw-gateway",
+            },
+            {
+                "source": "HTTP",
+                "source_type": "zeek",
+                "collector_profile": "zeek-json",
+            },
+        ):
+            await self.redis_client.push_raw_event(
+                self.fake_redis,
+                {
+                    **event,
+                    "collector": "sensor-forwarder",
+                    "event.dataset": "sensor.event",
+                },
+            )
+
+        sources = await self.redis_client.list_source_health(self.fake_redis)
+        sources_with_excluded = await self.redis_client.list_source_health(
+            self.fake_redis,
+            include_excluded=True,
+        )
+
+        self.assertEqual([], sources["items"])
+        self.assertEqual(2, sources_with_excluded["metrics"]["excluded"])
 
     async def test_orphaned_legacy_collectors_are_excluded_from_health_gating(self) -> None:
         aged_ts = (

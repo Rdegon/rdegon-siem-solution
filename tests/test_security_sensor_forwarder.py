@@ -21,6 +21,20 @@ from deploy.security_sensor_forwarder import (
 
 
 class SecuritySensorForwarderTests(unittest.TestCase):
+    def test_sensor_host_overrides_protocol_source_identity(self) -> None:
+        decorated = _decorate(
+            {"source": "HTTP", "log_source": "HTTP", "host.name": "soc-ndr-01"},
+            kind="zeek",
+            sensor="zeek",
+            host_name="soc-ndr-01",
+            path=Path("/opt/zeek/logs/current/weird.log"),
+            inode=1,
+            offset=2,
+        )
+
+        self.assertEqual("soc-ndr-01", decorated["source"])
+        self.assertEqual("soc-ndr-01", decorated["log_source"])
+
     def test_trivy_document_is_expanded_into_findings(self) -> None:
         payload = {
             "ArtifactName": "example/image:latest",
@@ -143,6 +157,35 @@ class SecuritySensorForwarderTests(unittest.TestCase):
             self.assertEqual(0, _collect_once(args, state))
             self.assertFalse(state["spool_backpressure"])
 
+    def test_collection_ignores_file_removed_during_log_rotation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "weird.log"
+            source.write_text("{}\n", encoding="utf-8")
+            args = Namespace(
+                spool_path=str(root / "spool.jsonl"),
+                spool_max_bytes=1_048_576,
+                path=[str(source)],
+                read_limit=100,
+                format="jsonl",
+                kind="zeek",
+                sensor="soc-ndr-01",
+                host_name="soc-ndr-01",
+                start_position="beginning",
+                state_path=str(root / "state.json"),
+            )
+            state = {"files": {str(source.resolve()): {"inode": 7, "offset": 4}}}
+
+            with patch(
+                "deploy.security_sensor_forwarder._read_jsonl",
+                side_effect=FileNotFoundError,
+            ):
+                count = _collect_once(args, state)
+
+            self.assertEqual(0, count)
+            self.assertEqual({"inode": 7, "offset": 4}, state["files"][str(source.resolve())])
+            self.assertFalse(Path(args.spool_path).exists())
+
     def test_delivery_reduces_batch_after_http_413_and_remembers_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -193,6 +236,24 @@ class SecuritySensorForwarderTests(unittest.TestCase):
         )
 
         self.assertEqual("Server.Monitor.Health", event["artifact"])
+
+    def test_velociraptor_client_and_flow_are_derived_from_collection_path(self) -> None:
+        event = _decorate(
+            {"Hostname": "WIN-RTX-test"},
+            kind="velociraptor",
+            sensor="soc-dfir-01",
+            host_name="soc-dfir-01",
+            path=Path(
+                "/var/lib/velociraptor/clients/C.123/artifacts/"
+                "Generic.Client.Info/F.SMOKE/BasicInformation.json"
+            ),
+            inode=1,
+            offset=0,
+        )
+
+        self.assertEqual("Generic.Client.Info", event["artifact"])
+        self.assertEqual("C.123", event["client.id"])
+        self.assertEqual("F.SMOKE", event["flow.id"])
 
 
 if __name__ == "__main__":

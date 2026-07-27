@@ -22,7 +22,12 @@
         "siem-processing": "10.20.10.105",
         "siem-storage": "10.20.10.106",
         "siem-web": "10.20.10.107",
-        "siem-transport": "10.20.10.108"
+        "siem-transport": "10.20.10.108",
+        "soc-ndr-01": "10.20.10.127",
+        "soc-dfir-01": "10.20.10.128",
+        "soc-ti-01": "10.20.10.131",
+        "soc-pki-01": "10.20.10.132",
+        "soc-evidence-01": "10.20.10.133"
       }
     },
     "servers_games": {
@@ -49,7 +54,8 @@
         "pilot-web-01": "10.20.30.123",
         "pilot-db-01": "10.20.30.124",
         "pilot-cache-01": "10.20.30.125",
-        "openclaw-gateway": "10.20.30.126"
+        "openclaw-gateway": "10.20.30.126",
+        "soc-analysis-01": "10.20.30.129"
       }
     },
     "users": {
@@ -79,7 +85,13 @@
     "106": {"name": "siem-storage", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
     "107": {"name": "siem-web", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
     "108": {"name": "siem-transport", "primary_bridge": "vmbr2", "disable_or_detach_old_external": "net1"},
+    "127": {"name": "soc-ndr-01", "primary_bridge": "vmbr2"},
+    "128": {"name": "soc-dfir-01", "primary_bridge": "vmbr2"},
+    "129": {"name": "soc-analysis-01", "primary_bridge": "vmbr1"},
     "130": {"name": "gamepanel-01", "primary_bridge": "vmbr3"},
+    "131": {"name": "soc-ti-01", "primary_bridge": "vmbr2"},
+    "132": {"name": "soc-pki-01", "primary_bridge": "vmbr2"},
+    "133": {"name": "soc-evidence-01", "primary_bridge": "vmbr2"},
     "100": {"name": "minecraft-01", "primary_bridge": "vmbr3"}
   },
   "notes": [

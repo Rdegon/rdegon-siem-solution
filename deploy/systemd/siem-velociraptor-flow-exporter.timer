@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll Velociraptor completed flows for SIEM
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+Persistent=true
+RandomizedDelaySec=10
+Unit=siem-velociraptor-flow-exporter.service
+
+[Install]
+WantedBy=timers.target

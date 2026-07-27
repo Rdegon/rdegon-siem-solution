@@ -35,7 +35,7 @@ class ProxmoxFleetRuntimeTests(unittest.TestCase):
         self.assertEqual("connected", openclaw["state"])
         self.assertEqual("onboardable", pilot["state"])
         self.assertEqual("offline", cache["state"])
-        self.assertTrue(bool(openclaw["host_runtime_enabled"]))
+        self.assertFalse(bool(openclaw["host_runtime_enabled"]))
         self.assertEqual(1, int(payload["metrics"]["connected"]))
         self.assertEqual(1, int(payload["metrics"]["onboardable"]))
         self.assertEqual(1, int(payload["metrics"]["offline"]))
@@ -65,8 +65,8 @@ class ProxmoxFleetRuntimeTests(unittest.TestCase):
             with patch("proxmox_fleet_runtime._save_rows"):
                 with patch("vuln_store.fetch_cmdb_assets", return_value=[]):
                     with patch(
-                        "vuln_store.save_cmdb_asset",
-                        side_effect=lambda **kwargs: saved_assets.append(kwargs) or kwargs,
+                        "vuln_store.save_cmdb_assets",
+                        side_effect=lambda items: saved_assets.extend(items) or items,
                     ):
                         result = runtime.sync_proxmox_fleet_to_cmdb(actor="tester")
 
@@ -115,8 +115,8 @@ class ProxmoxFleetRuntimeTests(unittest.TestCase):
             with patch("proxmox_fleet_runtime._save_rows"):
                 with patch("vuln_store.fetch_cmdb_assets", return_value=existing_assets):
                     with patch(
-                        "vuln_store.save_cmdb_asset",
-                        side_effect=lambda **kwargs: saved_assets.append(kwargs) or kwargs,
+                        "vuln_store.save_cmdb_assets",
+                        side_effect=lambda items: saved_assets.extend(items) or items,
                     ):
                         result = runtime.sync_proxmox_fleet_to_cmdb(actor="tester")
 

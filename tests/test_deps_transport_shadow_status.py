@@ -40,6 +40,15 @@ def _load_deps_module():
 
 
 class TransportShadowStatusTests(unittest.TestCase):
+    def test_stream_runtime_fallback_does_not_enable_shadow_compare(self) -> None:
+        deps = _load_deps_module()
+
+        with patch.object(deps, "get_ch_client", side_effect=TimeoutError("storage busy")):
+            payload = deps.fetch_stream_correlation_runtime_status()
+
+        self.assertFalse(payload["available"])
+        self.assertFalse(payload["shadow_compare"])
+
     def test_fetch_transport_shadow_status_prefers_freshest_shadow_node(self) -> None:
         env_overrides = {
             "SIEM_ENV": "dev",

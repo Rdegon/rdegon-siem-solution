@@ -1,0 +1,12 @@
+[Unit]
+Description=Run guarded ClamAV signature update daily
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=siem-clamav-update.service
+
+[Install]
+WantedBy=timers.target
+

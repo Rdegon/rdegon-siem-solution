@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily curated MISP feed cache refresh
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+RandomizedDelaySec=20m
+Unit=siem-misp-feed-cache.service
+
+[Install]
+WantedBy=timers.target

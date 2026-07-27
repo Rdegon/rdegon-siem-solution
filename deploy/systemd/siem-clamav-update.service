@@ -1,0 +1,17 @@
+[Unit]
+Description=Guarded ClamAV signature database update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/siem/deploy/clamav_update_guard.py
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/clamav /var/log/clamav
+TimeoutStartSec=20min
+

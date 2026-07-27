@@ -41,7 +41,7 @@ class HostRuntimeRuntimeTests(unittest.TestCase):
         host_names = {item["host_name"] for item in targets}
         self.assertIn("siem-ingest", host_names)
         self.assertIn("navidrome-01", host_names)
-        self.assertIn("openclaw-gateway", host_names)
+        self.assertNotIn("openclaw-gateway", host_names)
         self.assertNotIn("opnsense-edge-01", host_names)
         self.assertNotIn("win-rtx-test", host_names)
         self.assertNotIn("offline-host", host_names)

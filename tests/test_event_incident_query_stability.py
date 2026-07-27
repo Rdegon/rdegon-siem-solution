@@ -178,6 +178,47 @@ class EventIncidentQueryStabilityTests(unittest.TestCase):
         self.assertIn("toString(entity_key) = 'DESKTOP-5JMJVBH'", captured[0])
         self.assertIn("toInt64(rule_id) = 2604", captured[0])
 
+    def test_incident_detail_resolves_id_from_raw_scan_fallback(self) -> None:
+        original_fetch = self.deps.fetch_alerts_agg
+        original_fallback = self.deps._fetch_alerts_agg_from_raw_scan
+        try:
+            self.deps.fetch_alerts_agg = lambda **_: []
+            self.deps._fetch_alerts_agg_from_raw_scan = lambda **_: [
+                {
+                    "agg_id": "agg:fallback",
+                    "record_id": "agg:fallback",
+                    "storage_agg_id": "",
+                    "entity_key": "endpoint-01",
+                    "group_key": {},
+                }
+            ]
+            selected = self.deps._incident_selected_record("agg", "agg:fallback", window="24h")
+        finally:
+            self.deps.fetch_alerts_agg = original_fetch
+            self.deps._fetch_alerts_agg_from_raw_scan = original_fallback
+
+        self.assertIsNotNone(selected)
+        self.assertEqual("endpoint-01", selected["entity_key"])
+
+    def test_incident_detail_accepts_storage_aggregate_id(self) -> None:
+        original_fetch = self.deps.fetch_alerts_agg
+        try:
+            self.deps.fetch_alerts_agg = lambda **_: [
+                {
+                    "agg_id": "agg:stable",
+                    "record_id": "agg:stable",
+                    "storage_agg_id": "storage-uuid",
+                    "entity_key": "endpoint-01",
+                    "group_key": {},
+                }
+            ]
+            selected = self.deps._incident_selected_record("agg", "storage-uuid", window="24h")
+        finally:
+            self.deps.fetch_alerts_agg = original_fetch
+
+        self.assertIsNotNone(selected)
+        self.assertEqual("agg:stable", selected["agg_id"])
+
     def test_incident_scope_matching_keeps_raw_scan_bounded(self) -> None:
         captured: list[str] = []
 

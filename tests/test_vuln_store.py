@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 import vuln_store
@@ -77,6 +78,102 @@ class _DepsStub:
 
 
 class VulnStoreTests(unittest.TestCase):
+    def test_schema_check_skips_ddl_when_runtime_schema_exists(self) -> None:
+        class _SchemaQueryResult:
+            def __init__(self, rows):
+                self.result_rows = rows
+
+        class _SchemaDepsStub(_DepsStub):
+            def __init__(self):
+                super().__init__()
+                self.commands = []
+
+            def get_ch_client(self):
+                outer = self
+
+                class _Client:
+                    def query(self, query):
+                        if "system.columns" in query:
+                            return _SchemaQueryResult(
+                                [("vuln_enabled",), ("vuln_profile",)]
+                            )
+                        return _SchemaQueryResult(
+                            [
+                                ("vuln_asset_bindings",),
+                                ("vuln_scan_runs",),
+                                ("vuln_findings",),
+                            ]
+                        )
+
+                    def command(self, query):
+                        outer.commands.append(query)
+
+                return _Client()
+
+        deps = _SchemaDepsStub()
+        vuln_store.ensure_vulnerability_support.cache_clear()
+        with patch("vuln_store._deps", return_value=deps):
+            assert vuln_store.ensure_vulnerability_support()
+        vuln_store.ensure_vulnerability_support.cache_clear()
+
+        self.assertEqual([], deps.commands)
+
+    def test_binding_reads_select_only_latest_version(self) -> None:
+        class _BindingReadDepsStub(_DepsStub):
+            def get_ch_client(self):
+                outer = self
+
+                class _Client:
+                    def query(self, query):
+                        outer.captured_query = query
+                        return _QueryResult([])
+
+                return _Client()
+
+        deps = _BindingReadDepsStub()
+        with patch("vuln_store._deps", return_value=deps):
+            with patch("vuln_store.ensure_vulnerability_support", return_value=True):
+                rows = vuln_store._fetch_vuln_asset_bindings(limit=25)
+
+        self.assertEqual([], rows)
+        self.assertIn("LIMIT 1 BY asset_id, scanner_family", deps.captured_query)
+
+    def test_binding_upsert_batches_versions_without_mutations(self) -> None:
+        class _BindingDepsStub(_DepsStub):
+            def __init__(self):
+                super().__init__()
+                self.commands = []
+                self.inserts = []
+
+            def get_ch_client(self):
+                outer = self
+
+                class _Client:
+                    def command(self, query):
+                        outer.commands.append(query)
+
+                    def insert(self, table, rows, *, column_names):
+                        outer.inserts.append((table, rows, column_names))
+
+                return _Client()
+
+        deps = _BindingDepsStub()
+        timestamp = datetime(2026, 7, 27, 0, 0, 0)
+        items = [
+            {"asset_id": "asset-1", "scanner_family": "greenbone", "target_id": "old", "last_sync_ts": timestamp},
+            {"asset_id": "asset-1", "scanner_family": "greenbone", "target_id": "new", "last_sync_ts": timestamp},
+            {"asset_id": "asset-2", "scanner_family": "greenbone", "target_id": "second", "last_sync_ts": timestamp},
+        ]
+
+        with patch("vuln_store._deps", return_value=deps):
+            with patch("vuln_store.ensure_vulnerability_support", return_value=True):
+                vuln_store._upsert_vuln_asset_bindings(items)
+
+        self.assertEqual([], deps.commands)
+        self.assertEqual(1, len(deps.inserts))
+        self.assertEqual(2, len(deps.inserts[0][1]))
+        self.assertEqual("new", deps.inserts[0][1][0][5])
+
     def test_load_previous_latest_findings_uses_distinct_latest_updated_alias(self) -> None:
         deps = _DepsStub()
         with patch("vuln_store._deps", return_value=deps):

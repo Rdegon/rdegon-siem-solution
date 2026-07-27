@@ -82,9 +82,23 @@ SOURCE_TYPE_THRESHOLDS = {
     "Platform": (1_800, 7_200),
     "Network": (3_600, 21_600),
     "Vulnerability scanner": (3_600, 21_600),
+    "Event-driven": (604_800, 2_592_000),
     "Synthetic": (HEALTH_STALE_SECONDS, HEALTH_STALE_SECONDS),
 }
 SYNTHETIC_SOURCE_TOKENS = ("smoke", "synthetic")
+RETIRED_HEALTH_IDENTITIES = {
+    "edge-gateway",
+    "guest",
+    "openclaw-gateway",
+}
+MALFORMED_SENSOR_SOURCE_IDENTITIES = {
+    "contentline",
+    "dnp3_udp",
+    "http",
+    "ssl",
+    "syscall",
+    "tcp",
+}
 NON_OPERATIONAL_HEALTH_TOKENS = (
     "eps-bench",
     "benchmark",
@@ -309,6 +323,12 @@ def _event_timestamp(event: dict[str, Any]) -> str:
     for key in ("ts", "@timestamp", "event.created", "ingest_ts"):
         value = str(event.get(key) or "").strip()
         if value:
+            try:
+                epoch = float(value)
+            except ValueError:
+                return value
+            if 946_684_800 <= epoch <= 4_102_444_800:
+                return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             return value
     return _now_iso()
 
@@ -420,6 +440,13 @@ def _health_status(last_seen_ts: str, *, source_type: str = "", synthetic: bool 
 
 def _runtime_source_type(row: dict[str, Any]) -> str:
     explicit = _guess_runtime_source_type(str(row.get("id") or row.get("source") or ""), str(row.get("source_type") or ""))
+    explicit_lower = explicit.lower()
+    if explicit_lower in {"falco", "misp", "malware", "malware_analysis", "static-analysis"}:
+        return "Event-driven"
+    if explicit_lower in {"zeek", "suricata"}:
+        return "Network"
+    if explicit_lower.startswith("windows"):
+        return "Platform"
     if explicit not in {"unknown", "http_json", "syslog"}:
         return explicit
     inferred_tokens = " ".join(
@@ -432,6 +459,12 @@ def _runtime_source_type(row: dict[str, Any]) -> str:
     ).lower()
     if "vuln" in inferred_tokens or "scanner" in inferred_tokens:
         return "Vulnerability scanner"
+    if any(token in inferred_tokens for token in ("falco", "misp", "malware", "static-analysis")):
+        return "Event-driven"
+    if any(token in inferred_tokens for token in ("windows", "winlog", "sysmon")):
+        return "Platform"
+    if any(token in inferred_tokens for token in ("zeek", "suricata")):
+        return "Network"
     if "network" in inferred_tokens or "syslog_tcp" in inferred_tokens:
         return "Network"
     if "siem-" in inferred_tokens or "linux-auth" in inferred_tokens or "linux-audit" in inferred_tokens:
@@ -704,6 +737,17 @@ def _joined_health_tokens(row: dict[str, Any]) -> str:
 
 def _exclude_from_health_gating(row: dict[str, Any]) -> bool:
     if bool(row.get("is_synthetic")):
+        return True
+    identity = str(row.get("id") or row.get("source") or "").strip().lower()
+    if identity in RETIRED_HEALTH_IDENTITIES:
+        return True
+    profile = " ".join(
+        str(row.get(field) or "").strip().lower()
+        for field in ("source_type", "collector", "collector_profile", "ingest_profile", "last_dataset")
+    )
+    if identity in MALFORMED_SENSOR_SOURCE_IDENTITIES and any(
+        sensor in profile for sensor in ("zeek", "falco")
+    ):
         return True
     if any(
         str(row.get(field) or "").strip().lower() in {"127.0.0.1", "::1", "localhost"}
@@ -1104,6 +1148,29 @@ async def _load_replay_records(redis: Redis) -> dict[str, dict[str, Any]]:
     return items
 
 
+async def _cache_resolved_replay_count(
+    redis: Redis,
+    replay_rows: dict[str, dict[str, Any]],
+) -> int:
+    resolved = sum(1 for item in replay_rows.values() if _replay_record_is_resolved(item))
+    await redis.hset(INGEST_METRICS_HASH_KEY, "resolved_dlq_total", str(resolved))
+    return resolved
+
+
+async def _save_replay_record(
+    redis: Redis,
+    dlq_id: str,
+    payload: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None = None,
+) -> None:
+    was_resolved = _replay_record_is_resolved(dict(previous or {}))
+    is_resolved = _replay_record_is_resolved(payload)
+    await _save_hash_record(redis, DLQ_REPLAY_HASH_KEY, dlq_id, payload)
+    if was_resolved != is_resolved:
+        await _increment_metric(redis, "resolved_dlq_total", 1 if is_resolved else -1)
+
+
 async def list_source_health(redis: Redis, *, limit: int = 200, include_excluded: bool = False) -> dict[str, Any]:
     rows = [
         _safe_json_loads(value, default={})
@@ -1257,6 +1324,7 @@ async def replay_dlq_events(
     producer: Any | None = None,
 ) -> dict[str, Any]:
     replay_rows = await _load_replay_records(redis)
+    await _cache_resolved_replay_count(redis, replay_rows)
     requested_ids = [str(item).strip() for item in (ids or []) if str(item).strip()]
     if not requested_ids:
         requested_limit = max(1, min(200, int(limit)))
@@ -1312,7 +1380,7 @@ async def replay_dlq_events(
         if not rows:
             failed += 1
             result = {"id": dlq_id, "status": "failed", "reason": "dlq_item_not_found", "actor": actor, "ts": _now_iso()}
-            await _save_hash_record(redis, DLQ_REPLAY_HASH_KEY, dlq_id, result)
+            await _save_replay_record(redis, dlq_id, result, previous=existing_replay)
             results.append(result)
             continue
 
@@ -1321,7 +1389,7 @@ async def replay_dlq_events(
         if not isinstance(payload, dict):
             failed += 1
             result = {"id": dlq_id, "status": "failed", "reason": "payload_not_object", "actor": actor, "ts": _now_iso()}
-            await _save_hash_record(redis, DLQ_REPLAY_HASH_KEY, dlq_id, result)
+            await _save_replay_record(redis, dlq_id, result, previous=existing_replay)
             results.append(result)
             continue
 
@@ -1353,7 +1421,7 @@ async def replay_dlq_events(
                 "stream_length": exc.stream_length,
                 "hard_limit": exc.hard_limit,
             }
-            await _save_hash_record(redis, DLQ_REPLAY_HASH_KEY, dlq_id, result)
+            await _save_replay_record(redis, dlq_id, result, previous=existing_replay)
             results.append(result)
             continue
 
@@ -1365,7 +1433,8 @@ async def replay_dlq_events(
             "ts": _now_iso(),
             "raw_stream_id": raw_stream_id,
         }
-        await _save_hash_record(redis, DLQ_REPLAY_HASH_KEY, dlq_id, result)
+        await _save_replay_record(redis, dlq_id, result, previous=existing_replay)
+        replay_rows[dlq_id] = result
         results.append(result)
 
     return {
@@ -1385,6 +1454,7 @@ async def suppress_non_operational_dlq_events(
     limit: int = 100_000,
 ) -> dict[str, Any]:
     replay_rows = await _load_replay_records(redis)
+    await _cache_resolved_replay_count(redis, replay_rows)
     rows = await _scan_stream_reverse(redis, DLQ_STREAM_KEY, max_scan=max(1, min(DLQ_SCAN_MAX_ROWS, int(limit))))
     suppressed = 0
     skipped = 0
@@ -1415,7 +1485,7 @@ async def suppress_non_operational_dlq_events(
             "ts": _now_iso(),
             "operator_visibility": "hidden",
         }
-        await _save_hash_record(redis, DLQ_REPLAY_HASH_KEY, dlq_id, record)
+        await _save_replay_record(redis, dlq_id, record, previous=existing_replay)
         replay_rows[dlq_id] = record
         suppressed += 1
     return {
@@ -1429,8 +1499,13 @@ async def suppress_non_operational_dlq_events(
 async def build_ingest_overview(redis: Redis, settings: IngestSettings | None = None) -> dict[str, Any]:
     source_health = await list_source_health(redis, limit=500)
     collector_health = await list_collector_health(redis, limit=500)
-    replay_rows = await _load_replay_records(redis)
     raw_metrics = await redis.hgetall(INGEST_METRICS_HASH_KEY)
+    cached_resolved_total = raw_metrics.get("resolved_dlq_total")
+    if cached_resolved_total is None:
+        replay_rows = await _load_replay_records(redis)
+        replayed_success = await _cache_resolved_replay_count(redis, replay_rows)
+    else:
+        replayed_success = _safe_int(cached_resolved_total)
     transport = build_transport_overview(settings)
     limits = _stream_limits(settings)
     raw_stream_length = await _stream_length(redis, RAW_STREAM_KEY) if transport["redis_streams_active"] else 0
@@ -1462,7 +1537,6 @@ async def build_ingest_overview(redis: Redis, settings: IngestSettings | None = 
         "raw_stream_hard_limit": limits["hard_limit"],
         "raw_stream_pressure_state": pressure_state,
     }
-    replayed_success = sum(1 for item in replay_rows.values() if _replay_record_is_resolved(item))
     outstanding_dlq = max(0, metrics["dlq_total"] - replayed_success)
     issues: list[str] = []
     if source_health["metrics"]["stale"] >= INGEST_STALE_ALERT_THRESHOLD:

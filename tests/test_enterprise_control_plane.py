@@ -446,6 +446,26 @@ class EnterpriseControlPlaneTests(unittest.TestCase):
         self.assertIn("shadow", overview["transport"])
         self.assertIn("Kafka shadow pipeline is stale (last event 1800s ago)", overview["issues"])
 
+    def test_health_overview_ignores_retired_shadow_in_kafka_only_mode(self) -> None:
+        overview = self.module.build_health_overview(
+            platform_status={
+                "status": "ok",
+                "transport_backend": "kafka",
+                "stream_correlation": {"shadow_compare": False},
+                "transport_shadow_status": {
+                    "healthy": False,
+                    "issues": ["Kafka shadow pipeline has no events in the last 15 minutes"],
+                },
+            },
+            source_inventory=[],
+            collector_inventory=[],
+        )
+
+        self.assertNotIn(
+            "Kafka shadow pipeline has no events in the last 15 minutes",
+            overview["issues"],
+        )
+
     def test_health_overview_ignores_synthetic_and_loopback_source_inventory(self) -> None:
         overview = self.module.build_health_overview(
             platform_status={"status": "ok"},

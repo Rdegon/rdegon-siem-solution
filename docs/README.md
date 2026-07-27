@@ -19,6 +19,8 @@ and dated delivery records for the SIEM platform.
     KEV/EPSS, remediation and safe-validation architecture.
 11. `home_soc_platform_target_2026-07-26.md` - current home SOC capabilities,
     missing analysis layers, target service map and rollout order.
+12. `home_soc_rollout_2026-07-27.md` - deployed SOC services, resource
+    corrections, production integrations and deferred gates.
 
 ## Current Runtime Truth
 

@@ -667,8 +667,19 @@ def ensure_event_enrichment_support() -> bool:
 
 @lru_cache(maxsize=1)
 def ensure_cmdb_ti_support() -> bool:
-    get_ch_client().command(
-        f"""
+    client = get_ch_client()
+    rows = client.query(
+        """
+        SELECT name
+        FROM system.tables
+        WHERE database = 'siem'
+          AND name IN ('cmdb_assets', 'threat_intel_indicators')
+        """
+    ).result_rows
+    existing = {str(row[0]) for row in rows if row}
+    if CMDB_ASSET_TABLE.rsplit(".", 1)[-1] not in existing:
+        client.command(
+            f"""
         CREATE TABLE IF NOT EXISTS {CMDB_ASSET_TABLE}
         (
             asset_id String,
@@ -686,12 +697,13 @@ def ensure_cmdb_ti_support() -> bool:
             enabled UInt8 DEFAULT 1,
             updated_ts DateTime DEFAULT now()
         )
-        ENGINE = MergeTree
-        ORDER BY (asset_id, hostname, ip)
+        ENGINE = ReplacingMergeTree(updated_ts)
+        ORDER BY asset_id
         """
-    )
-    get_ch_client().command(
-        f"""
+        )
+    if THREAT_INTEL_TABLE.rsplit(".", 1)[-1] not in existing:
+        client.command(
+            f"""
         CREATE TABLE IF NOT EXISTS {THREAT_INTEL_TABLE}
         (
             indicator_type LowCardinality(String),
@@ -708,7 +720,7 @@ def ensure_cmdb_ti_support() -> bool:
         ENGINE = MergeTree
         ORDER BY (indicator_type, indicator, provider)
         """
-    )
+        )
     return True
 
 
@@ -2292,6 +2304,23 @@ def _incident_selected_record(view: str, record_id: str, *, window: str = "24h",
     safe_view = "raw" if view == "raw" else "agg"
     windows = [(window or "24h", from_ts, to_ts), ("7d", "", ""), ("30d", "", ""), ("all", "", "")]
     key_name = "alert_id" if safe_view == "raw" else "agg_id"
+
+    def _match(rows: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+        selected = next((row for row in rows if str(row.get(key_name) or "") == str(record_id)), None)
+        if selected is None and safe_view == "agg":
+            selected = next(
+                (
+                    row
+                    for row in rows
+                    if str(row.get("record_id") or "") == str(record_id)
+                    or str(row.get("storage_agg_id") or "") == str(record_id)
+                    or str(row.get("entity_key") or "") == str(record_id)
+                    or str((row.get("group_key") or {}).get("incident_key") or "") == str(record_id)
+                ),
+                None,
+            )
+        return selected
+
     for next_window, next_from, next_to in windows:
         for row_limit in (200, 500, 2000, 5000):
             try:
@@ -2302,21 +2331,25 @@ def _incident_selected_record(view: str, record_id: str, *, window: str = "24h",
                 )
             except Exception:
                 continue
-            selected = next((row for row in rows if str(row.get(key_name) or "") == str(record_id)), None)
-            if selected is None and safe_view == "agg":
-                selected = next(
-                    (
-                        row
-                        for row in rows
-                        if str(row.get("entity_key") or "") == str(record_id)
-                        or str((row.get("group_key") or {}).get("incident_key") or "") == str(record_id)
-                    ),
-                    None,
-                )
+            selected = _match(rows)
             if selected is not None:
                 return selected
             if len(rows) < row_limit:
                 break
+        if safe_view == "agg":
+            try:
+                selected = _match(
+                    _fetch_alerts_agg_from_raw_scan(
+                        limit=5000,
+                        window=next_window,
+                        from_ts=next_from,
+                        to_ts=next_to,
+                    )
+                )
+            except Exception:
+                selected = None
+            if selected is not None:
+                return selected
     return None
 
 
@@ -4882,7 +4915,21 @@ def fetch_resource_overview() -> Dict[str, Any]:
         'stream_rules': int(_scalar("SELECT count() FROM siem.correlation_rules_stream WHERE enabled = 1")),
         'detection_rules': int(_scalar(f"SELECT count() FROM {DETECTION_RULE_TABLE}")),
         'active_list_items': int(_scalar(f"SELECT count() FROM {ACTIVE_LIST_TABLE}")),
-        'cmdb_assets': int(_scalar(f"SELECT count() FROM {CMDB_ASSET_TABLE} WHERE enabled = 1")),
+        'cmdb_assets': int(
+            _scalar(
+                f"""
+                SELECT count()
+                FROM
+                (
+                    SELECT asset_id, enabled
+                    FROM {CMDB_ASSET_TABLE}
+                    ORDER BY updated_ts DESC
+                    LIMIT 1 BY asset_id
+                )
+                WHERE enabled = 1
+                """
+            )
+        ),
         'threat_iocs': int(_scalar(f"SELECT count() FROM {THREAT_INTEL_TABLE} WHERE enabled = 1")),
         'incident_history_rows': int(_scalar(f"SELECT count() FROM {ALERT_HISTORY_TABLE}")),
         'last_event_ts': _fmt(_scalar("SELECT max(ts) FROM siem.events")),
@@ -5078,7 +5125,7 @@ def fetch_stream_correlation_runtime_status() -> Dict[str, Any]:
             "transport_backend": transport_backend_name,
             "state_backend": state_backend_name,
             "mode": str(os.getenv("SIEM_STREAM_CORR_TIME_MODE", "event") or "event").strip().lower(),
-            "shadow_compare": str(os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "true") or "true").strip().lower() in {"1", "true", "yes", "on"},
+            "shadow_compare": str(os.getenv("SIEM_STREAM_CORR_SHADOW_COMPARE", "false") or "false").strip().lower() in {"1", "true", "yes", "on"},
             "watermark_epoch": 0.0,
             "watermark_ts": "",
             "watermark_lag_sec": int(str(os.getenv("SIEM_STREAM_CORR_WATERMARK_LAG_SEC", "300") or "300")),
@@ -6912,6 +6959,7 @@ def fetch_cmdb_assets(limit: int = 200) -> List[Dict[str, Any]]:
             updated_ts
         FROM {CMDB_ASSET_TABLE}
         ORDER BY updated_ts DESC, asset_id
+        LIMIT 1 BY asset_id
         LIMIT {int(limit)}
     """
     rows: List[Dict[str, Any]] = []
@@ -6969,7 +7017,6 @@ def save_cmdb_asset(
         raise ValueError("asset_id is required")
     if safe_criticality not in {"low", "medium", "high", "critical"}:
         raise ValueError("criticality must be low, medium, high or critical")
-    get_ch_client().command(f"ALTER TABLE {CMDB_ASSET_TABLE} DELETE WHERE asset_id = {_sql_quote(safe_asset_id)}")
     get_ch_client().insert(
         CMDB_ASSET_TABLE,
         [[
@@ -9060,7 +9107,21 @@ def fetch_asset_categories() -> List[Dict[str, Any]]:
         },
         {
             "name": "CMDB Assets",
-            "count": int(_scalar(f"SELECT count() FROM {CMDB_ASSET_TABLE} WHERE enabled = 1")),
+            "count": int(
+                _scalar(
+                    f"""
+                    SELECT count()
+                    FROM
+                    (
+                        SELECT asset_id, enabled
+                        FROM {CMDB_ASSET_TABLE}
+                        ORDER BY updated_ts DESC
+                        LIMIT 1 BY asset_id
+                    )
+                    WHERE enabled = 1
+                    """
+                )
+            ),
             "description": "Asset registry with owners, criticality, environment and expected services.",
         },
         {

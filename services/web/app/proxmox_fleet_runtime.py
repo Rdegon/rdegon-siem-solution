@@ -191,7 +191,7 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
         "criticality": "high",
         "tags": ["proxmox-fleet", "openclaw", "gateway"],
         "source_name": "openclaw-gateway",
-        "monitoring_enabled": True,
+        "monitoring_enabled": False,
     },
 }
 
@@ -611,9 +611,9 @@ def list_proxmox_fleet_inventory(*, limit: int = 500) -> dict[str, Any]:
 
 def sync_proxmox_fleet_to_cmdb(*, actor: str = "system") -> dict[str, Any]:
     try:
-        from .vuln_store import fetch_cmdb_assets, save_cmdb_asset
+        from .vuln_store import fetch_cmdb_assets, save_cmdb_assets
     except ImportError:  # pragma: no cover - local test fallback
-        from vuln_store import fetch_cmdb_assets, save_cmdb_asset  # type: ignore[no-redef]
+        from vuln_store import fetch_cmdb_assets, save_cmdb_assets  # type: ignore[no-redef]
 
     payload = list_proxmox_fleet_inventory(limit=5000)
     items = list(payload.get("items") or [])
@@ -627,6 +627,7 @@ def sync_proxmox_fleet_to_cmdb(*, actor: str = "system") -> dict[str, Any]:
     created = 0
     updated = 0
     normalized_items: list[dict[str, Any]] = []
+    cmdb_versions: list[dict[str, Any]] = []
     for item in items:
         if _string(item.get("state")) == "unsupported":
             normalized_items.append(dict(item))
@@ -647,25 +648,42 @@ def sync_proxmox_fleet_to_cmdb(*, actor: str = "system") -> dict[str, Any]:
             *[_string(tag) for tag in (item.get("tags") or []) if _string(tag)],
             "proxmox-fleet",
         }
-        save_cmdb_asset(
-            asset_id=asset_id,
-            asset_type=_string(existing.get("asset_type")) or ("container" if _string(item.get("guest_type")) == "lxc" else "server"),
-            hostname=_string(item.get("hostname")) or _string(existing.get("hostname")),
-            ip=_string(item.get("ip")) or _string(existing.get("ip")),
-            owner=_string(existing.get("owner")) or "soc-fleet",
-            criticality=_string(existing.get("criticality")) or _string(item.get("criticality")) or "medium",
-            environment=_string(existing.get("environment")) or "lab",
-            business_service=_string(existing.get("business_service")) or _string(item.get("business_service")) or _string(item.get("name")),
-            os_family=_string(existing.get("os_family")) or _string(item.get("os_family")) or "linux",
-            expected_ports=",".join(str(port) for port in []),
-            tags=",".join(sorted(tags)),
-            notes=_string(existing.get("notes")) or f"Managed by Proxmox fleet sync ({actor}).",
-            vuln_enabled=bool(item.get("vuln_scannable")),
-            vuln_profile="network-basic",
+        cmdb_versions.append(
+            {
+                "asset_id": asset_id,
+                "asset_type": _string(existing.get("asset_type"))
+                or (
+                    "container"
+                    if _string(item.get("guest_type")) == "lxc"
+                    else "server"
+                ),
+                "hostname": _string(item.get("hostname"))
+                or _string(existing.get("hostname")),
+                "ip": _string(item.get("ip")) or _string(existing.get("ip")),
+                "owner": _string(existing.get("owner")) or "soc-fleet",
+                "criticality": _string(existing.get("criticality"))
+                or _string(item.get("criticality"))
+                or "medium",
+                "environment": _string(existing.get("environment")) or "lab",
+                "business_service": _string(existing.get("business_service"))
+                or _string(item.get("business_service"))
+                or _string(item.get("name")),
+                "os_family": _string(existing.get("os_family"))
+                or _string(item.get("os_family"))
+                or "linux",
+                "expected_ports": ",".join(str(port) for port in []),
+                "tags": ",".join(sorted(tags)),
+                "notes": _string(existing.get("notes"))
+                or f"Managed by Proxmox fleet sync ({actor}).",
+                "vuln_enabled": bool(item.get("vuln_scannable")),
+                "vuln_profile": "network-basic",
+            }
         )
         updated_item = dict(item)
         updated_item["asset_id"] = asset_id
         normalized_items.append(updated_item)
+    if cmdb_versions:
+        save_cmdb_assets(cmdb_versions)
     if normalized_items:
         _save_rows(PROXMOX_FLEET_COLLECTION, normalized_items)
     return {

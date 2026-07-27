@@ -252,6 +252,23 @@ def main() -> int:
         env_map["SIEM_INGEST_TLS_CA_FILE"] = vm4_ca_path
 
         _upload_text_as_root(vm4_client, ingest_cert, vm4_ca_path, sudo_password=vm4.password, mode="0644")
+        tls_dir = posixpath.dirname(vm4_ca_path)
+        access_command = (
+            f"chown root:{shlex.quote(vm4.user)} {shlex.quote(tls_dir)} {shlex.quote(vm4_ca_path)} && "
+            f"chmod 0750 {shlex.quote(tls_dir)} && "
+            f"chmod 0640 {shlex.quote(vm4_ca_path)}"
+        )
+        code, out, err = _run(
+            vm4_client,
+            access_command,
+            sudo_password=vm4.password,
+            use_sudo=True,
+        )
+        cleaned = _strip_password_echo(out, vm4.password)
+        if code != 0:
+            raise RuntimeError(
+                f"Unable to grant the Web service access to the ingest CA: {err.strip() or cleaned}"
+            )
         _upload_text_as_root(vm4_client, _serialize_env(env_map), vm4_env_path, sudo_password=vm4.password, mode="0600")
 
         restart_cmd = "systemctl restart siem-web && systemctl is-active siem-web"

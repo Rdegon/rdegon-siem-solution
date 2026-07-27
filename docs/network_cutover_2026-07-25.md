@@ -28,6 +28,7 @@ cutover; it must not be assumed to be the current firewall.
 - OIDC issuer and Keycloak public hostname:
   `https://192.168.3.102/realms/siem`
 - Public collector entry point: `https://192.168.3.102:8443`
+- Velociraptor endpoint entry point: `https://192.168.3.102:8000`
 - Web-to-ingest: `https://10.20.10.104`
 - Kafka bootstrap:
   `10.20.10.104:9092,10.20.10.105:9092,10.20.10.108:9092`

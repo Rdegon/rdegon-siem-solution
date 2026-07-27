@@ -509,7 +509,9 @@ def install_analysis_tools(pve: Proxmox, spec: ContainerSpec) -> None:
         """
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y -qq clamav clamav-daemon yara python3 python3-venv python3-pip gnupg
+apt-get install -y -qq \
+  clamav clamav-daemon yara python3 python3-venv python3-pip gnupg \
+  git unzip tar poppler-utils
 install -d -m 0750 /srv/analysis/inbox /srv/analysis/results /srv/analysis/quarantine
 install -d -o clamav -g clamav -m 0755 /var/lib/clamav
 cat >/var/lib/clamav/siem-local.hdb <<'EOF'
@@ -531,9 +533,73 @@ if ! command -v trivy >/dev/null 2>&1; then
   apt-get update -qq
   apt-get install -y -qq trivy
 fi
+python3 -m venv /opt/siem/venv-capa
+/opt/siem/venv-capa/bin/pip install --disable-pip-version-check --upgrade \
+  'pip==26.1.1' 'flare-capa==9.4.0'
+ln -sfn /opt/siem/venv-capa/bin/capa /usr/local/bin/capa
+
+python3 -m venv /opt/siem/venv-floss
+/opt/siem/venv-floss/bin/pip install --disable-pip-version-check --upgrade \
+  'pip==26.1.1' 'flare-floss==3.1.1'
+ln -sfn /opt/siem/venv-floss/bin/floss /usr/local/bin/floss
+
+python3 -m venv /opt/siem/venv-dfir
+/opt/siem/venv-dfir/bin/pip install --disable-pip-version-check --upgrade \
+  'pip==26.1.1' \
+  'oletools==0.60.2' \
+  'pdfid==1.1.3' \
+  'pefile==2024.8.26' \
+  'lief==1.0.0' \
+  'volatility3==2.28.0'
+for tool in oleid olevba rtfobj pdfid vol; do
+  source="/opt/siem/venv-dfir/bin/$tool"
+  if [ -x "$source" ]; then
+    ln -sfn "$source" "/usr/local/bin/$tool"
+  fi
+done
+cat >/usr/local/bin/pdfid <<'EOF'
+#!/bin/sh
+exec /opt/siem/venv-dfir/bin/python -m pdfid "$@"
+EOF
+chmod 0755 /usr/local/bin/pdfid
+
+CHAINSAW_VERSION=2.16.2
+CHAINSAW_SHA256=c670c3c6c7df9fa929a955892193c94dcc0dd071a2b2e273450bab1f7041602e
+if [ "$(/usr/local/bin/chainsaw --version 2>/dev/null | awk '{print $2}' | head -1)" != "$CHAINSAW_VERSION" ]; then
+  curl -fsSLo /tmp/chainsaw.tar.gz \
+    "https://github.com/WithSecureLabs/chainsaw/releases/download/v${CHAINSAW_VERSION}/chainsaw_x86_64-unknown-linux-gnu.tar.gz"
+  echo "$CHAINSAW_SHA256  /tmp/chainsaw.tar.gz" | sha256sum -c -
+  install -d -m 0755 /opt/siem/chainsaw
+  tar -xzf /tmp/chainsaw.tar.gz -C /opt/siem/chainsaw
+  install -m 0755 "$(find /opt/siem/chainsaw -type f -name chainsaw | head -1)" /usr/local/bin/chainsaw
+fi
+
+NUCLEI_VERSION=3.11.0
+NUCLEI_SHA256=dc238d6040813e14fc30514dac5a2eb1b430c694f3ca99eee2a5097e55076283
+if [ "$(/usr/local/bin/nuclei -version 2>&1 | sed -n 's/.*Nuclei Engine Version: v\\([0-9.]*\\).*/\\1/p' | head -1)" != "$NUCLEI_VERSION" ]; then
+  curl -fsSLo /tmp/nuclei.zip \
+    "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip"
+  echo "$NUCLEI_SHA256  /tmp/nuclei.zip" | sha256sum -c -
+  unzip -oq /tmp/nuclei.zip nuclei -d /tmp/nuclei-release
+  install -m 0755 /tmp/nuclei-release/nuclei /usr/local/bin/nuclei
+fi
+install -d -m 0750 /var/lib/siem-analysis /var/lib/siem-analysis/cache
+HOME=/var/lib/siem-analysis /usr/local/bin/nuclei -update-templates -silent
+
+TESTSSL_TAG=v3.2.4
+TESTSSL_COMMIT=97763a411c525720a5f9bd9d2cded416b10f210a
+if [ ! -d /opt/siem/testssl.sh/.git ]; then
+  git clone --filter=blob:none --no-checkout https://github.com/testssl/testssl.sh.git \
+    /opt/siem/testssl.sh
+fi
+git -C /opt/siem/testssl.sh fetch --depth 1 origin "$TESTSSL_COMMIT"
+git -C /opt/siem/testssl.sh checkout --detach "$TESTSSL_COMMIT"
+ln -sfn /opt/siem/testssl.sh/testssl.sh /usr/local/bin/testssl
+
 systemctl daemon-reload
-systemctl enable clamav-freshclam clamav-daemon
-systemctl restart clamav-freshclam || true
+systemctl disable --now clamav-freshclam || true
+systemctl reset-failed clamav-freshclam || true
+systemctl enable clamav-daemon
 systemctl restart clamav-daemon
 """,
         timeout=1800,
@@ -561,8 +627,23 @@ def install_analysis_runtime(pve: Proxmox, spec: ContainerSpec) -> None:
             0o755,
         ),
         (
+            ROOT / "deploy/clamav_update_guard.py",
+            "/opt/siem/deploy/clamav_update_guard.py",
+            0o755,
+        ),
+        (
             ROOT / "deploy/systemd/siem-static-analysis.service",
             "/etc/systemd/system/siem-static-analysis.service",
+            0o644,
+        ),
+        (
+            ROOT / "deploy/systemd/siem-clamav-update.service",
+            "/etc/systemd/system/siem-clamav-update.service",
+            0o644,
+        ),
+        (
+            ROOT / "deploy/systemd/siem-clamav-update.timer",
+            "/etc/systemd/system/siem-clamav-update.timer",
             0o644,
         ),
         (
@@ -610,8 +691,15 @@ chmod 0640 /etc/siem/security-sensor-static-analysis.env
   /opt/siem/services/security_analysis/static_worker.py \
   /opt/siem/deploy/security_sensor_forwarder.py
 systemctl daemon-reload
+systemctl disable --now clamav-freshclam.service || true
+systemctl reset-failed clamav-freshclam.service || true
+systemctl enable --now siem-clamav-update.timer
+systemctl start siem-clamav-update.service
 systemctl enable --now siem-static-analysis.service
 systemctl enable --now siem-security-sensor-forwarder@static-analysis.service
+systemctl restart siem-static-analysis.service
+systemctl restart siem-security-sensor-forwarder@static-analysis.service
+systemctl is-active --quiet siem-clamav-update.timer
 systemctl is-active --quiet siem-static-analysis.service
 systemctl is-active --quiet siem-security-sensor-forwarder@static-analysis.service
 """,
@@ -657,6 +745,14 @@ if [ ! -s /etc/siem/velociraptor-admin.env ]; then
   runuser -u velociraptor -- /usr/local/bin/velociraptor \
     --config /etc/velociraptor/server.config.yaml \
     user add --role administrator socadmin "$password"
+fi
+if [ ! -s /etc/velociraptor/api-soc-deploy.yaml ]; then
+  runuser -u velociraptor -- /usr/local/bin/velociraptor \
+    --config /etc/velociraptor/server.config.yaml \
+    config api_client --name socadmin --role administrator \
+    /etc/velociraptor/api-soc-deploy.yaml
+  chown velociraptor:velociraptor /etc/velociraptor/api-soc-deploy.yaml
+  chmod 0600 /etc/velociraptor/api-soc-deploy.yaml
 fi
 cat >/etc/systemd/system/velociraptor.service <<'EOF'
 [Unit]
@@ -808,10 +904,8 @@ def collect_status(pve: Proxmox, names: list[str]) -> list[dict[str, object]]:
                 "systemctl is-system-running || true"
             ),
         }[name]
-        output = pve.ct(
-            spec.vmid,
-            f"hostname; hostname -I; {service_check}; systemctl is-enabled chrony",
-        )
+        command = f"hostname; hostname -I; {service_check}; systemctl is-enabled chrony"
+        output = pve.guest_exec(spec.vmid, command) if name == "ti" else pve.ct(spec.vmid, command)
         status.append(
             {
                 "component": name,
@@ -840,6 +934,11 @@ def main() -> int:
     names = list(dict.fromkeys(args.components))
     with Proxmox() as pve:
         if not args.status_only:
+            if "ti" in names:
+                raise RuntimeError(
+                    "MISP runs in QEMU VM 131; use deploy/soc_misp_vm_provision.py "
+                    "instead of the retired LXC provisioner"
+                )
             for name in names:
                 spec = CONTAINERS[name]
                 ensure_container(pve, spec)

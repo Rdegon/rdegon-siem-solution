@@ -1,4 +1,5 @@
 import importlib
+import asyncio
 import os
 import sys
 import unittest
@@ -22,6 +23,7 @@ class WriterWorkerSettingsTests(unittest.TestCase):
         writer_worker = importlib.import_module("services.writer.worker")
 
         self.assertEqual(writer_worker.WriterSettings().ch_port, 9000)
+        self.assertEqual(writer_worker.WriterSettings().batch_wait_ms, 500)
 
     def test_writer_parses_decimal_unix_timestamp(self) -> None:
         writer_worker = importlib.import_module("services.writer.worker")
@@ -30,6 +32,33 @@ class WriterWorkerSettingsTests(unittest.TestCase):
         parsed = worker._parse_event_ts({"@timestamp": "1785057668.347427"})
 
         self.assertEqual(datetime.utcfromtimestamp(1785057668.347427), parsed)
+
+    def test_writer_coalesces_messages_during_micro_batch_window(self) -> None:
+        writer_worker = importlib.import_module("services.writer.worker")
+        settings = writer_worker.WriterSettings(
+            batch_size=4,
+            block_ms=100,
+            batch_wait_ms=50,
+        )
+        worker = writer_worker.WriterWorker(settings)
+
+        class Consumer:
+            def __init__(self):
+                self.responses = [["one"], ["two", "three", "four"]]
+                self.calls = []
+
+            async def poll(self, *, batch_size, block_ms):
+                self.calls.append((batch_size, block_ms))
+                return self.responses.pop(0)
+
+        consumer = Consumer()
+        worker._consumer = consumer
+
+        messages = asyncio.run(worker._poll_batch())
+
+        self.assertEqual(["one", "two", "three", "four"], messages)
+        self.assertEqual(2, len(consumer.calls))
+        self.assertEqual(3, consumer.calls[1][0])
 
 
 if __name__ == "__main__":

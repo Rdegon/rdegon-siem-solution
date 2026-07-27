@@ -439,7 +439,10 @@ def build_health_overview(
             issues.append("Content store is unhealthy")
         if str(content_store_status.get("migration_status") or "") in {"pending", "failed", "blocked", "fallback"}:
             issues.append(f"Content-store migration state: {content_store_status.get('migration_status')}")
-    if transport_backend in {"dual", "kafka"} and isinstance(transport_shadow_status, dict):
+    shadow_required = transport_backend == "dual" or bool(
+        dict(stream_corr or {}).get("shadow_compare")
+    )
+    if shadow_required and isinstance(transport_shadow_status, dict):
         if not bool(transport_shadow_status.get("healthy", True)):
             for item in transport_shadow_status.get("issues") or []:
                 text = str(item or "").strip()

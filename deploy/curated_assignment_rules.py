@@ -69,7 +69,7 @@ def _new_internal_ip_sql(item: dict[str, Any]) -> str:
     LEFT JOIN
     (
         SELECT ip
-        FROM siem.cmdb_assets
+        FROM siem.cmdb_assets FINAL
         WHERE enabled = 1 AND ip != ''
         GROUP BY ip
     ) AS known
@@ -110,7 +110,7 @@ def _unmonitored_discovered_host_sql(item: dict[str, Any]) -> str:
     LEFT JOIN
     (
         SELECT ip
-        FROM siem.cmdb_assets
+        FROM siem.cmdb_assets FINAL
         WHERE enabled = 1 AND ip != ''
         GROUP BY ip
     ) AS known
@@ -149,7 +149,7 @@ def _unexpected_known_host_port_sql(item: dict[str, Any]) -> str:
             c.hostname, '","destination_ip":"', c.ip, '","hits":', toString(count()), '}'
         ) AS context_json
     FROM siem.events AS e
-    INNER JOIN siem.cmdb_assets AS c
+    INNER JOIN siem.cmdb_assets FINAL AS c
       ON c.ip = IPv4NumToString(e.dst_ip)
     PREWHERE e.ts >= now() - INTERVAL {WINDOW_S} SECOND
     WHERE c.enabled = 1
@@ -235,7 +235,7 @@ FROM
             '"source":"', c.hostname, '","last_seen":"',
             toString(e.last_seen_ts), '","silence_hours":{silence_hours}}}'
         ) AS context_json
-    FROM siem.cmdb_assets AS c
+    FROM siem.cmdb_assets FINAL AS c
     INNER JOIN
     (
         SELECT

@@ -174,10 +174,19 @@ def host_runtime_targets_from_env(env: dict[str, str] | None = None) -> list[dic
     env_map = env or os.environ
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
+    retired_targets = {
+        item.strip().lower()
+        for item in str(
+            env_map.get("SIEM_HOST_RUNTIME_RETIRED_TARGETS", "openclaw-gateway") or ""
+        ).split(",")
+        if item.strip()
+    }
 
     def add_target(item: dict[str, Any]) -> None:
         host_name = str(item.get("host_name") or item.get("name") or item.get("source_name") or "").strip()
         if not host_name:
+            return
+        if host_name.lower() in retired_targets:
             return
         if item.get("monitoring_supported") is False:
             return

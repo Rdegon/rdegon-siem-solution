@@ -193,6 +193,7 @@ table ip nat {{
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 80 dnat to {sec["hosts"]["siem-web"]}:80
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 443 dnat to {sec["hosts"]["siem-web"]}:443
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8443 dnat to {sec["hosts"]["siem-ingest"]}:443
+    iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 8000 dnat to {sec["hosts"]["soc-dfir-01"]}:8000
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 1514-1518 dnat to {sec["hosts"]["siem-ingest"]}
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} udp dport 1514-1518 dnat to {sec["hosts"]["siem-ingest"]}
     iifname "eth0" ip daddr {mgmt["hosts"]["lab-edge-01"]} tcp dport 9443 dnat to {servers["hosts"]["nextcloud-siem"]}:443

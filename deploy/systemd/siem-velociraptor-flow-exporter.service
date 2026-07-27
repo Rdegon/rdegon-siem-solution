@@ -1,0 +1,16 @@
+[Unit]
+Description=Export Velociraptor flow summaries for SIEM ingestion
+After=velociraptor.service network-online.target
+Requires=velociraptor.service
+
+[Service]
+Type=oneshot
+User=velociraptor
+Group=velociraptor
+ExecStart=/usr/bin/python3 /opt/siem/deploy/velociraptor_flow_exporter.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/siem-velociraptor-exporter /var/log/siem
+UMask=0077

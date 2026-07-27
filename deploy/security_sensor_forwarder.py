@@ -222,8 +222,11 @@ def _decorate(
     decorated = dict(event)
     decorated.setdefault("event.id", _event_id(sensor, path, inode, offset, event))
     decorated.setdefault("source_type", kind)
-    decorated.setdefault("source", host_name or sensor)
-    decorated.setdefault("log_source", host_name or sensor)
+    # Sensor payloads overload "source" with protocol/parser values (for
+    # example Zeek "HTTP" or Falco "syscall"). Transport identity must always
+    # remain the reporting sensor host.
+    decorated["source"] = host_name or sensor
+    decorated["log_source"] = host_name or sensor
     decorated.setdefault("host.name", host_name or sensor)
     decorated.setdefault("collector", f"{kind}-forwarder")
     decorated.setdefault("collector_profile", f"{kind}-json")
@@ -249,6 +252,14 @@ def _decorate(
                 if marker_index + 1 < len(parts):
                     decorated["artifact"] = parts[marker_index + 1]
                 break
+        if "clients" in parts:
+            client_index = parts.index("clients")
+            if client_index + 1 < len(parts):
+                decorated.setdefault("client.id", parts[client_index + 1])
+        if "artifacts" in parts:
+            artifact_index = parts.index("artifacts")
+            if artifact_index + 2 < len(parts):
+                decorated.setdefault("flow.id", parts[artifact_index + 2])
     return decorated
 
 
@@ -423,25 +434,29 @@ def _collect_once(args: argparse.Namespace, state: dict[str, Any]) -> int:
             break
         state_entry = files_state.get(str(path), {})
         limit = args.read_limit - collected
-        if args.format == "json":
-            events, next_entry = _read_json_document(
-                path,
-                state_entry=state_entry,
-                kind=args.kind,
-                sensor=args.sensor,
-                host_name=args.host_name,
-                limit=limit,
-            )
-        else:
-            events, next_entry = _read_jsonl(
-                path,
-                state_entry=state_entry,
-                kind=args.kind,
-                sensor=args.sensor,
-                host_name=args.host_name,
-                limit=limit,
-                start_position=args.start_position,
-            )
+        try:
+            if args.format == "json":
+                events, next_entry = _read_json_document(
+                    path,
+                    state_entry=state_entry,
+                    kind=args.kind,
+                    sensor=args.sensor,
+                    host_name=args.host_name,
+                    limit=limit,
+                )
+            else:
+                events, next_entry = _read_jsonl(
+                    path,
+                    state_entry=state_entry,
+                    kind=args.kind,
+                    sensor=args.sensor,
+                    host_name=args.host_name,
+                    limit=limit,
+                    start_position=args.start_position,
+                )
+        except FileNotFoundError:
+            # Log rotation can unlink a file after glob expansion.
+            continue
         written = _append_spool(
             spool_path,
             events,

@@ -31,6 +31,8 @@ current references unless noted otherwise.
   management, exposure prioritization, remediation and safe-validation runbook.
 - `home_soc_platform_target_2026-07-26.md` - current home SOC inventory,
   non-duplicating target stack, service map and phased delivery order.
+- `home_soc_rollout_2026-07-27.md` - factual deployment, resource,
+  integration and acceptance record for the current SOC stack.
 - `production_recovery_and_rule_calibration_2026-07-26.md` - current recovery,
   scanner placement, NDR backlog handling, rule calibration and validation record.
 - `network_relocation_runbook_2026-06-23.md` - legacy relocation fallback notes.

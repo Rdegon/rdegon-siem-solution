@@ -65,6 +65,11 @@ def _deploy_misp(pve: Proxmox, ingest_certificate: str) -> dict[str, str]:
             0o755,
         ),
         (
+            ROOT / "deploy/misp_feed_cache.py",
+            "/opt/siem/deploy/misp_feed_cache.py",
+            0o755,
+        ),
+        (
             ROOT / "deploy/security_sensor_forwarder.py",
             "/opt/siem/deploy/security_sensor_forwarder.py",
             0o755,
@@ -77,6 +82,16 @@ def _deploy_misp(pve: Proxmox, ingest_certificate: str) -> dict[str, str]:
         (
             ROOT / "deploy/systemd/siem-misp-exporter.timer",
             "/etc/systemd/system/siem-misp-exporter.timer",
+            0o644,
+        ),
+        (
+            ROOT / "deploy/systemd/siem-misp-feed-cache.service",
+            "/etc/systemd/system/siem-misp-feed-cache.service",
+            0o644,
+        ),
+        (
+            ROOT / "deploy/systemd/siem-misp-feed-cache.timer",
+            "/etc/systemd/system/siem-misp-feed-cache.timer",
             0o644,
         ),
         (
@@ -122,8 +137,12 @@ chmod 0640 /etc/siem/security-sensor-misp.env
 systemctl daemon-reload
 systemctl enable --now siem-misp-exporter.timer
 systemctl start siem-misp-exporter.service
+systemctl enable --now siem-misp-feed-cache.timer
+systemctl start siem-misp-feed-cache.service
 systemctl enable --now siem-security-sensor-forwarder@misp.service
+systemctl restart siem-security-sensor-forwarder@misp.service
 systemctl is-active --quiet siem-misp-exporter.timer
+systemctl is-active --quiet siem-misp-feed-cache.timer
 systemctl is-active --quiet siem-security-sensor-forwarder@misp.service
 """,
         timeout=300,
@@ -138,6 +157,11 @@ systemctl is-active --quiet siem-security-sensor-forwarder@misp.service
 def _deploy_velociraptor(pve: Proxmox, ingest_certificate: str) -> dict[str, str]:
     files = (
         (
+            ROOT / "deploy/velociraptor_flow_exporter.py",
+            "/opt/siem/deploy/velociraptor_flow_exporter.py",
+            0o755,
+        ),
+        (
             ROOT / "deploy/security_sensor_forwarder.py",
             "/opt/siem/deploy/security_sensor_forwarder.py",
             0o755,
@@ -145,6 +169,16 @@ def _deploy_velociraptor(pve: Proxmox, ingest_certificate: str) -> dict[str, str
         (
             ROOT / "deploy/systemd/siem-security-sensor-forwarder@.service",
             "/etc/systemd/system/siem-security-sensor-forwarder@.service",
+            0o644,
+        ),
+        (
+            ROOT / "deploy/systemd/siem-velociraptor-flow-exporter.service",
+            "/etc/systemd/system/siem-velociraptor-flow-exporter.service",
+            0o644,
+        ),
+        (
+            ROOT / "deploy/systemd/siem-velociraptor-flow-exporter.timer",
+            "/etc/systemd/system/siem-velociraptor-flow-exporter.timer",
             0o644,
         ),
     )
@@ -162,10 +196,15 @@ def _deploy_velociraptor(pve: Proxmox, ingest_certificate: str) -> dict[str, str
         """
 set -euo pipefail
 install -d -m 0750 /var/lib/siem-security-forwarder /etc/siem/pki
+install -d -o velociraptor -g velociraptor -m 0750 \
+  /var/lib/siem-velociraptor-exporter /var/log/siem
+touch /var/log/siem/velociraptor-client-flows.jsonl
+chown velociraptor:velociraptor /var/log/siem/velociraptor-client-flows.jsonl
+chmod 0640 /var/log/siem/velociraptor-client-flows.jsonl
 cat >/etc/siem/security-sensor-velociraptor.env <<'EOF'
 SIEM_SENSOR_KIND=velociraptor
 SIEM_SENSOR_FORMAT=jsonl
-SIEM_SENSOR_PATHS=/var/lib/velociraptor/server_artifacts/*/*/*.json
+SIEM_SENSOR_PATHS=/var/lib/velociraptor/server_artifacts/*/*/*.json;/var/log/siem/velociraptor-client-flows.jsonl
 SIEM_SENSOR_HOSTNAME=soc-dfir-01
 SIEM_SENSOR_INGEST_URL=https://10.20.10.104/ingest/json
 SIEM_SENSOR_TLS_VERIFY=required
@@ -177,15 +216,21 @@ SIEM_SENSOR_SPOOL_MAX_BYTES=536870912
 SIEM_SENSOR_INTERVAL_SECONDS=5
 EOF
 chmod 0640 /etc/siem/security-sensor-velociraptor.env
-/usr/bin/python3 -m py_compile /opt/siem/deploy/security_sensor_forwarder.py
+/usr/bin/python3 -m py_compile \
+  /opt/siem/deploy/security_sensor_forwarder.py \
+  /opt/siem/deploy/velociraptor_flow_exporter.py
 systemctl daemon-reload
+systemctl enable --now siem-velociraptor-flow-exporter.timer
+systemctl start siem-velociraptor-flow-exporter.service
 systemctl enable --now siem-security-sensor-forwarder@velociraptor.service
+systemctl restart siem-security-sensor-forwarder@velociraptor.service
 systemctl is-active --quiet velociraptor.service
+systemctl is-active --quiet siem-velociraptor-flow-exporter.timer
 systemctl is-active --quiet siem-security-sensor-forwarder@velociraptor.service
 """,
-        timeout=180,
+        timeout=300,
     )
-    return {"server": "active", "forwarder": "active"}
+    return {"server": "active", "flow_exporter_timer": "active", "forwarder": "active"}
 
 
 def main() -> int:

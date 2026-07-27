@@ -94,6 +94,9 @@ class IngestRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
             async def hgetall(self, _key: str) -> dict[str, str]:
                 return {}
 
+            async def hset(self, _key: str, *_args, **_kwargs) -> int:
+                return 1
+
         fake_redis = FakeRedis()
 
         async def fake_scan(_redis, _stream_key: str, *, max_scan: int):
@@ -116,6 +119,9 @@ class IngestRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
             async def hgetall(self, _key: str) -> dict[str, str]:
                 return {}
 
+            async def hset(self, _key: str, *_args, **_kwargs) -> int:
+                return 1
+
         fake_redis = FakeRedis()
 
         async def fake_scan(_redis, _stream_key: str, *, max_scan: int):
@@ -136,6 +142,9 @@ class IngestRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
 
             async def hgetall(self, _key: str) -> dict[str, str]:
                 return {}
+
+            async def hset(self, _key: str, *_args, **_kwargs) -> int:
+                return 1
 
         fake_redis = FakeRedis()
         replay_rows = {f"dlq-{index}": {"status": "success"} for index in range(12)}

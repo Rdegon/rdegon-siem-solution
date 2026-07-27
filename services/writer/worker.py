@@ -39,6 +39,7 @@ class WriterSettings:
     consumer_name: str = os.getenv("SIEM_WRITER_CONSUMER", "writer-1")
     batch_size: int = int(os.getenv("SIEM_WRITER_BATCH_SIZE", "100"))
     block_ms: int = int(os.getenv("SIEM_WRITER_BLOCK_MS", "1000"))
+    batch_wait_ms: int = int(os.getenv("SIEM_WRITER_BATCH_WAIT_MS", "500"))
 
     ch_host: str = os.getenv("SIEM_CH_HOST", "127.0.0.1")
     ch_port: int = int(os.getenv("SIEM_CH_PORT", "9000"))
@@ -352,7 +353,13 @@ class WriterWorker:
                 rows = self._ch.execute(
                     f"""
                     SELECT asset_id, asset_type, hostname, ip, owner, criticality, environment, business_service, os_family, expected_ports, tags
-                    FROM {self._settings.cmdb_table}
+                    FROM
+                    (
+                        SELECT *
+                        FROM {self._settings.cmdb_table}
+                        ORDER BY updated_ts DESC
+                        LIMIT 1 BY asset_id
+                    )
                     WHERE enabled = 1
                     """
                 )
@@ -471,6 +478,29 @@ class WriterWorker:
                         seen.add(tag)
                         tags.append(tag)
         return tags, matches
+
+    async def _poll_batch(self) -> List[Any]:
+        assert self._consumer is not None
+        s = self._settings
+        messages = list(
+            await self._consumer.poll(batch_size=s.batch_size, block_ms=s.block_ms)
+        )
+        if not messages or len(messages) >= s.batch_size or s.batch_wait_ms <= 0:
+            return messages
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (s.batch_wait_ms / 1000.0)
+        while len(messages) < s.batch_size:
+            remaining_ms = int((deadline - loop.time()) * 1000)
+            if remaining_ms <= 0:
+                break
+            more = await self._consumer.poll(
+                batch_size=s.batch_size - len(messages),
+                block_ms=max(1, remaining_ms),
+            )
+            if more:
+                messages.extend(more)
+        return messages
 
     def _match_active_lists(self, fields: Dict[str, str]) -> Tuple[List[str], List[Dict[str, str]]]:
         self._refresh_active_lists()
@@ -650,7 +680,7 @@ class WriterWorker:
         )
 
         while True:
-            resp = await self._consumer.poll(batch_size=s.batch_size, block_ms=s.block_ms)
+            resp = await self._poll_batch()
 
             if not resp:
                 continue

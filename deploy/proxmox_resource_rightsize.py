@@ -96,6 +96,15 @@ STANDBY_CLICKHOUSE_CONFIG = """<clickhouse>
 </clickhouse>
 """
 
+CLICKHOUSE_JSON_PROFILE = """<clickhouse>
+  <profiles>
+    <default>
+      <allow_simdjson>0</allow_simdjson>
+    </default>
+  </profiles>
+</clickhouse>
+"""
+
 
 def _wait_vm_state(pve: Proxmox, vmid: int, expected: str, timeout: int = 300) -> None:
     deadline = time.monotonic() + timeout
@@ -249,6 +258,14 @@ def _apply_siem_profile(
         STANDBY_CLICKHOUSE_CONFIG.encode("ascii"),
         0o644,
     )
+    for vmid in (106, 108):
+        _guest_write(
+            pve,
+            vmid,
+            "/etc/clickhouse-server/users.d/siem-json-parser.xml",
+            CLICKHOUSE_JSON_PROFILE.encode("ascii"),
+            0o644,
+        )
     pve.run(
         "qm set 106 "
         f"--sata1 {STORAGE_SYSTEM_DISK},discard=on,aio=threads,cache=none"
