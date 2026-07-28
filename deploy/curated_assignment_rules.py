@@ -702,7 +702,7 @@ def _critical_alert_unacknowledged_sql(item: dict[str, Any]) -> str:
     return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
 
 
-def _stream_corr_no_alerts_sql(item: dict[str, Any]) -> str:
+def _stream_corr_unhealthy_sql(item: dict[str, Any]) -> str:
     rule_id = int(item["id"])
     dedupe_window_s = _dedupe_window(item)
     return f"""INSERT INTO siem.alerts_raw
@@ -735,12 +735,16 @@ FROM
     WHERE log_source = 'siem-storage'
       AND device_product = 'host.metrics'
       AND subcategory = 'host_runtime_snapshot'
+      AND position(toString(normalized_json), '"name":"siem-stream-corr"') > 0
       AND
       (
-          position(toString(normalized_json), '"name":"siem-stream-corr"') = 0
-          OR match(
+          match(
               toString(normalized_json),
               '"name":"siem-stream-corr"[^}}]*"status":"(inactive|failed|dead|unknown)"'
+          )
+          OR match(
+              toString(normalized_json),
+              '"status":"(inactive|failed|dead|unknown)"[^}}]*"name":"siem-stream-corr"'
           )
       )
     HAVING unhealthy_snapshots >= 3
@@ -956,7 +960,7 @@ def curated_batch_sql(item: dict[str, Any]) -> str:
     if source_id == "HB-014":
         return _unexpected_known_host_port_sql(item)
     if source_id == "CORR-S-002":
-        return _stream_corr_no_alerts_sql(item)
+        return _stream_corr_unhealthy_sql(item)
     if source_id == "GW-010":
         return _gateway_logs_stopped_sql(item)
     if source_id == "NAV-004":

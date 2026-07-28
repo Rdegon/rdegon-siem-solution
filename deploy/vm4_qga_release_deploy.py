@@ -21,12 +21,16 @@ WEB_PYTHON = "/opt/siem/venv-web/bin/python"
 
 RELEASE_FILES = (
     "correlation_rule_packs/linux_activity_v1.json",
+    "correlation_rule_packs/source_coverage_v1.json",
     "deploy/homelab_watchdog.py",
     "deploy/close_confirmed_runtime_false_positives.py",
     "deploy/curated_assignment_rules.py",
     "deploy/publish_targeted_rule_calibration.py",
     "services/web/app/health_surfaces.py",
     "services/web/app/inventory_catalog.py",
+    "services/web/app/proxmox_fleet_runtime.py",
+    "correlation_rule_packs/siem_detection_pack_v1_active_overrides.json",
+    "services/web/app/query/sources.py",
     "services/web/app/runtime_humanization.py",
     "services/web/app/security_services_runtime.py",
     "correlation_rule_packs/siem_detection_pack_v1.json",
@@ -65,7 +69,8 @@ def _push_file(
     )
     pve.guest_exec(
         VMID,
-        f"install -d -m 0750 {shlex.quote(backup_root)} "
+        f"install -d -m 0750 {shlex.quote(backup_root)}; "
+        f"install -d -o rdegon -g rdegon -m 0755 "
         f"{shlex.quote(str(PurePosixPath(destination).parent))}; "
         f"if [ -f {shlex.quote(destination)} ]; then "
         f"cp -a {shlex.quote(destination)} {shlex.quote(backup)}; fi; "
@@ -141,6 +146,8 @@ def main() -> int:
             f"{shlex.quote(_remote_path('deploy/publish_targeted_rule_calibration.py'))} "
             f"{shlex.quote(_remote_path('services/web/app/health_surfaces.py'))} "
             f"{shlex.quote(_remote_path('services/web/app/inventory_catalog.py'))} "
+            f"{shlex.quote(_remote_path('services/web/app/proxmox_fleet_runtime.py'))} "
+            f"{shlex.quote(_remote_path('services/web/app/query/sources.py'))} "
             f"{shlex.quote(_remote_path('services/web/app/runtime_humanization.py'))} "
             f"{shlex.quote(_remote_path('services/web/app/security_services_runtime.py'))} "
             f"{shlex.quote(_remote_path('deploy/publish_operational_rule_packs.py'))}",

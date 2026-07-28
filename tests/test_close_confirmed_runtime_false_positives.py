@@ -42,9 +42,18 @@ def test_cleanup_is_evidence_scoped_and_preserves_real_incidents() -> None:
     assert "rule_id IN (8001, 8002)" in false_positive_section
     assert "rule_id IN (8001, 8002)" not in resolved_section
     assert "service_restart_loop" in false_positive_section
+    assert "rule_id = 8212" in resolved_section
+    assert "entity_key = 'siem-stream-corr'" in resolved_section
     assert "rule_id = 8047" in source
     assert "hits = 59" in source
     assert "rule_id = 8077" in source
     assert "audit_service_stop" in source
+    assert "siem-ingest|/etc/systemd/system/snap.lxd." in source
+    assert "rule_id = 2902" in source
+    assert "qemu-ga" in source
+    assert "rule_id = 8046" in source
+    assert "proxmox_authentication_success" in source
+    assert "rule_id = 8328" in source
+    assert "pilot-gitea" in source
     assert "WHERE rule_id IN (8418, 8420, 8425, 8426, 8429)" not in source
     assert "'pilot-db-01'" in source

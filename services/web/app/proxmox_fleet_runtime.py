@@ -25,8 +25,33 @@ PROXMOX_FLEET_COLLECTION = "proxmox_fleet_inventory"
 PROXMOX_FLEET_SYNC_COLLECTION = "proxmox_fleet_sync_state"
 _RUNNING_STATES = {"running"}
 _DEFAULT_PROXMOX_PORT = 8006
+_DEFAULT_FLEET_CACHE_TTL_SECONDS = 300
+_IGNORED_VMIDS = {"109"}
 
 _GUEST_HINTS: dict[str, dict[str, Any]] = {
+    "100": {
+        "name": "minecraft-01",
+        "ip": "10.20.20.100",
+        "guest_type": "lxc",
+        "os_family": "linux",
+        "role": "minecraft",
+        "business_service": "Minecraft game server",
+        "criticality": "medium",
+        "tags": ["proxmox-fleet", "game", "minecraft"],
+        "source_name": "minecraft-01",
+        "monitoring_enabled": True,
+    },
+    "101": {
+        "name": "win-test",
+        "ip": "",
+        "guest_type": "qemu",
+        "os_family": "windows",
+        "role": "disposable-windows",
+        "business_service": "Reserved disposable Windows guest",
+        "criticality": "low",
+        "tags": ["proxmox-fleet", "windows", "disposable", "planned-offline"],
+        "monitoring_enabled": False,
+    },
     "102": {
         "name": "lab-edge-01",
         "ip": "192.168.3.102",
@@ -38,6 +63,18 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
         "tags": ["proxmox-fleet", "edge-appliance", "router", "dns", "ngfw"],
         "source_name": "lab-edge-01",
         "monitoring_enabled": True,
+    },
+    "103": {
+        "name": "opnsense-edge-01",
+        "ip": "192.168.3.103",
+        "guest_type": "qemu",
+        "os_family": "bsd",
+        "role": "ngfw",
+        "business_service": "OPNsense routing, NGFW, DNS and inline IPS",
+        "criticality": "critical",
+        "tags": ["proxmox-fleet", "network", "opnsense", "ngfw", "ids", "ips"],
+        "source_name": "10.20.10.254",
+        "monitoring_enabled": False,
     },
     "104": {
         "name": "siem-ingest",
@@ -193,6 +230,90 @@ _GUEST_HINTS: dict[str, dict[str, Any]] = {
         "source_name": "openclaw-gateway",
         "monitoring_enabled": False,
     },
+    "127": {
+        "name": "soc-ndr-01",
+        "ip": "10.20.10.127",
+        "guest_type": "qemu",
+        "os_family": "linux",
+        "role": "ndr",
+        "business_service": "Zeek and Arkime network detection",
+        "criticality": "high",
+        "tags": ["proxmox-fleet", "security", "ndr", "zeek", "arkime"],
+        "source_name": "soc-ndr-01",
+        "monitoring_enabled": True,
+    },
+    "128": {
+        "name": "soc-dfir-01",
+        "ip": "10.20.10.128",
+        "guest_type": "lxc",
+        "os_family": "linux",
+        "role": "dfir",
+        "business_service": "Velociraptor DFIR and endpoint visibility",
+        "criticality": "high",
+        "tags": ["proxmox-fleet", "security", "dfir", "velociraptor"],
+        "source_name": "soc-dfir-01",
+        "monitoring_enabled": True,
+    },
+    "129": {
+        "name": "soc-analysis-01",
+        "ip": "10.20.30.129",
+        "guest_type": "lxc",
+        "os_family": "linux",
+        "role": "malware-analysis",
+        "business_service": "Static malware analysis",
+        "criticality": "high",
+        "tags": ["proxmox-fleet", "security", "malware-analysis", "static-analysis"],
+        "source_name": "soc-analysis-01",
+        "monitoring_enabled": True,
+    },
+    "130": {
+        "name": "gamepanel-01",
+        "ip": "10.20.20.130",
+        "guest_type": "qemu",
+        "os_family": "linux",
+        "role": "game-panel",
+        "business_service": "Pterodactyl, Wings and Falco runtime",
+        "criticality": "high",
+        "tags": ["proxmox-fleet", "game", "pterodactyl", "wings", "falco"],
+        "source_name": "gamepanel-01",
+        "monitoring_enabled": True,
+    },
+    "131": {
+        "name": "soc-ti-01",
+        "ip": "10.20.10.131",
+        "guest_type": "qemu",
+        "os_family": "linux",
+        "role": "threat-intelligence",
+        "business_service": "MISP threat intelligence",
+        "criticality": "high",
+        "tags": ["proxmox-fleet", "security", "threat-intelligence", "misp"],
+        "source_name": "soc-ti-01",
+        "monitoring_enabled": True,
+    },
+    "132": {
+        "name": "soc-pki-01",
+        "ip": "10.20.10.132",
+        "guest_type": "lxc",
+        "os_family": "linux",
+        "role": "pki",
+        "business_service": "SOC internal PKI",
+        "criticality": "high",
+        "tags": ["proxmox-fleet", "security", "pki", "step-ca"],
+        "source_name": "soc-pki-01",
+        "monitoring_enabled": True,
+    },
+    "133": {
+        "name": "soc-evidence-01",
+        "ip": "10.20.10.133",
+        "guest_type": "lxc",
+        "os_family": "linux",
+        "role": "evidence-storage",
+        "business_service": "MinIO evidence object storage",
+        "criticality": "critical",
+        "tags": ["proxmox-fleet", "security", "evidence", "minio"],
+        "source_name": "soc-evidence-01",
+        "monitoring_enabled": True,
+    },
 }
 
 
@@ -202,6 +323,26 @@ def _now() -> datetime:
 
 def _now_iso() -> str:
     return _now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _fleet_cache_is_stale(sync_state: dict[str, Any]) -> bool:
+    timestamp = _string(sync_state.get("updated_ts"))
+    if not timestamp:
+        return True
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    ttl_seconds = max(
+        60,
+        _safe_int(
+            os.getenv("SIEM_PROXMOX_FLEET_CACHE_TTL_SECONDS"),
+            _DEFAULT_FLEET_CACHE_TTL_SECONDS,
+        ),
+    )
+    return (_now() - parsed.astimezone(timezone.utc)).total_seconds() > ttl_seconds
 
 
 def _string(value: Any) -> str:
@@ -518,6 +659,8 @@ def sync_proxmox_fleet_inventory(*, actor: str = "system", connected_sources: li
         if guest_type not in {"qemu", "lxc"}:
             continue
         vmid = _string(row.get("vmid"))
+        if vmid in _IGNORED_VMIDS:
+            continue
         name = _string(row.get("name")) or _string(row.get("id")) or f"{guest_type}-{vmid}"
         node = _string(row.get("node") or "pve")
         hint = _hint_by_vmid(vmid, name)
@@ -596,10 +739,14 @@ def sync_proxmox_fleet_inventory(*, actor: str = "system", connected_sources: li
 
 def list_proxmox_fleet_inventory(*, limit: int = 500) -> dict[str, Any]:
     items = [dict(item) for item in _load_rows(PROXMOX_FLEET_COLLECTION)]
-    if not items and proxmox_is_configured():
-        return sync_proxmox_fleet_inventory(actor="auto-sync")
     sync_rows = _load_rows(PROXMOX_FLEET_SYNC_COLLECTION)
     sync_state = dict(sync_rows[0]) if sync_rows else {}
+    if proxmox_is_configured() and (not items or _fleet_cache_is_stale(sync_state)):
+        try:
+            return sync_proxmox_fleet_inventory(actor="auto-sync")
+        except Exception:
+            if not items:
+                raise
     trimmed = items[: max(1, min(int(limit or 500), 5000))]
     return {
         "generated_ts": _now_iso(),

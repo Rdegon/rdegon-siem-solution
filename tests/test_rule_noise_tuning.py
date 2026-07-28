@@ -115,6 +115,34 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
     assert not _matches(str(linux_rule["expr"]), dpkg_path_event)
     assert not _matches(str(linux_rule["expr"]), managed_siem_unit_change)
     assert _matches(str(linux_rule["expr"]), direct_unit_change)
+    assert not _matches(
+        str(linux_rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_systemd_unit_modified",
+            "event.original": (
+                'type=PATH name="/etc/systemd/system/'
+                'snap.lxd.daemon.service.X3Y7~" nametype=CREATE'
+            ),
+            "host.name": "siem-ingest",
+            "log_source": "siem-ingest",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(linux_rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_systemd_unit_modified",
+            "event.original": (
+                'type=PATH name="/etc/systemd/system/evil-persistence.service" '
+                "nametype=CREATE"
+            ),
+            "host.name": "siem-ingest",
+            "log_source": "siem-ingest",
+            "tags": "",
+        },
+    )
     assert "sigma_yaml" not in tmp_exec_rule
     assert "apt-dpkg-install" in str(tmp_exec_rule["expr"])
     assert not _matches(
@@ -150,6 +178,93 @@ def test_linux_systemd_unit_rules_ignore_dpkg_tmp_package_updates() -> None:
     assert "sigma_yaml" not in openclaw_rule
     assert not _matches(str(openclaw_rule["expr"]), dpkg_path_event)
     assert _matches(str(openclaw_rule["expr"]), direct_unit_change)
+
+
+def test_gitea_admin_rule_ignores_qemu_agent_commands_but_keeps_admin_changes() -> None:
+    rule = _pack_rule("source_coverage_v1.json", 2902)
+    expr = str(rule["expr"])
+
+    assert "sigma_yaml" not in rule
+    assert not _matches(
+        expr,
+        {
+            "event.provider": "linux.qemu-ga",
+            "event.original": (
+                "guest-exec docker exec pilot-gitea gitea admin user list"
+            ),
+            "host.name": "pilot-web-01",
+            "log_source": "pilot-web-01",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        expr,
+        {
+            "event.provider": "linux.pilot-gitea",
+            "event.action": "user_promote_admin",
+            "event.original": "user promoted to admin",
+            "host.name": "pilot-web-01",
+            "log_source": "pilot-web-01",
+            "tags": "",
+        },
+    )
+
+
+def test_pilot_traversal_and_proxmox_root_rules_require_structured_attack_signal() -> None:
+    traversal = _pack_rule("siem_detection_pack_v1.json", 8328)
+    root_login = _pack_rule("siem_detection_pack_v1.json", 8046)
+
+    assert not _matches(
+        str(traversal["expr"]),
+        {
+            "event.provider": "linux.pilot-gitea",
+            "event.original": (
+                "modules/actions/notifier_helper.go:167 notify reference update"
+            ),
+            "host.name": "pilot-web-01",
+            "log_source": "pilot-web-01",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(traversal["expr"]),
+        {
+            "event.provider": "linux.nginx-access",
+            "event.original": 'GET /../../etc/passwd HTTP/1.1" 400',
+            "url.path": "/../../etc/passwd",
+            "url.original": "/../../etc/passwd",
+            "host.name": "pilot-web-01",
+            "log_source": "pilot-web-01",
+            "source.ip": "198.51.100.20",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(root_login["expr"]),
+        {
+            "event.provider": "linux.pvedaemon",
+            "event.type": "proxmox_authentication_success",
+            "event.outcome": "success",
+            "user.name": "root@pam",
+            "host.name": "pve",
+            "log_source": "pve",
+            "source.ip": "192.168.3.101",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(root_login["expr"]),
+        {
+            "event.provider": "linux.pveproxy",
+            "event.type": "proxmox_authentication_success",
+            "event.outcome": "success",
+            "user.name": "root@pam",
+            "host.name": "pve",
+            "log_source": "pve",
+            "source.ip": "198.51.100.40",
+            "tags": "",
+        },
+    )
 
 
 def test_linux_file_and_process_rules_use_stable_composite_entities() -> None:
@@ -571,7 +686,9 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "dpkg-db-backup" in str(overrides["BCK-002"]["sql_template"])
     assert "postgresql_connections" in str(overrides["MET-017"]["sql_template"])
     assert "mongodb_connections" in str(overrides["MET-018"]["sql_template"])
-    assert "events_24h" in str(overrides["CORR-S-002"]["sql_template"])
+    assert "unhealthy_snapshots" in str(overrides["CORR-S-002"]["sql_template"])
+    assert '"name":"siem-stream-corr"' in str(overrides["CORR-S-002"]["sql_template"])
+    assert "(inactive|failed|dead|unknown)" in str(overrides["CORR-S-002"]["sql_template"])
     assert "sql_template" not in overrides["HB-001"]
     assert "auto-discovered" in heartbeat_sql
     assert "GROUP BY c.hostname" in heartbeat_sql

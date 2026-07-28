@@ -32,7 +32,7 @@
       "suppression_key": "host.name + gitea + source_coverage_v1",
       "status": "active",
       "operator_action": "Review whether repository, org, or admin-scope changes were expected and tied to the intended operator identity.",
-      "sigma_yaml": "title: Gitea Administrative Change Burst\nid: sigma-gitea-administrative-change-burst\nstatus: experimental\nlogsource:\n  product: linux\n  service: gitea\ndetection:\n  selection_host:\n    host.name: pilot-web-01\n  selection_message:\n    message|contains:\n      - admin\n      - repository deleted\n      - organization deleted\n      - user promoted\n  condition: selection_host and selection_message\nlevel: high\ntags:\n  - gitea\n  - admin\n"
+      "expr": "(event.provider == 'linux.pilot-gitea' and (host.name == 'pilot-web-01' or log_source == 'pilot-web-01') and (event.action == 'repository_delete' or event.action == 'organization_delete' or event.action == 'user_promote_admin' or event.action == 'user_demote_admin' or event.original icontains 'repository deleted' or event.original icontains 'organization deleted' or event.original icontains 'user promoted to admin' or event.original icontains 'user demoted from admin' or event.original icontains 'admin user changed' or event.original icontains 'auth source updated') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
     },
     {
       "id": 2903,

@@ -23,6 +23,8 @@ and dated delivery records for the SIEM platform.
     corrections, production integrations and deferred gates.
 13. `web_performance_2026-07-27.md` - deployed Web/API latency corrections
     and concurrent acceptance results.
+14. `plan_readiness_audit_2026-07-28.md` - current plan-versus-runtime
+    readiness matrix and explicit remaining gates.
 
 ## Current Runtime Truth
 

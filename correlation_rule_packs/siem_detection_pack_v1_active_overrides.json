@@ -348,10 +348,11 @@
     "batch_noise_tuning_audit_utc": "2026-05-15T15:00:00Z",
     "batch_noise_tuning_max_hits": 106,
     "batch_noise_tuning_open_alerts": 1,
-    "batch_noise_tuning_reason": "require_correlator_service_identity_to_reduce_siem_host_keyword_noise",
-    "threshold": 1,
+    "batch_noise_tuning_reason": "require explicit unhealthy siem-stream-corr service status in host runtime telemetry",
+    "threshold": 3,
     "dedupe_window_s": 86400,
-    "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8212,\n    'CORR-S-002 Stream correlator no alerts too long',\n    'low',\n    candidate.ts_first,\n    candidate.ts_last,\n    {WINDOW_S},\n    'siem-stream-corr',\n    candidate.events_24h,\n    concat('{\"event_type\":\"assignment_batch_rule\",\"source_id\":\"CORR-S-002\",\"events_24h\":', toString(candidate.events_24h), ',\"alerts_24h\":', toString(candidate.alerts_24h), '}'),\n    'siem-stream-corr',\n    'open'\nFROM\n(\n    SELECT\n        min(e.ts_first) AS ts_first,\n        max(e.ts_last) AS ts_last,\n        any(e.events_24h) AS events_24h,\n        any(a.alerts_24h) AS alerts_24h\n    FROM\n    (\n        SELECT min(ts) AS ts_first, max(ts) AS ts_last, count() AS events_24h\n        FROM siem.events\n        WHERE ts >= now() - INTERVAL {WINDOW_S} SECOND\n    ) AS e\n    CROSS JOIN\n    (\n        SELECT count() AS alerts_24h\n        FROM siem.alerts_raw\n        WHERE ts_last >= now() - INTERVAL {WINDOW_S} SECOND\n      AND positionCaseInsensitiveUTF8(lowerUTF8(concat(toString(rule_name), ' ', toString(entity_key), ' ', toString(source), ' ', toString(context_json))), 'e2e') = 0\n      AND positionCaseInsensitiveUTF8(lowerUTF8(concat(toString(rule_name), ' ', toString(entity_key), ' ', toString(source), ' ', toString(context_json))), 'assignment-full') = 0\n      AND positionCaseInsensitiveUTF8(lowerUTF8(concat(toString(rule_name), ' ', toString(entity_key), ' ', toString(source), ' ', toString(context_json))), 'validation') = 0\n      AND positionCaseInsensitiveUTF8(lowerUTF8(concat(toString(rule_name), ' ', toString(entity_key), ' ', toString(source), ' ', toString(context_json))), 'benchmark') = 0\n          AND rule_id != 8212\n          AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')\n    ) AS a\n    WHERE e.events_24h >= 1000 AND a.alerts_24h = 0\n) AS candidate\nLEFT JOIN\n(\n    SELECT entity_key\n    FROM siem.alerts_raw\n    WHERE rule_id = 8212\n      AND ts_last >= now() - INTERVAL 86400 SECOND\n      AND lower(status) NOT IN ('closed', 'false_positive', 'resolved', 'suppressed')\n    GROUP BY entity_key\n) AS existing\nON 'siem-stream-corr' = existing.entity_key\nWHERE existing.entity_key = ''",
+    "window_s": 300,
+    "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8212,\n    'CORR-S-002 Stream correlator unhealthy',\n    'high',\n    candidate.ts_first,\n    candidate.ts_last,\n    {WINDOW_S},\n    'siem-stream-corr',\n    candidate.unhealthy_snapshots,\n    concat(\n        '{\"event_type\":\"stream_correlation_unhealthy\",\"source_id\":\"CORR-S-002\",',\n        '\"unhealthy_snapshots\":', toString(candidate.unhealthy_snapshots), '}'\n    ),\n    'siem-stream-corr',\n    'open'\nFROM\n(\n    SELECT\n        min(ts) AS ts_first,\n        max(ts) AS ts_last,\n        count() AS unhealthy_snapshots\n    FROM siem.events\n    PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND\n    WHERE log_source = 'siem-storage'\n      AND device_product = 'host.metrics'\n      AND subcategory = 'host_runtime_snapshot'\n      AND position(toString(normalized_json), '\"name\":\"siem-stream-corr\"') > 0\n      AND\n      (\n          match(\n              toString(normalized_json),\n              '\"name\":\"siem-stream-corr\"[^}]*\"status\":\"(inactive|failed|dead|unknown)\"'\n          )\n          OR match(\n              toString(normalized_json),\n              '\"status\":\"(inactive|failed|dead|unknown)\"[^}]*\"name\":\"siem-stream-corr\"'\n          )\n      )\n    HAVING unhealthy_snapshots >= 3\n) AS candidate\nWHERE NOT EXISTS\n(\n    SELECT 1\n    FROM siem.alerts_raw\n    WHERE rule_id = 8212\n      AND entity_key = 'siem-stream-corr'\n      AND ts >= now() - INTERVAL 86400 SECOND\n      AND lower(status) IN ('open', 'false_positive', 'suppressed')\n)",
     "fp_remediation_utc": "2026-05-20T01:45:00+03:00",
     "fp_remediation_reason": "live_fp_remediation_strict_source_event_semantics"
   },
@@ -1420,14 +1421,13 @@
     "window_s": 86400
   },
   "PILOT-004": {
-    "noise_tuning_audit_utc": "2026-05-14T15:55:14.945354+00:00",
-    "noise_tuning_live_hits_1h": 34,
-    "noise_tuning_live_hits_24h": 817,
-    "noise_tuning_live_hits_window": 34,
-    "noise_tuning_reason": "final_full_audit_80pct_guard",
+    "dedupe_window_s": 86400,
+    "entity_field": "source.ip",
+    "expr": "((event.provider == 'linux.nginx-access' or event.provider == 'linux.pilot-nginx-access') and (host.name == 'pilot-web-01' or log_source == 'pilot-web-01') and (url.path icontains '../' or url.path icontains '%2e%2e' or url.original icontains '../' or url.original icontains '%2e%2e' or event.original icontains ' /../' or event.original icontains '..%2f' or event.original icontains '%2e%2e') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+    "fp_remediation_reason": "require_nginx_access_provider_and_request_path_traversal",
+    "fp_remediation_utc": "2026-07-28T17:00:00+03:00",
     "threshold": 1,
-    "window_s": 600,
-    "expr": "((event.provider == 'linux.nginx' or event.provider == 'linux.pilot-gitea' or event.provider == 'linux.python') and (host.name == 'pilot-web-01' or log_source == 'pilot-web-01') and (event.original icontains '../' or event.original icontains '%2e%2e' or event.original icontains 'path traversal') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')"
+    "window_s": 600
   },
   "PILOT-006": {
     "noise_tuning_audit_utc": "2026-05-14T15:55:14.945354+00:00",
@@ -1740,12 +1740,13 @@
     "window_s": 86400
   },
   "PVE-026": {
-    "hits_1h": 0,
-    "hits_24h": 70,
-    "hits_7d": 199,
-    "selection_reason": "zero_1h",
-    "threshold": 80,
-    "window_s": 86400
+    "dedupe_window_s": 86400,
+    "entity_field": "source.ip",
+    "expr": "((event.provider == 'linux.pvedaemon' or event.provider == 'linux.pveproxy') and event.type == 'proxmox_authentication_success' and event.outcome == 'success' and user.name == 'root@pam' and (host.name icontains 'pve' or log_source icontains 'pve') and source.ip != '' and source.ip != '0' and source.ip != '192.168.3.101' and source.ip != '127.0.0.1' and source.ip != '::1' and not tags icontains 'allowlist:')",
+    "fp_remediation_reason": "exclude_proxmox_self_api_auth_and_require_structured_root_success",
+    "fp_remediation_utc": "2026-07-28T17:00:00+03:00",
+    "threshold": 1,
+    "window_s": 3600
   },
   "PVE-027": {
     "dedupe_window_s": 86400,

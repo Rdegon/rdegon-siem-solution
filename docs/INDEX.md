@@ -35,6 +35,8 @@ current references unless noted otherwise.
   integration and acceptance record for the current SOC stack.
 - `home_soc_acceptance_2026-07-28.md` - current production acceptance,
   source coverage, service placement and remaining intentional exclusions.
+- `plan_readiness_audit_2026-07-28.md` - evidence-based comparison of the
+  approved platform plan with the live deployment and its remaining gates.
 - `web_performance_2026-07-27.md` - Web/API bottleneck analysis, cache
   architecture and concurrent acceptance metrics.
 - `production_recovery_and_rule_calibration_2026-07-26.md` - current recovery,

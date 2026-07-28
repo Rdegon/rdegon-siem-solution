@@ -249,9 +249,11 @@ class AssignmentDetectionPackTests(unittest.TestCase):
         )
 
         self.assertIn("subcategory = 'host_runtime_snapshot'", sql)
-        self.assertIn("'\"name\":\"siem-stream-corr\"'", sql)
+        self.assertIn("position(toString(normalized_json), '\"name\":\"siem-stream-corr\"') > 0", sql)
+        self.assertNotIn("position(toString(normalized_json), '\"name\":\"siem-stream-corr\"') = 0", sql)
+        self.assertIn("(inactive|failed|dead|unknown)", sql)
+        self.assertEqual(2, sql.count("(inactive|failed|dead|unknown)"))
         self.assertIn("unhealthy_snapshots >= 3", sql)
-        self.assertNotIn("alerts_24h", sql)
         self.assertIn("WHERE NOT EXISTS", sql)
 
     def test_curated_asset_discovery_rules_use_supported_single_key_joins(self) -> None:

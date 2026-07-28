@@ -226,6 +226,34 @@ def fetch_collector_inventory(hours: int = 24) -> list[dict[str, object]]:
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    try:
+        rows = list(deps_module().fetch_collector_inventory(hours=safe_hours))
+    except Exception:  # noqa: BLE001
+        rows = []
+    sanitized_rows: list[dict[str, object]] = []
+    for row in rows:
+        current = dict(row)
+        covered_sources = [
+            item
+            for item in list(current.get("covered_sources") or [])
+            if not is_non_operational_inventory_record(item)
+        ]
+        if "covered_sources" in current:
+            current["covered_sources"] = covered_sources
+        if "active_sources" in current:
+            current["active_sources"] = len(covered_sources)
+        if not covered_sources and is_non_operational_inventory_record(current):
+            continue
+        sanitized_rows.append(current)
+    if sanitized_rows and any(
+        int(row.get("sources_count") or 0)
+        or int(row.get("active_sources") or 0)
+        or int(row.get("events") or 0)
+        or len(list(row.get("covered_sources") or []))
+        for row in sanitized_rows
+    ):
+        return _cache_put(cache_key, sanitized_rows)
+
     grouped: dict[str, dict[str, object]] = {}
     for source in fetch_source_inventory(limit=1000, hours=safe_hours):
         collector_id = str(

@@ -617,12 +617,12 @@
       "detection_logic": "user=root@pam AND auth=success",
       "operator_action": "Создать alert, приложить host, user/src_ip, service/container, raw event, счетчики окна.",
       "description": "PVE-026: user=root@pam AND auth=success Источники: pveproxy/auth log.",
-      "window_s": 86400,
-      "threshold": 80,
-      "entity_field": "host.name",
+      "window_s": 3600,
+      "threshold": 1,
+      "entity_field": "source.ip",
       "suppression_key": "host.name + source.ip + assignment.siem_detection_pack_v1",
       "source_format": "stream-expr",
-      "expr": "((event.provider == 'linux.pvedaemon' or event.provider == 'linux.pveproxy' or event.provider == 'linux.pvestatd' or event.provider == 'linux.proxmox-heartbeat') and (event.original icontains 'root' or event.original icontains 'pam' or event.original icontains 'auth') and (host.name icontains 'pve' or log_source icontains 'pve') and not tags icontains 'allowlist:')"
+      "expr": "((event.provider == 'linux.pvedaemon' or event.provider == 'linux.pveproxy') and event.type == 'proxmox_authentication_success' and event.outcome == 'success' and user.name == 'root@pam' and (host.name icontains 'pve' or log_source icontains 'pve') and source.ip != '' and source.ip != '0' and source.ip != '192.168.3.101' and source.ip != '127.0.0.1' and source.ip != '::1' and not tags icontains 'allowlist:')"
     },
     {
       "id": 8047,
@@ -6180,10 +6180,10 @@
       "description": "PILOT-004: uri contains ../ or encoded traversal Источники: nginx logs.",
       "window_s": 600,
       "threshold": 1,
-      "entity_field": "host.name",
+      "entity_field": "source.ip",
       "suppression_key": "host.name + source.ip + assignment.siem_detection_pack_v1",
       "source_format": "stream-expr",
-      "expr": "((event.provider == 'linux.nginx' or event.provider == 'linux.pilot-gitea' or event.provider == 'linux.python') and (host.name == 'pilot-web-01' or log_source == 'pilot-web-01') and (event.original icontains '../' or event.original icontains '%2e%2e' or event.original icontains 'path traversal') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')"
+      "expr": "((event.provider == 'linux.nginx-access' or event.provider == 'linux.pilot-nginx-access') and (host.name == 'pilot-web-01' or log_source == 'pilot-web-01') and (url.path icontains '../' or url.path icontains '%2e%2e' or url.original icontains '../' or url.original icontains '%2e%2e' or event.original icontains ' /../' or event.original icontains '..%2f' or event.original icontains '%2e%2e') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
     },
     {
       "id": 8329,
@@ -8916,20 +8916,20 @@
     {
       "id": 8212,
       "source_id": "CORR-S-002",
-      "title": "CORR-S-002 Stream correlator no alerts too long",
-      "severity": "low",
+      "title": "CORR-S-002 Stream correlator unhealthy",
+      "severity": "high",
       "status": "active_correlation",
       "asset_groups": [
         "siem_core"
       ],
       "scope": "106",
       "sources": "siem-stream-corr metrics/logs",
-      "detection_logic": "no alerts for 24h while events exist",
+      "detection_logic": "explicit inactive, failed, dead or unknown service status in at least 3 host runtime snapshots",
       "operator_action": "Создать alert, приложить host, user/src_ip, service/container, raw event, счетчики окна.",
-      "description": "CORR-S-002: no alerts for 24h while events exist Источники: siem-stream-corr metrics/logs.",
-      "window_s": 86400,
-      "threshold": 1,
-      "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8212,\n    'CORR-S-002 Stream correlator unhealthy',\n    'high',\n    candidate.ts_first,\n    candidate.ts_last,\n    {WINDOW_S},\n    'siem-stream-corr',\n    candidate.unhealthy_snapshots,\n    concat(\n        '{\"event_type\":\"stream_correlation_unhealthy\",\"source_id\":\"CORR-S-002\",',\n        '\"unhealthy_snapshots\":', toString(candidate.unhealthy_snapshots), '}'\n    ),\n    'siem-stream-corr',\n    'open'\nFROM\n(\n    SELECT\n        min(ts) AS ts_first,\n        max(ts) AS ts_last,\n        count() AS unhealthy_snapshots\n    FROM siem.events\n    PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND\n    WHERE log_source = 'siem-storage'\n      AND device_product = 'host.metrics'\n      AND subcategory = 'host_runtime_snapshot'\n      AND\n      (\n          position(toString(normalized_json), '\"name\":\"siem-stream-corr\"') = 0\n          OR match(\n              toString(normalized_json),\n              '\"name\":\"siem-stream-corr\"[^}]*\"status\":\"(inactive|failed|dead|unknown)\"'\n          )\n      )\n    HAVING unhealthy_snapshots >= 3\n) AS candidate\nWHERE NOT EXISTS\n(\n    SELECT 1\n    FROM siem.alerts_raw\n    WHERE rule_id = 8212\n      AND entity_key = 'siem-stream-corr'\n      AND ts >= now() - INTERVAL 86400 SECOND\n      AND lower(status) IN ('open', 'false_positive', 'suppressed')\n)"
+      "description": "CORR-S-002: explicit unhealthy status for siem-stream-corr in at least 3 host runtime snapshots. Sources: siem-storage host.metrics.",
+      "window_s": 300,
+      "threshold": 3,
+      "sql_template": "INSERT INTO siem.alerts_raw\n(ts, alert_id, rule_id, rule_name, severity, ts_first, ts_last, window_s, entity_key, hits, context_json, source, status)\nSELECT\n    now(),\n    generateUUIDv4(),\n    8212,\n    'CORR-S-002 Stream correlator unhealthy',\n    'high',\n    candidate.ts_first,\n    candidate.ts_last,\n    {WINDOW_S},\n    'siem-stream-corr',\n    candidate.unhealthy_snapshots,\n    concat(\n        '{\"event_type\":\"stream_correlation_unhealthy\",\"source_id\":\"CORR-S-002\",',\n        '\"unhealthy_snapshots\":', toString(candidate.unhealthy_snapshots), '}'\n    ),\n    'siem-stream-corr',\n    'open'\nFROM\n(\n    SELECT\n        min(ts) AS ts_first,\n        max(ts) AS ts_last,\n        count() AS unhealthy_snapshots\n    FROM siem.events\n    PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND\n    WHERE log_source = 'siem-storage'\n      AND device_product = 'host.metrics'\n      AND subcategory = 'host_runtime_snapshot'\n      AND position(toString(normalized_json), '\"name\":\"siem-stream-corr\"') > 0\n      AND\n      (\n          match(\n              toString(normalized_json),\n              '\"name\":\"siem-stream-corr\"[^}]*\"status\":\"(inactive|failed|dead|unknown)\"'\n          )\n          OR match(\n              toString(normalized_json),\n              '\"status\":\"(inactive|failed|dead|unknown)\"[^}]*\"name\":\"siem-stream-corr\"'\n          )\n      )\n    HAVING unhealthy_snapshots >= 3\n) AS candidate\nWHERE NOT EXISTS\n(\n    SELECT 1\n    FROM siem.alerts_raw\n    WHERE rule_id = 8212\n      AND entity_key = 'siem-stream-corr'\n      AND ts >= now() - INTERVAL 86400 SECOND\n      AND lower(status) IN ('open', 'false_positive', 'suppressed')\n)"
     },
     {
       "id": 8213,

@@ -34,6 +34,14 @@ def _managed_unit_predicate() -> str:
                 positionCaseInsensitiveUTF8(entity_key, '/etc/systemd/system/snap-') > 0
                 AND positionCaseInsensitiveUTF8(entity_key, '.mount') > 0
             )
+            OR
+            (
+                positionCaseInsensitiveUTF8(
+                    entity_key,
+                    'siem-ingest|/etc/systemd/system/snap.lxd.'
+                ) > 0
+                AND ts_last <= toDateTime('2026-07-28 14:10:00')
+            )
         )
     )
     """
@@ -186,6 +194,36 @@ def _false_positive_predicate(table_name: str) -> str:
                 'service_restart_loop'
             ) > 0
         )
+        OR
+        (
+            rule_id = 2902
+            AND entity_key = 'pilot-web-01'
+            AND ts_last <= toDateTime('2026-07-28 13:34:00')
+            AND positionCaseInsensitiveUTF8(
+                toString({evidence_column}),
+                'qemu-ga'
+            ) > 0
+        )
+        OR
+        (
+            rule_id = 8046
+            AND entity_key = 'pve'
+            AND ts_last <= toDateTime('2026-07-28 14:02:00')
+            AND positionCaseInsensitiveUTF8(
+                toString({evidence_column}),
+                'proxmox_authentication_success'
+            ) > 0
+        )
+        OR
+        (
+            rule_id = 8328
+            AND entity_key = 'pilot-web-01'
+            AND ts_last <= toDateTime('2026-07-28 13:41:00')
+            AND positionCaseInsensitiveUTF8(
+                toString({evidence_column}),
+                'pilot-gitea'
+            ) > 0
+        )
     )
     AND {OPEN_STATUSES}
     """
@@ -225,6 +263,12 @@ def _resolved_predicate() -> str:
                 'pilot-db-01'
             )
             AND ts_last <= toDateTime('2026-07-28 11:16:00')
+        )
+        OR
+        (
+            rule_id = 8212
+            AND entity_key = 'siem-stream-corr'
+            AND ts_last <= toDateTime('2026-07-28 09:48:00')
         )
         OR (rule_id = 8355 AND entity_key = 'minecraft-01')
         OR

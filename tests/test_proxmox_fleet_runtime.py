@@ -6,6 +6,78 @@ import vuln_store
 
 
 class ProxmoxFleetRuntimeTests(unittest.TestCase):
+    def test_guest_hints_cover_current_soc_fleet(self) -> None:
+        self.assertTrue(
+            {
+                "100",
+                "101",
+                "102",
+                "103",
+                "104",
+                "105",
+                "106",
+                "107",
+                "108",
+                "111",
+                "120",
+                "121",
+                "122",
+                "123",
+                "124",
+                "125",
+                "126",
+                "127",
+                "128",
+                "129",
+                "130",
+                "131",
+                "132",
+                "133",
+            }.issubset(runtime._GUEST_HINTS)
+        )
+        self.assertFalse(runtime._GUEST_HINTS["126"]["monitoring_enabled"])
+        self.assertEqual({"109"}, runtime._IGNORED_VMIDS)
+
+    def test_list_inventory_refreshes_stale_cache(self) -> None:
+        refreshed = {"items": [{"vmid": "127"}], "metrics": {"total": 1}}
+        with patch(
+            "proxmox_fleet_runtime._load_rows",
+            side_effect=lambda name: (
+                [{"vmid": "123"}]
+                if name == runtime.PROXMOX_FLEET_COLLECTION
+                else [{"updated_ts": "2026-01-01T00:00:00Z"}]
+            ),
+        ):
+            with patch("proxmox_fleet_runtime.proxmox_is_configured", return_value=True):
+                with patch("proxmox_fleet_runtime._fleet_cache_is_stale", return_value=True):
+                    with patch(
+                        "proxmox_fleet_runtime.sync_proxmox_fleet_inventory",
+                        return_value=refreshed,
+                    ) as sync:
+                        payload = runtime.list_proxmox_fleet_inventory(limit=500)
+
+        self.assertEqual(refreshed, payload)
+        sync.assert_called_once_with(actor="auto-sync")
+
+    def test_list_inventory_falls_back_to_cache_when_refresh_fails(self) -> None:
+        with patch(
+            "proxmox_fleet_runtime._load_rows",
+            side_effect=lambda name: (
+                [{"vmid": "123"}]
+                if name == runtime.PROXMOX_FLEET_COLLECTION
+                else [{"updated_ts": "2026-01-01T00:00:00Z"}]
+            ),
+        ):
+            with patch("proxmox_fleet_runtime.proxmox_is_configured", return_value=True):
+                with patch("proxmox_fleet_runtime._fleet_cache_is_stale", return_value=True):
+                    with patch(
+                        "proxmox_fleet_runtime.sync_proxmox_fleet_inventory",
+                        side_effect=RuntimeError("temporary Proxmox outage"),
+                    ):
+                        payload = runtime.list_proxmox_fleet_inventory(limit=500)
+
+        self.assertEqual([{"vmid": "123"}], payload["items"])
+
     def test_sync_inventory_builds_states_and_metrics(self) -> None:
         saved_rows: dict[str, list[dict[str, object]]] = {}
         resources = {

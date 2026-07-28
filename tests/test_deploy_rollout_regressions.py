@@ -448,6 +448,21 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         self.assertIn("audispd-plugins", deploy_text)
         self.assertIn("auditd", smoke_text)
 
+    def test_proxmox_fleet_smoke_matches_current_soc_runtime(self) -> None:
+        import deploy.proxmox_fleet_wave_smoke as fleet_smoke
+
+        checked_vmids = {item.vmid for item in fleet_smoke.CHECKS}
+        self.assertTrue(set(range(127, 134)).issubset(checked_vmids))
+        self.assertNotIn(126, checked_vmids)
+        self.assertEqual(
+            ((101, "win-test"), (126, "openclaw-gateway")),
+            fleet_smoke.EXPECTED_STOPPED_QEMU,
+        )
+        self.assertEqual("192.168.3.101", fleet_smoke.PROXMOX_HOST)
+        smoke_text = (ROOT / "deploy" / "proxmox_fleet_wave_smoke.py").read_text(encoding="utf-8")
+        self.assertIn("https://192.168.3.102", smoke_text)
+        self.assertNotIn("https://192.168.1.39", smoke_text)
+
     def test_windows_collection_defaults_include_extended_security_channels(self) -> None:
         expected_channels = (
             "Microsoft-Windows-Windows Defender/Operational",

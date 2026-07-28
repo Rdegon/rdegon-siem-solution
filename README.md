@@ -38,6 +38,7 @@ benchmark output.
 9. [SOC security inventory and target architecture](docs/soc_security_inventory_and_target_architecture_2026-07-25.md)
 10. [Vulnerability and exposure management](docs/vulnerability_exposure_management_2026-07-26.md)
 11. [Current home SOC production acceptance](docs/home_soc_acceptance_2026-07-28.md)
+12. [Current plan readiness audit](docs/plan_readiness_audit_2026-07-28.md)
 
 ## Local Checks
 
