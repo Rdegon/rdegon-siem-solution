@@ -214,7 +214,8 @@
       "suppression_key": "host.name + service.name + windows_activity_v1",
       "status": "active",
       "operator_action": "Inspect the remote address, principal, and destination host. Repeated successful RDP logons can indicate lateral movement or shared-admin account misuse.",
-      "sigma_yaml": "title: Windows RDP Authentication Burst\nid: sigma-windows-rdp-authentication-burst\nstatus: experimental\nlogsource:\n  product: windows\n  service: terminalservices\ndetection:\n  selection:\n    event.type: windows_rdp_auth_success\n  condition: selection\nlevel: medium\n"
+      "expr": "(event.type == 'windows_rdp_auth_success' and source.ip != '192.168.3.103' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+      "source_format": "stream-expr"
     },
     {
       "id": 2618,

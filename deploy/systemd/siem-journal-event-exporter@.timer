@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule SIEM journald event exporter (%i)
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Persistent=true
+Unit=siem-journal-event-exporter@%i.service
+
+[Install]
+WantedBy=timers.target

@@ -12,8 +12,11 @@
     "batch_noise_tuning_max_hits": 6,
     "batch_noise_tuning_open_alerts": 4,
     "batch_noise_tuning_reason": "openclaw_gateway_followup_guard",
-    "threshold": 50,
-    "dedupe_window_s": 86400
+    "threshold": 1,
+    "window_s": 86400,
+    "dedupe_window_s": 86400,
+    "fp_remediation_utc": "2026-07-28T12:40:00Z",
+    "fp_remediation_reason": "query only unassigned critical alerts older than 15 minutes instead of matching generic severity/open JSON keys"
   },
   "AUTH-005": {
     "batch_noise_tuning_audit_utc": "2026-05-14T09:05:00Z",
@@ -142,7 +145,8 @@
     "window_s": 86400
   },
   "AUTH-017": {
-    "expr": "((event.type == 'pam_authentication_failure' or event.type == 'audit_user_auth_failure' or event.type == 'audit_user_acct_failure' or event.type == 'ssh_login_failure' or event.action == 'authentication_failed' or (((event.provider == 'linux.sshd' or event.provider == 'linux.sudo' or event.provider == 'linux.auditd' or event.provider == 'linux.syslog' or event.provider == 'linux.pam') and (event.original icontains 'authentication failure' or event.original icontains 'res=failed' or event.original icontains 'pam_authenticate failed')))) and event.outcome != 'success' and not event.original icontains 'res=success' and not event.original icontains 'session opened' and not event.original icontains 'session closed' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+    "expr": "((event.type == 'pam_authentication_failure' or event.type == 'audit_user_auth_failure' or event.type == 'audit_user_acct_failure' or event.type == 'ssh_login_failure' or event.action == 'authentication_failed' or (((event.provider == 'linux.sshd' or event.provider == 'linux.sudo' or event.provider == 'linux.syslog' or event.provider == 'linux.pam') and (event.original icontains 'authentication failure' or event.original icontains 'pam_authenticate failed' or event.original icontains 'failed password')))) and event.outcome != 'success' and not event.type == 'audit_service_stop' and not event.type == 'audit_service_start' and not event.original icontains 'res=success' and not event.original icontains 'session opened' and not event.original icontains 'session closed' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+    "fp_remediation_reason": "exclude_non_auth_audit_res_failed_events",
     "hits_1h": 16,
     "hits_24h": 3359,
     "hits_7d": 20141,
@@ -154,7 +158,7 @@
     "threshold": 20,
     "window_s": 600,
     "entity_field": "host.name+source.ip",
-    "fp_remediation_utc": "2026-07-27T10:30:00Z"
+    "fp_remediation_utc": "2026-07-28T12:15:00Z"
   },
   "AUTH-018": {
     "hits_7d": 0,
@@ -533,7 +537,9 @@
     "selection_reason": "has_current",
     "threshold": 1,
     "window_s": 600,
-    "expr": "((event.provider == 'linux.docker' or event.provider == 'linux.systemd' or event.provider == 'linux.wings' or event.provider == 'linux.gamepanel-wings') and (host.name == 'gamepanel-01' or log_source == 'gamepanel-01' or host.name == 'minecraft-01' or log_source == 'minecraft-01') and (event.original icontains 'pterodactyl' or event.original icontains 'wings' or event.original icontains 'minecraft') and (event.original icontains 'entered failed state' or event.original icontains 'failed with result' or event.original icontains 'Main process exited' or event.original icontains 'start request repeated too quickly' or event.original icontains 'Failed to start' or event.original icontains 'status=failed' or event.original icontains 'status=1/FAILURE' or event.original icontains 'status=2/INVALIDARGUMENT' or event.original icontains 'unhealthy' or event.original icontains 'container die' or event.original icontains 'exited') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')"
+    "expr": "((event.provider == 'linux.docker' or event.provider == 'linux.systemd' or event.provider == 'linux.wings' or event.provider == 'linux.gamepanel-wings') and (host.name == 'gamepanel-01' or log_source == 'gamepanel-01') and (event.original icontains 'pterodactyl' or event.original icontains 'wings.service' or event.original icontains 'gamepanel-wings') and (event.original icontains 'entered failed state' or event.original icontains 'failed with result' or event.original icontains 'Main process exited' or event.original icontains 'start request repeated too quickly' or event.original icontains 'Failed to start' or event.original icontains 'status=failed' or event.original icontains 'status=1/FAILURE' or event.original icontains 'status=2/INVALIDARGUMENT' or event.original icontains 'unhealthy' or event.original icontains 'container die' or event.original icontains 'exited') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')",
+    "fp_remediation_utc": "2026-07-28T09:08:00Z",
+    "fp_remediation_reason": "scope Wings failure detection to gamepanel-01 and remove duplicate Minecraft service coverage"
   },
   "DCK-022": {
     "hits_1h": 8,
@@ -582,12 +588,12 @@
     "fp_remediation_reason": "require a threat-intelligence or denylist match on a structured DNS event"
   },
   "DNS-005": {
-    "expr": "(((event.provider == 'suricata' and event.type == 'suricata_flow') or (event.provider == 'zeek' and event.type == 'zeek_conn')) and network.direction == 'outbound' and destination.port == '53' and (source.ip icontains '10.20.10.' or source.ip icontains '10.20.20.' or source.ip icontains '10.20.30.' or source.ip icontains '10.20.40.' or source.ip icontains '10.20.50.') and destination.ip != '10.20.10.1' and destination.ip != '10.20.20.1' and destination.ip != '10.20.30.1' and destination.ip != '10.20.40.1' and destination.ip != '10.20.50.1' and source.ip != '10.20.10.1' and source.ip != '10.20.20.1' and source.ip != '10.20.30.1' and source.ip != '10.20.40.1' and source.ip != '10.20.50.1' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
+    "expr": "(((event.provider == 'suricata' and event.type == 'suricata_flow') or (event.provider == 'zeek' and event.type == 'zeek_conn')) and network.direction == 'outbound' and destination.port == '53' and (source.ip icontains '10.20.10.' or source.ip icontains '10.20.20.' or source.ip icontains '10.20.30.' or source.ip icontains '10.20.40.' or source.ip icontains '10.20.50.') and destination.ip != '10.20.10.254' and destination.ip != '10.20.20.254' and destination.ip != '10.20.30.254' and destination.ip != '10.20.40.254' and destination.ip != '10.20.50.254' and destination.ip != '10.20.10.1' and destination.ip != '10.20.20.1' and destination.ip != '10.20.30.1' and destination.ip != '10.20.40.1' and destination.ip != '10.20.50.1' and source.ip != '10.20.10.1' and source.ip != '10.20.20.1' and source.ip != '10.20.30.1' and source.ip != '10.20.40.1' and source.ip != '10.20.50.1' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
     "threshold": 10,
     "window_s": 300,
     "entity_field": "source.ip+destination.ip",
     "fp_remediation_utc": "2026-07-27T07:30:00Z",
-    "fp_remediation_reason": "alert only on sustained direct external DNS from protected 10.20.x segments; management-LAN clients are outside this policy"
+    "fp_remediation_reason": "alert only on sustained direct external DNS from protected 10.20.x segments; OPNsense .254 resolvers and management-LAN clients are approved"
   },
   "DNS-006": {
     "expr": "(((((event.provider == 'suricata' and event.type == 'suricata_flow') or (event.provider == 'zeek' and event.type == 'zeek_conn')) and network.direction == 'outbound' and destination.port == '853') or (event.provider == 'suricata' and event.type == 'suricata_alert' and (rule.name icontains 'DNS over HTTPS' or rule.name icontains 'DoH' or rule.name icontains 'DNS over TLS' or rule.name icontains 'DoT'))) and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')",
@@ -742,7 +748,7 @@
     "threshold": 1,
     "dedupe_window_s": 604800,
     "fp_remediation_utc": "2026-05-20T02:18:00+03:00",
-    "fp_remediation_reason": "require_prior_last_seen_for_no_events_rule"
+    "fp_remediation_reason": "require prior last_seen and exclude the retired win-rtx-test/operator workstation aliases"
   },
   "HB-006": {
     "batch_noise_tuning_audit_utc": "2026-05-14T09:05:00Z",
@@ -1742,12 +1748,13 @@
     "window_s": 86400
   },
   "PVE-027": {
-    "hits_1h": 0,
-    "hits_24h": 49,
-    "hits_7d": 145,
-    "selection_reason": "zero_1h",
-    "threshold": 59,
-    "window_s": 86400
+    "dedupe_window_s": 86400,
+    "entity_field": "source.ip",
+    "expr": "((event.provider == 'linux.pvedaemon' or event.provider == 'linux.pveproxy') and event.type == 'proxmox_authentication_failure' and event.outcome == 'failure' and (host.name icontains 'pve' or log_source icontains 'pve') and source.ip != '' and source.ip != '0' and not tags icontains 'allowlist:')",
+    "fp_remediation_reason": "require_structured_proxmox_auth_failure",
+    "fp_remediation_utc": "2026-07-28T14:45:00+03:00",
+    "threshold": 5,
+    "window_s": 600
   },
   "PVE-029": {
     "hits_1h": 0,
@@ -2060,7 +2067,9 @@
     "fp_remediation_reason": "require explicit root password-change event instead of any auditd root-owned path/service record"
   },
   "HB-002": {
-    "dedupe_window_s": 86400
+    "dedupe_window_s": 86400,
+    "fp_remediation_utc": "2026-07-28T12:40:00Z",
+    "fp_remediation_reason": "exclude the retired win-rtx-test/operator workstation aliases"
   },
   "HB-003": {
     "dedupe_window_s": 86400
@@ -2207,7 +2216,10 @@
     "dedupe_window_s": 86400
   },
   "MET-008": {
-    "dedupe_window_s": 86400
+    "dedupe_window_s": 86400,
+    "fp_remediation_reason": "require_sustained_current_iowait_pressure",
+    "fp_remediation_utc": "2026-07-28T14:45:00+03:00",
+    "window_s": 1800
   },
   "MET-009": {
     "dedupe_window_s": 86400
@@ -2220,7 +2232,10 @@
     "fp_remediation_reason": "second_pass_live_backlog_fp_remediation"
   },
   "MET-012": {
-    "dedupe_window_s": 86400
+    "dedupe_window_s": 86400,
+    "threshold": 3,
+    "fp_remediation_utc": "2026-07-28T12:40:00Z",
+    "fp_remediation_reason": "require three host flapping observations or five explicit restart-scheduled events"
   },
   "MET-017": {
     "dedupe_window_s": 86400,

@@ -6,19 +6,20 @@ import ctypes
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
 import time
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from deploy.soc_foundation_provision import Proxmox
-    from deploy.soc_security_integrations_deploy import _write_vm
+    from deploy.soc_security_integrations_deploy import _write_ct, _write_vm
 except ModuleNotFoundError:
     from soc_foundation_provision import Proxmox
-    from soc_security_integrations_deploy import _write_vm
+    from soc_security_integrations_deploy import _write_ct, _write_vm
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,8 @@ WINDOWS_URL = (
 WINDOWS_SHA256 = "c91cf8a32731c4c45c148393bc7d2af688c392194a9fffc4535e8b583260d55e"
 WINDOWS_SERVER_URL = b"https://192.168.3.102:8000/"
 LINUX_CANARY_VMID = 130
+LINUX_VMIDS = (102, 104, 105, 106, 107, 108, 122, 123, 124, 125, 127, 130, 131)
+LINUX_CTIDS = (100, 120, 121, 129, 132, 133)
 
 
 def _sha256(path: Path) -> str:
@@ -56,30 +59,15 @@ def _client_config(pve: Proxmox) -> bytes:
     return config
 
 
-def _install_linux_canary(pve: Proxmox, client_config: bytes) -> dict[str, str]:
-    _write_vm(
-        pve,
-        LINUX_CANARY_VMID,
-        "/etc/velociraptor/client.config.yaml",
-        client_config,
-        0o600,
-    )
-    _write_vm(
-        pve,
-        LINUX_CANARY_VMID,
-        "/etc/systemd/system/velociraptor-client.service",
-        (ROOT / "deploy/systemd/velociraptor-client.service").read_bytes(),
-        0o644,
-    )
-    output = pve.guest_exec(
-        LINUX_CANARY_VMID,
-        f"""
+def _linux_install_script() -> str:
+    return f"""
 set -euo pipefail
 if [ ! -x /usr/local/bin/velociraptor ] || \
    [ "$(/usr/local/bin/velociraptor version 2>/dev/null | sed -n 's/.*version: //p' | head -1)" != "{VERSION}" ]; then
   curl -fsSLo /tmp/velociraptor {LINUX_URL}
   echo '{LINUX_SHA256}  /tmp/velociraptor' | sha256sum -c -
   install -m 0755 /tmp/velociraptor /usr/local/bin/velociraptor
+  rm -f /tmp/velociraptor
 fi
 install -d -m 0700 /var/lib/velociraptor
 systemctl daemon-reload
@@ -91,10 +79,108 @@ for attempt in $(seq 1 30); do
 done
 systemctl is-active --quiet velociraptor-client.service
 /usr/local/bin/velociraptor version | head -1
-""",
+"""
+
+
+def _install_linux_vm(
+    pve: Proxmox,
+    vmid: int,
+    client_config: bytes,
+) -> dict[str, str | int]:
+    _write_vm(
+        pve,
+        vmid,
+        "/etc/velociraptor/client.config.yaml",
+        client_config,
+        0o600,
+    )
+    _write_vm(
+        pve,
+        vmid,
+        "/etc/systemd/system/velociraptor-client.service",
+        (ROOT / "deploy/systemd/velociraptor-client.service").read_bytes(),
+        0o644,
+    )
+    output = pve.guest_exec(
+        vmid,
+        _linux_install_script(),
         timeout=600,
     )
-    return {"host": "gamepanel-01", "status": output.strip().replace("\n", " | ")}
+    return {
+        "vmid": vmid,
+        "kind": "vm",
+        "status": output.strip().replace("\n", " | "),
+    }
+
+
+def _install_linux_ct(
+    pve: Proxmox,
+    vmid: int,
+    client_config: bytes,
+) -> dict[str, str | int]:
+    _write_ct(
+        pve,
+        vmid,
+        "/etc/velociraptor/client.config.yaml",
+        client_config,
+        0o600,
+    )
+    _write_ct(
+        pve,
+        vmid,
+        "/etc/systemd/system/velociraptor-client.service",
+        (ROOT / "deploy/systemd/velociraptor-client.service").read_bytes(),
+        0o644,
+    )
+    output = pve.ct(vmid, _linux_install_script(), timeout=600)
+    return {
+        "vmid": vmid,
+        "kind": "ct",
+        "status": output.strip().replace("\n", " | "),
+    }
+
+
+def _write_proxmox_file(
+    pve: Proxmox,
+    path: str,
+    content: bytes,
+    mode: int,
+) -> None:
+    encoded = base64.b64encode(content).decode("ascii")
+    temp = f"/tmp/velociraptor-proxmox-{os.getpid()}.b64"
+    parent = str(PurePosixPath(path).parent)
+    pve.run(f"install -d -m 0755 {shlex.quote(parent)}; : > {temp}")
+    try:
+        for offset in range(0, len(encoded), 24_000):
+            pve.run(
+                f"printf %s {shlex.quote(encoded[offset:offset + 24_000])} >> {temp}"
+            )
+        pve.run(
+            f"base64 -d {temp} > {shlex.quote(path)} && "
+            f"chmod {mode:o} {shlex.quote(path)}"
+        )
+    finally:
+        pve.run(f"rm -f {temp}")
+
+
+def _install_proxmox(
+    pve: Proxmox,
+    client_config: bytes,
+) -> dict[str, str]:
+    _write_proxmox_file(
+        pve,
+        "/etc/velociraptor/client.config.yaml",
+        client_config,
+        0o600,
+    )
+    _write_proxmox_file(
+        pve,
+        "/etc/systemd/system/velociraptor-client.service",
+        (ROOT / "deploy/systemd/velociraptor-client.service").read_bytes(),
+        0o644,
+    )
+    output = pve.run(_linux_install_script(), timeout=600)
+    return {"host": "pve", "kind": "proxmox", "status": output.strip()}
 
 
 def _run_checked(command: list[str], timeout: int = 120) -> str:
@@ -223,7 +309,10 @@ def _install_windows_client(client_config: bytes) -> dict[str, str]:
     return {"host": os.environ.get("COMPUTERNAME", "WIN-RTX-test"), "status": version}
 
 
-def _enrolled_clients(pve: Proxmox) -> list[dict[str, object]]:
+def _enrolled_clients(
+    pve: Proxmox,
+    expected: int = 2,
+) -> list[dict[str, object]]:
     query = (
         "SELECT client_id, os_info.hostname AS hostname, "
         "os_info.system AS system, last_seen_at FROM clients()"
@@ -240,7 +329,7 @@ def _enrolled_clients(pve: Proxmox) -> list[dict[str, object]]:
             for line in output.splitlines()
             if line.strip().startswith("{")
         ]
-        if len(clients) >= 2:
+        if len(clients) >= expected:
             return clients
         time.sleep(2)
     return clients
@@ -250,6 +339,8 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Deploy the initial Velociraptor endpoint canaries")
     parser.add_argument("--skip-windows", action="store_true")
     parser.add_argument("--skip-linux", action="store_true")
+    parser.add_argument("--all-linux", action="store_true")
+    parser.add_argument("--include-proxmox", action="store_true")
     return parser.parse_args()
 
 
@@ -259,10 +350,25 @@ def main() -> int:
         config = _client_config(pve)
         result: dict[str, object] = {}
         if not args.skip_linux:
-            result["linux"] = _install_linux_canary(pve, config)
+            if args.all_linux:
+                linux: list[dict[str, str | int]] = []
+                for vmid in LINUX_VMIDS:
+                    linux.append(_install_linux_vm(pve, vmid, config))
+                for vmid in LINUX_CTIDS:
+                    linux.append(_install_linux_ct(pve, vmid, config))
+                result["linux"] = linux
+            else:
+                result["linux"] = _install_linux_vm(pve, LINUX_CANARY_VMID, config)
+            if args.include_proxmox:
+                result["proxmox"] = _install_proxmox(pve, config)
         if not args.skip_windows:
             result["windows"] = _install_windows_client(config)
-        result["enrolled_clients"] = _enrolled_clients(pve)
+        expected = 2
+        if args.all_linux:
+            expected = len(LINUX_VMIDS) + len(LINUX_CTIDS) + 1
+        if args.include_proxmox:
+            expected += 1
+        result["enrolled_clients"] = _enrolled_clients(pve, expected=expected)
         print(json.dumps(result, indent=2, ensure_ascii=True))
     return 0
 

@@ -9,8 +9,9 @@
 
 - `active`: 353
 - `active_batch`: 79
-- `active_correlation`: 51
+- `active_correlation`: 50
 - `retired_asset`: 4
+- `retired_duplicate`: 1
 
 ## Prefix counts
 

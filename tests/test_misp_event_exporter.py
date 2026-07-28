@@ -15,6 +15,7 @@ class MispEventExporterTests(unittest.TestCase):
                     "id": "42",
                     "uuid": "event-uuid",
                     "info": "Lab campaign",
+                    "Galaxy": [{"name": "must-not-be-forwarded"}],
                     "Attribute": [
                         {
                             "id": "7",
@@ -22,6 +23,7 @@ class MispEventExporterTests(unittest.TestCase):
                             "timestamp": "1785029000",
                             "type": "domain",
                             "value": "example.invalid",
+                            "ShadowAttribute": [{"value": "must-not-be-forwarded"}],
                         }
                     ],
                 }
@@ -35,7 +37,9 @@ class MispEventExporterTests(unittest.TestCase):
         self.assertEqual("event-uuid:attribute-uuid:1785029000", identity)
         self.assertEqual(1785029000, timestamp)
         self.assertNotIn("Attribute", document["Event"])
+        self.assertNotIn("Galaxy", document["Event"])
         self.assertEqual("example.invalid", document["Attribute"]["value"])
+        self.assertNotIn("ShadowAttribute", document["Attribute"])
 
     def test_load_key_rejects_malformed_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

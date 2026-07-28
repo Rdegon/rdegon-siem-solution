@@ -14,6 +14,8 @@ except ModuleNotFoundError:
 VMID = 131
 HOSTNAME = "soc-ti-01"
 ADDRESS = "10.20.10.131"
+MEMORY_MB = 8192
+BALLOON_MB = 8192
 MISP_DOCKER_COMMIT = "223b675c4480730832f928e113b6f2e5260b450d"
 
 
@@ -90,6 +92,9 @@ def _ensure_vm(pve: Proxmox) -> None:
         config = pve.run(f"qm config {VMID}")
         if f"name: {HOSTNAME}" not in config:
             raise RuntimeError(f"VMID {VMID} is an unrelated VM")
+        pve.run(
+            f"qm set {VMID} --memory {MEMORY_MB} --balloon {BALLOON_MB}"
+        )
         return
 
     _remove_failed_lxc(pve)
@@ -114,8 +119,8 @@ def _ensure_vm(pve: Proxmox) -> None:
                 "--machine q35",
                 "--cpu host",
                 "--cores 4",
-                "--memory 8192",
-                "--balloon 6144",
+                f"--memory {MEMORY_MB}",
+                f"--balloon {BALLOON_MB}",
                 "--scsihw virtio-scsi-single",
                 "--net0 virtio,bridge=vmbr2,firewall=1",
                 "--agent enabled=1,freeze-fs-on-backup=1",

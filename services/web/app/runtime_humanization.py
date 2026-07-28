@@ -12,6 +12,7 @@ _MOJIBAKE_MARKERS = ("Ð", "Ñ", "Â", "Ã", "â")
 
 
 _SOURCE_FRIENDLY_COPY: dict[str, dict[str, str]] = {
+    "opnsense-edge-01": {"en": "OPNsense NGFW", "ru": "OPNsense NGFW"},
     "desktop-rdegon": {"en": "Analyst workstation", "ru": "Рабочая станция аналитика"},
     "vuln-mgr-01": {"en": "Vulnerability manager", "ru": "Узел менеджера уязвимостей"},
     "pilot-web-01": {"en": "Pilot web service", "ru": "Пилотный веб-сервис"},

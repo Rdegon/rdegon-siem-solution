@@ -7,10 +7,9 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=/usr/bin/python3 /opt/siem/deploy/misp_feed_cache.py
+ExecStart=/usr/bin/python3 /opt/siem/deploy/misp_curated_feed_sync.py --apply --import-recent-days 7 --max-events-per-feed 3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 ReadOnlyPaths=/etc/siem/misp-api.env
-

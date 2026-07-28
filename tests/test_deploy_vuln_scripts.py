@@ -40,6 +40,8 @@ class DeployVulnerabilityScriptsTests(unittest.TestCase):
         self.assertIn("[o]penvas --scan-start", script)
         self.assertIn("greenbone-feed-sync", script)
         self.assertIn("--user gvm", script)
+        self.assertIn("--wait-interval 30", script)
+        self.assertNotIn("--no-wait", script)
         self.assertIn("CPUQuota=200%", service)
         self.assertIn("Persistent=true", timer)
 

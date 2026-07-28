@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from host_runtime_pipeline import (
     _memory_pressure_status,
@@ -33,6 +34,7 @@ class HostRuntimePipelineTests(unittest.TestCase):
             "primary_ip": "192.168.1.38",
             "metrics": {
                 "cpu_pct": 95.0,
+                "iowait_pct": 24.0,
                 "memory_used_pct": 91.0,
                 "disk_used_pct": 92.0,
                 "load_ratio": 1.8,
@@ -58,6 +60,7 @@ class HostRuntimePipelineTests(unittest.TestCase):
         event_types = {item["event.type"] for item in events}
 
         self.assertIn("host_cpu_pressure", event_types)
+        self.assertIn("host_iowait_pressure", event_types)
         self.assertIn("host_memory_pressure", event_types)
         self.assertIn("host_disk_pressure", event_types)
         self.assertIn("host_load_pressure", event_types)
@@ -146,6 +149,39 @@ class HostRuntimePipelineTests(unittest.TestCase):
 
         self.assertNotIn("host_memory_pressure", event_types)
         self.assertNotIn("host_storage_pressure", event_types)
+
+    def test_low_iowait_snapshot_does_not_raise_iowait_pressure(self) -> None:
+        snapshot = {
+            "generated_ts": "2026-03-25T00:00:00Z",
+            "host_name": "siem-storage",
+            "host_role": "storage",
+            "primary_ip": "10.20.10.106",
+            "metrics": {"cpu_pct": 45.0, "iowait_pct": 4.0},
+            "services": [],
+        }
+
+        events, _ = evaluate_snapshot(snapshot, {}, now_epoch=300.0)
+
+        self.assertNotIn("host_iowait_pressure", {item["event.type"] for item in events})
+
+    @mock.patch("host_runtime_pipeline._cgroup_v2_cpu_usage_usec", side_effect=[1_000_000, 1_100_000])
+    @mock.patch("host_runtime_pipeline.time.monotonic", side_effect=[10.0, 10.1])
+    @mock.patch("host_runtime_pipeline.time.sleep")
+    def test_container_cpu_uses_cgroup_usage(
+        self,
+        _sleep: mock.Mock,
+        _monotonic: mock.Mock,
+        _usage: mock.Mock,
+    ) -> None:
+        from host_runtime_pipeline import _cpu_usage_and_iowait_percent
+
+        cpu_pct, iowait_pct = _cpu_usage_and_iowait_percent(
+            container_runtime="lxc",
+            cpu_count=2,
+        )
+
+        self.assertEqual(50.0, cpu_pct)
+        self.assertEqual(0.0, iowait_pct)
 
     def test_generic_load_spike_without_resource_pressure_or_service_failure_is_suppressed(self) -> None:
         snapshot = {

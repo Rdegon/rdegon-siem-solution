@@ -102,6 +102,16 @@ def build_transport_health_payload(
     configured_topics = dict(ingest_transport.get("configured_topics") or desired_transport.get("configured_topics") or {})
     bootstrap_servers = list(ingest_transport.get("kafka_bootstrap_servers") or desired_transport.get("kafka_bootstrap_servers") or [])
     shadow_required = bool(stream_corr.get("shadow_compare"))
+    shadow_pipeline_status = (
+        str(shadow_transport.get("status") or "unavailable")
+        if shadow_required
+        else "not_required"
+    )
+    shadow_pipeline_healthy = (
+        bool(shadow_transport.get("healthy", False))
+        if shadow_required
+        else True
+    )
     kafka_cluster_healthy = bool(backend in {"dual", "kafka"} and bool(ingest_transport.get("kafka_configured") or desired_transport.get("kafka_configured")))
     issues: list[str] = []
     if backend == "redis":
@@ -134,8 +144,8 @@ def build_transport_health_payload(
         "content_store_backend": str(platform_status.get("content_store_backend") or "filesystem"),
         "content_store_healthy": bool(platform_status.get("content_store_healthy", False)),
         "shadow_compare_status": "enabled" if bool(stream_corr.get("shadow_compare")) else "disabled",
-        "shadow_pipeline_status": str(shadow_transport.get("status") or "unavailable"),
-        "shadow_pipeline_healthy": bool(shadow_transport.get("healthy", False)),
+        "shadow_pipeline_status": shadow_pipeline_status,
+        "shadow_pipeline_healthy": shadow_pipeline_healthy,
         "kafka_bootstrap_servers": bootstrap_servers,
         "kafka_auth_mode": str(ingest_transport.get("kafka_auth_mode") or desired_transport.get("kafka_auth_mode") or "plaintext"),
         "configured_topics": configured_topics,

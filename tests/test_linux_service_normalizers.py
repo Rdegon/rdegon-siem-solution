@@ -37,6 +37,38 @@ def test_auditctl_rule_load_is_not_audit_config_alert() -> None:
     assert event["event.severity"] == "info"
 
 
+def test_audit_watch_bootstrap_path_is_not_a_file_change() -> None:
+    cron_root = _normalize(
+        "<182>1 2026-07-27T06:00:00Z siem-web auditd - - - "
+        'type=PATH msg=audit(1785132000.3:44): item=0 '
+        'name="/etc/cron.d" nametype=NORMAL'
+    )
+    authorized_keys_read = _normalize(
+        "<182>1 2026-07-27T06:00:00Z siem-web auditd - - - "
+        'type=PATH msg=audit(1785132000.4:45): item=0 '
+        'name="/home/rdegon/.ssh/authorized_keys" nametype=NORMAL'
+    )
+    authorized_keys_create = _normalize(
+        "<182>1 2026-07-27T06:00:00Z siem-web auditd - - - "
+        'type=PATH msg=audit(1785132000.5:46): item=0 '
+        'name="/home/rdegon/.ssh/authorized_keys" nametype=CREATE'
+    )
+
+    assert cron_root["event.type"] == "audit_path"
+    assert authorized_keys_read["event.type"] == "audit_path"
+    assert authorized_keys_create["event.type"] == "linux_authorized_keys_modified"
+
+
+def test_bare_auditctl_syscall_is_not_a_configuration_change() -> None:
+    event = _normalize(
+        "<182>1 2026-07-27T06:00:00Z siem-web auditd - - - "
+        'type=SYSCALL msg=audit(1785132000.6:47): syscall=44 success=yes '
+        'comm="auditctl" exe="/usr/sbin/auditctl" key=(null)'
+    )
+
+    assert event["event.type"] == "audit_syscall"
+
+
 def test_opnsense_filterlog_is_structured() -> None:
     event = _normalize(
         "<134>1 2026-07-27T06:00:00Z opnsense-staging.lab.home.arpa "
@@ -50,6 +82,28 @@ def test_opnsense_filterlog_is_structured() -> None:
     assert event["observer.interface.name"] == "vtnet1"
     assert event["source.ip"] == "192.168.3.14"
     assert event["destination.port"] == "5353"
+
+
+def test_proxmox_auth_success_and_failure_are_not_conflated() -> None:
+    success = _normalize(
+        "<30>1 2026-07-28T14:17:41+03:00 pve pvedaemon 2211 - - "
+        "<root@pam> successful auth for user 'root@pam'",
+        source="192.168.3.101",
+    )
+    failure = _normalize(
+        "<27>1 2026-07-28T14:18:41+03:00 pve pveproxy 2212 - - "
+        "authentication failure; rhost=203.0.113.19 user=root@pam "
+        "msg=Authentication failure",
+        source="192.168.3.101",
+    )
+
+    assert success["event.type"] == "proxmox_authentication_success"
+    assert success["event.outcome"] == "success"
+    assert success["user.name"] == "root@pam"
+    assert failure["event.type"] == "proxmox_authentication_failure"
+    assert failure["event.outcome"] == "failure"
+    assert failure["source.ip"] == "203.0.113.19"
+    assert failure["user.name"] == "root@pam"
 
 
 def test_gamepanel_audit_uses_linux_audit_normalizer() -> None:

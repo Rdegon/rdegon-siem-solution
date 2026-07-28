@@ -152,6 +152,25 @@ class NormalizerCoreTests(unittest.TestCase):
         self.assertRegex(str(first.get("event.id")), r"^audit-[0-9a-f]{32}$")
         self.assertEqual(first.get("event.id"), second.get("event.id"))
 
+    def test_audit_syscall_fragment_is_not_counted_as_a_second_recon_command(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": (
+                    "<182>1 2026-07-28T12:26:47+00:00 lab-edge-01 auditd - - - "
+                    "type=SYSCALL msg=audit(1785241607.493:20237): "
+                    'syscall=59 success=yes comm="uname" exe="/usr/bin/uname" '
+                    'key="siem_user_execve"'
+                ),
+                "source": "10.20.10.102",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("audit_syscall", normalized.get("event.type"))
+        self.assertNotEqual("linux_system_recon", normalized.get("event.type"))
+
     def test_audit_path_records_have_distinct_stable_event_ids(self) -> None:
         prefix = (
             "<182>1 2026-07-26T07:37:54+00:00 siem-processing auditd - - - "
@@ -189,6 +208,23 @@ class NormalizerCoreTests(unittest.TestCase):
 
         assert normalized is not None
         self.assertRegex(str(normalized.get("@timestamp")), r"^\d{4}-07-26T07:37:54Z$")
+
+    def test_ingest_timestamp_survives_normalization_as_stable_fallback(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": (
+                    "<30>1 2026-07-28T12:47:17Z pve systemd 1 - - "
+                    "Runtime telemetry started"
+                ),
+                "source": "192.168.3.101",
+                "ingest_ts": "2026-07-28T09:47:17Z",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("2026-07-28T09:47:17Z", normalized["ingest_ts"])
 
     def test_pve_bsd_syslog_timestamp_uses_moscow_timezone(self) -> None:
         normalized = apply_rules(
@@ -675,6 +711,42 @@ class NormalizerCoreTests(unittest.TestCase):
         assert normalized is not None
         self.assertEqual("linux_rsyslog_config_modified", normalized.get("event.type"))
         self.assertIn("allowlist:siem_managed_rsyslog_change", normalized.get("tags") or [])
+
+    def test_managed_systemd_unit_change_is_allowlisted_without_suppressing_arbitrary_units(self) -> None:
+        managed = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "source": "siem-processing",
+                "log_source": "siem-processing",
+                "message": (
+                    '<182>1 2026-07-28T02:10:00+03:00 siem-processing auditd - - - '
+                    'type=PATH name="/etc/systemd/system/siem-normalizer.service.d/'
+                    '60-static-kafka-member.conf" nametype=NORMAL'
+                ),
+            },
+        )
+        arbitrary = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "source": "pilot-web-01",
+                "log_source": "pilot-web-01",
+                "message": (
+                    '<182>1 2026-07-28T02:11:00+03:00 pilot-web-01 auditd - - - '
+                    'type=PATH name="/etc/systemd/system/backdoor.service" nametype=NORMAL'
+                ),
+            },
+        )
+
+        self.assertIsNotNone(managed)
+        self.assertIsNotNone(arbitrary)
+        assert managed is not None
+        assert arbitrary is not None
+        self.assertEqual("linux_systemd_unit_modified", managed.get("event.type"))
+        self.assertIn("allowlist:siem_managed_systemd_change", managed.get("tags") or [])
+        self.assertEqual("linux_systemd_unit_modified", arbitrary.get("event.type"))
+        self.assertNotIn("allowlist:siem_managed_systemd_change", arbitrary.get("tags") or [])
 
     def test_windows_rendered_security_message_is_normalized_without_event_code(self) -> None:
         raw_event = {

@@ -52,6 +52,7 @@ SOURCE_ALIAS_OVERRIDES: dict[str, str] = {
     "192.168.3.81": "DESKTOP-5JMJVBH",
     "192.168.3.101": "pve",
     "192.168.3.102": "lab-edge-01",
+    "192.168.3.103": "opnsense-edge-01",
     "192.168.1.22": "DESKTOP-5JMJVBH",
     "192.168.1.102": "lab-edge-01",
     "192.168.1.35": "siem-ingest",
@@ -92,7 +93,8 @@ SOURCE_ALIAS_OVERRIDES: dict[str, str] = {
     "navidrome-01.lab.home.arpa": "navidrome-01",
     "pilot-web-01.lab.home.arpa": "pilot-web-01",
     "openclaw-gateway.lab.home.arpa": "openclaw-gateway",
-    "opnsense-edge-01": "lab-edge-01",
+    "172.31.255.2": "opnsense-edge-01",
+    "opnsense-staging": "opnsense-edge-01",
     "45.89.111.208": "vm15611031",
     "176.108.250.215": "vpn-host-khanov",
 }

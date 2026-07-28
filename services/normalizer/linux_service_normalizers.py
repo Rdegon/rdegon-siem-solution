@@ -48,6 +48,28 @@ POSTGRES_AUTH_FAILURE_RE = re.compile(
     r'password authentication failed for user "(?P<user>[^"]+)"',
     re.IGNORECASE,
 )
+PROXMOX_AUTH_SUCCESS_RE = re.compile(
+    r"(?:<(?P<actor>[^>]+)>\s+)?successful auth for user ['\"](?P<user>[^'\"]+)['\"]",
+    re.IGNORECASE,
+)
+PROXMOX_AUTH_FAILURE_RE = re.compile(
+    r"(?:authentication failure|failed auth|auth(?:entication)? failed|login failed)"
+    r".*?(?:rhost=|from ['\"]?)(?P<source_ip>\d{1,3}(?:\.\d{1,3}){3})?"
+    r".*?(?:user=|for user ['\"]?)(?P<user>[A-Za-z0-9_.@-]+)?",
+    re.IGNORECASE,
+)
+PROXMOX_AUTH_FAILURE_FALLBACK_RE = re.compile(
+    r"(?:authentication failure|failed auth|auth(?:entication)? failed|login failed)",
+    re.IGNORECASE,
+)
+PROXMOX_RHOST_RE = re.compile(
+    r"(?:rhost=|from ['\"]?)(?P<source_ip>\d{1,3}(?:\.\d{1,3}){3})",
+    re.IGNORECASE,
+)
+PROXMOX_USER_RE = re.compile(
+    r"(?:user=|for user ['\"]?)(?P<user>[A-Za-z0-9_.@-]+)",
+    re.IGNORECASE,
+)
 
 
 def _text(value: Any) -> str:
@@ -204,6 +226,50 @@ def parse_systemd_message(body: str) -> Dict[str, Any]:
     if unit:
         result["service.name"] = unit
         result["service.type"] = unit.rsplit(".", 1)[-1]
+    return result
+
+
+def parse_proxmox_auth_message(body: str, *, program: str) -> Dict[str, Any]:
+    message = _text(body)
+    success = PROXMOX_AUTH_SUCCESS_RE.search(message)
+    if success:
+        result = _base(
+            provider=f"linux.{program}",
+            dataset="proxmox.auth",
+            category="authentication",
+            event_type="proxmox_authentication_success",
+            action="authentication_success",
+            severity="info",
+            outcome="success",
+        )
+        result["user.name"] = _text(success.group("user"))
+        actor = _text(success.group("actor"))
+        if actor:
+            result["user.effective.name"] = actor
+        return result
+
+    if not PROXMOX_AUTH_FAILURE_FALLBACK_RE.search(message):
+        return {}
+    failure = PROXMOX_AUTH_FAILURE_RE.search(message)
+    source = PROXMOX_RHOST_RE.search(message)
+    user = PROXMOX_USER_RE.search(message)
+    result = _base(
+        provider=f"linux.{program}",
+        dataset="proxmox.auth",
+        category="authentication",
+        event_type="proxmox_authentication_failure",
+        action="authentication_failed",
+        severity="medium",
+        outcome="failure",
+    )
+    if failure and _text(failure.groupdict().get("source_ip")):
+        result["source.ip"] = _text(failure.group("source_ip"))
+    elif source:
+        result["source.ip"] = _text(source.group("source_ip"))
+    if failure and _text(failure.groupdict().get("user")):
+        result["user.name"] = _text(failure.group("user"))
+    elif user:
+        result["user.name"] = _text(user.group("user"))
     return result
 
 

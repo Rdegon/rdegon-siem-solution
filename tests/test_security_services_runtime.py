@@ -71,11 +71,14 @@ class SecurityServicesRuntimeTests(unittest.TestCase):
         payload = list_security_services(client=_Client())
         by_id = {item["service_id"]: item for item in payload["items"]}
 
-        self.assertEqual(payload["total"], 6)
+        self.assertEqual(payload["total"], 10)
         self.assertEqual(payload["healthy"], 1)
         self.assertEqual(by_id["ndr"]["telemetry_state"], "healthy")
         self.assertEqual(by_id["dfir"]["telemetry_state"], "stale")
         self.assertEqual(by_id["evidence"]["address"], "10.20.10.133")
+        self.assertEqual(by_id["ngfw"]["address"], "192.168.3.103")
+        self.assertEqual(by_id["ngfw"]["host_name"], "opnsense-edge-01")
+        self.assertIn("arkime", by_id["ndr"]["expected_products"])
 
     def test_detail_redacts_event_secrets(self) -> None:
         payload = get_security_service("ndr", client=_Client())

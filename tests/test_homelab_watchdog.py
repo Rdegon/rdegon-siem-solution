@@ -193,6 +193,27 @@ class HomelabWatchdogTests(unittest.TestCase):
         self.assertEqual([], state["problems"])
         self.assertEqual("healthy", state["edge_status"])
 
+    def test_collect_critical_ingest_state_accepts_pve_linux_auth_after_relocation(self) -> None:
+        state = _collect_critical_ingest_state(
+            sources={
+                "items": [
+                    {"collector_profile": "linux-auth", "source_alias": "pve", "status": "healthy"},
+                    {"collector_profile": "linux-auth", "source_alias": "opnsense-edge-01", "status": "healthy"},
+                ]
+            },
+            collectors={
+                "items": [
+                    {"collector_profile": "app", "status": "healthy"},
+                    {"collector_profile": "linux-auth", "status": "healthy"},
+                    {"collector_profile": "linux-audit", "status": "healthy"},
+                ]
+            },
+        )
+
+        self.assertTrue(state["healthy"])
+        self.assertEqual("healthy", state["pve_source_status"])
+        self.assertEqual([], state["problems"])
+
     def test_collect_critical_ingest_state_prefers_healthy_relocated_sources(self) -> None:
         state = _collect_critical_ingest_state(
             sources={

@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Arkime health metric export
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=siem-arkime-metrics-exporter.service
+
+[Install]
+WantedBy=timers.target

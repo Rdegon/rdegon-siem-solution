@@ -666,24 +666,22 @@ def _collect_critical_ingest_state(*, sources: dict[str, object], collectors: di
         if status != "healthy":
             problems.append(f"collector:{profile}:{status}")
 
-    pve_app = _best_source_item(
+    pve_source = _best_source_item(
         source_items,
         lambda item: (
-            str(item.get("collector_profile") or item.get("ingest_profile") or "").strip().lower() == "app"
-            and (
-                "pve" in " ".join(
-                    str(item.get(field) or "").strip().lower()
-                    for field in ("source", "source_alias", "id")
-                )
-                or any(
+            str(item.get("collector_profile") or item.get("ingest_profile") or "").strip().lower()
+            in {"app", "linux-auth", "linux-audit", "network"}
+            and any(
+                (
                     str(item.get(field) or "").strip().lower() in PVE_SOURCE_ALIASES
-                    for field in ("source", "source_alias", "id")
+                    or str(item.get(field) or "").strip().lower().startswith("pve-")
                 )
+                for field in ("source", "source_alias", "id")
             )
         ),
     )
-    if _item_status(pve_app or {}) != "healthy":
-        problems.append(f"source:pve/app:{_item_status(pve_app or {}) or 'missing'}")
+    if _item_status(pve_source or {}) != "healthy":
+        problems.append(f"source:pve:{_item_status(pve_source or {}) or 'missing'}")
 
     vpn_source = _best_source_item(
         source_items,
@@ -712,7 +710,8 @@ def _collect_critical_ingest_state(*, sources: dict[str, object], collectors: di
         "healthy": not problems,
         "problems": problems,
         "collectors": collector_state,
-        "pve_app_status": _item_status(pve_app or {}) or "missing",
+        "pve_source_status": _item_status(pve_source or {}) or "missing",
+        "pve_app_status": _item_status(pve_source or {}) or "missing",
         "vpn_status": _item_status(vpn_source or {}) or "missing",
         "edge_status": _item_status(edge_source or {}) or "missing",
     }

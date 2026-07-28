@@ -33,6 +33,7 @@ from .linux_service_normalizers import (
     parse_opnsense_filterlog,
     parse_pam_message,
     parse_postgresql_message,
+    parse_proxmox_auth_message,
     parse_systemd_message,
 )
 from .security_tool_normalizers import parse_security_tool_event, parse_suricata_payload
@@ -764,6 +765,25 @@ def _looks_like_managed_rsyslog_change(
     )
 
 
+def _looks_like_managed_systemd_unit_change(event_type: str, message: str) -> bool:
+    if str(event_type or "").strip().lower() != "linux_systemd_unit_modified":
+        return False
+    safe_message = str(message or "").lower()
+    managed_markers = (
+        "/etc/systemd/system/siem-",
+        "/etc/systemd/system/velociraptor-client.service",
+        "60-static-kafka-member.conf",
+        "siem-security-sensor-forwarder@.service",
+        "/falco-custom.service",
+    )
+    if any(marker in safe_message for marker in managed_markers):
+        return True
+    return (
+        "/etc/systemd/system/snap-" in safe_message
+        and (".mount" in safe_message or ".service" in safe_message)
+    )
+
+
 def _apply_openclaw_allowlist_tags(event: Dict[str, Any]) -> Dict[str, Any]:
     host_name = _canonical_host_name(str(event.get("host.name") or event.get("log_source") or ""))
     if host_name != OPENCLAW_EXPECTED_HOST:
@@ -854,6 +874,8 @@ def _apply_operational_allowlist_tags(event: Dict[str, Any]) -> Dict[str, Any]:
         _append_tags(event, "allowlist:siem_approved_scanner", "siem:approved-scanner")
     if _looks_like_managed_rsyslog_change(event_type, audit_key, host_name, process_name, message):
         _append_tags(event, "allowlist:siem_managed_rsyslog_change", "siem:managed-rsyslog-change")
+    if _looks_like_managed_systemd_unit_change(event_type, message):
+        _append_tags(event, "allowlist:siem_managed_systemd_change", "siem:managed-systemd-change")
     return event
 
 
@@ -951,7 +973,25 @@ def _classify_file_path_event(result: Dict[str, Any], path_value: str) -> None:
     path_lower = _clean_value(path_value).lower()
     if not path_lower:
         return
+    file_type = _clean_value(result.get("file.type", "")).upper()
+    audit_key = _normalize_audit_key(_clean_value(result.get("audit.key", "")))
+    explicit_change = file_type in {"CREATE", "DELETE", "RENAME", "RENAME2"} or audit_key not in {"", "(null)"}
+    watched_directory_roots = {
+        "/etc/audit",
+        "/etc/audit/rules.d",
+        "/etc/cron",
+        "/etc/cron.d",
+        "/etc/cron.daily",
+        "/etc/cron.hourly",
+        "/etc/cron.monthly",
+        "/etc/cron.weekly",
+        "/var/spool/cron",
+    }
+    if path_lower in watched_directory_roots and not explicit_change:
+        return
     if path_lower.endswith(".ssh/authorized_keys"):
+        if not explicit_change:
+            return
         _set_event_shape(result, category="persistence", action="file_modify", event_type="linux_authorized_keys_modified")
     elif path_lower == "/etc/sudoers" or path_lower.startswith("/etc/sudoers.d/"):
         _set_event_shape(result, category="privilege", action="sudoers_modify", event_type="linux_sudoers_modified")
@@ -1010,7 +1050,13 @@ def _classify_execve_activity(result: Dict[str, Any]) -> None:
         elif " stop " in f" {command_lower} ":
             _set_event_shape(result, category="impact", action="service_stop", event_type="linux_systemd_service_stopped")
     elif executable in {"auditctl", "augenrules"} or "audit.rules" in command_lower:
-        if " -d" in command_lower or " -D" in command_line or "--delete-all" in command_lower:
+        if (
+            executable == "auditctl"
+            and not command_line
+            and _clean_value(result.get("audit.type", "")).upper() in {"SYSCALL", "PROCTITLE"}
+        ):
+            pass
+        elif " -d" in command_lower or " -D" in command_line or "--delete-all" in command_lower:
             _set_event_shape(result, category="defense_evasion", action="audit_rules_clear", event_type="linux_audit_rules_cleared")
         elif re.search(r"(?:^|\s)-e\s*0(?:\s|$)", command_lower):
             _set_event_shape(result, category="defense_evasion", action="audit_disable", event_type="linux_audit_disabled")
@@ -1196,7 +1242,7 @@ def _parse_auditd(body: str, base: Dict[str, Any]) -> Dict[str, Any]:
     _merge_non_empty(result, _decode_audit_sockaddr(values.get("saddr", "")))
     if event_type_raw == "PATH":
         _classify_file_path_event(result, file_path)
-    if event_type_raw in {"EXECVE", "SYSCALL", "PROCTITLE"}:
+    if event_type_raw == "EXECVE":
         _classify_execve_activity(result)
     if result.get("event.type", "").startswith("audit_") and result.get("destination.port") and values.get("syscall") in {"42", "connect"}:
         _set_event_shape(result, category="network", action="connection_attempt", event_type="linux_network_connection")
@@ -2073,6 +2119,10 @@ def _parse_linux_syslog(raw_event: Dict[str, Any]) -> Dict[str, Any]:
         return _merge_non_empty(enriched, _parse_auditd(body, enriched))
     if program == "sshd":
         return _merge_non_empty(enriched, _parse_sshd(body, enriched))
+    if program in {"pvedaemon", "pveproxy"}:
+        proxmox_auth = parse_proxmox_auth_message(body, program=program)
+        if proxmox_auth:
+            return _merge_non_empty(enriched, proxmox_auth)
     if program in {"xray", "xray-access"}:
         return _merge_non_empty(enriched, _parse_xray_access(body, enriched))
     if program == "sudo":
@@ -2252,6 +2302,7 @@ def _build_uem(rule: Optional[NormalizerRule], raw_event: Dict[str, Any]) -> Dic
 
     passthrough_keys = {
         "@timestamp",
+        "ingest_ts",
         "message",
         "severity",
         "log_source",

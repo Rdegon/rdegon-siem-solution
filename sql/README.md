@@ -13,6 +13,7 @@ ClickHouse schema and rule seed SQL live here.
 | `16_lab_cmdb_seed.sql` | Lab CMDB seed. |
 | `17_lab_ti_seed.sql` | Lab threat-intel seed. |
 | `18_security_analytics_schema.sql` | Searchable Zeek, endpoint, container, vulnerability, rule, and evidence fields. |
+| `19_event_insert_deduplication.sql` | Enables deterministic insert-block deduplication for at-least-once Kafka writers. |
 
 Publishing utilities that consume these files:
 

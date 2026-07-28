@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule MinIO certificate renewal
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=siem-minio-certificate-renew.service
+
+[Install]
+WantedBy=timers.target

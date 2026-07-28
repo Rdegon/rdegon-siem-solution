@@ -89,6 +89,28 @@ class HealthSurfacesTests(unittest.TestCase):
         self.assertFalse(payload["healthy"])
         self.assertIn("Kafka shadow table is missing", payload["issues"])
 
+    def test_transport_payload_retires_shadow_health_after_cutover(self) -> None:
+        ingest_transport = {
+            "backend": "kafka",
+            "cutover_stage": "kafka_only",
+            "kafka_configured": True,
+        }
+        platform_status = {
+            "transport_backend": "kafka",
+            "stream_state_backend": "sqlite",
+            "content_store_backend": "mongo",
+            "content_store_healthy": True,
+            "stream_correlation": {"state_backend": "sqlite", "shadow_compare": False},
+            "transport_shadow_status": {},
+        }
+        with patch("health_surfaces.local_transport_health_snapshot", return_value={"backend": "kafka", "kafka_configured": True, "kafka_expected_brokers": 3}):
+            with patch("health_surfaces.local_stream_state_runtime_status", return_value={"backend": "sqlite", "healthy": True, "sqlite_exists": True}):
+                payload = build_transport_health_payload(ingest_transport=ingest_transport, platform_status=platform_status)
+
+        self.assertTrue(payload["healthy"])
+        self.assertEqual("not_required", payload["shadow_pipeline_status"])
+        self.assertTrue(payload["shadow_pipeline_healthy"])
+
 
 if __name__ == "__main__":
     unittest.main()

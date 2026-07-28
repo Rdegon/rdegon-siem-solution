@@ -31,6 +31,7 @@ HOST_ROLE_ALIASES = {
 }
 DEFAULT_THRESHOLDS: dict[str, float] = {
     "cpu_pct_high": 90.0,
+    "iowait_pct_high": 20.0,
     "memory_pct_high": 90.0,
     "disk_pct_high": 90.0,
     "load_ratio_high": 1.5,
@@ -45,6 +46,7 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
 LOAD_PRESSURE_RELEVANT_ROLES = {"control-plane", "storage", "processing", "ingest", "transport"}
 DEFAULT_EVENT_POLICY: dict[str, dict[str, Any]] = {
     "host_cpu_pressure": {"suppression_seconds": 600, "escalate_after": 3},
+    "host_iowait_pressure": {"suppression_seconds": 600, "escalate_after": 3},
     "host_memory_pressure": {"suppression_seconds": 600, "escalate_after": 2},
     "host_disk_pressure": {"suppression_seconds": 1800, "escalate_after": 2},
     "host_load_pressure": {"suppression_seconds": 600, "escalate_after": 3},
@@ -205,23 +207,84 @@ def _load_meminfo(text: str) -> dict[str, int]:
     return payload
 
 
-def _cpu_times() -> tuple[int, int]:
+def _cpu_times() -> tuple[int, int, int]:
     raw = Path("/proc/stat").read_text(encoding="utf-8", errors="replace").splitlines()[0]
     parts = raw.split()
     values = [_safe_int(item, 0) for item in parts[1:]]
-    idle = values[3] + values[4] if len(values) > 4 else values[3]
+    idle = values[3] if len(values) > 3 else 0
+    iowait = values[4] if len(values) > 4 else 0
     total = sum(values)
-    return total, idle
+    return total, idle, iowait
+
+
+def _container_runtime() -> str:
+    try:
+        value = Path("/run/systemd/container").read_text(
+            encoding="ascii", errors="ignore"
+        ).strip()
+        if value:
+            return value
+    except OSError:
+        pass
+    if Path("/.dockerenv").exists():
+        return "docker"
+    return ""
+
+
+def _cgroup_v2_cpu_usage_usec() -> int | None:
+    try:
+        cgroup_line = next(
+            line
+            for line in Path("/proc/self/cgroup").read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+            if line.startswith("0::")
+        )
+        relative = cgroup_line.split("::", 1)[1].lstrip("/")
+        cpu_stat = Path("/sys/fs/cgroup") / relative / "cpu.stat"
+        for line in cpu_stat.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            key, _, value = line.partition(" ")
+            if key == "usage_usec":
+                return _safe_int(value, 0)
+    except (OSError, StopIteration):
+        return None
+    return None
+
+
+def _cpu_usage_and_iowait_percent(
+    sample_seconds: float = 0.15,
+    *,
+    container_runtime: str = "",
+    cpu_count: int = 1,
+) -> tuple[float, float]:
+    if container_runtime:
+        usage_1 = _cgroup_v2_cpu_usage_usec()
+        started = time.monotonic()
+        time.sleep(max(0.05, min(sample_seconds, 0.5)))
+        usage_2 = _cgroup_v2_cpu_usage_usec()
+        elapsed = max(time.monotonic() - started, 0.001)
+        if usage_1 is not None and usage_2 is not None:
+            capacity_usec = elapsed * 1_000_000 * max(int(cpu_count), 1)
+            cpu_pct = min(max(usage_2 - usage_1, 0) / capacity_usec * 100.0, 100.0)
+            return round(cpu_pct, 1), 0.0
+    total_1, idle_1, iowait_1 = _cpu_times()
+    time.sleep(max(0.05, min(sample_seconds, 0.5)))
+    total_2, idle_2, iowait_2 = _cpu_times()
+    total_delta = max(total_2 - total_1, 1)
+    idle_delta = max((idle_2 - idle_1) + (iowait_2 - iowait_1), 0)
+    iowait_delta = max(iowait_2 - iowait_1, 0)
+    busy_delta = max(total_delta - idle_delta, 0)
+    return (
+        round((busy_delta / total_delta) * 100.0, 1),
+        round((iowait_delta / total_delta) * 100.0, 1),
+    )
 
 
 def _cpu_usage_percent(sample_seconds: float = 0.15) -> float:
-    total_1, idle_1 = _cpu_times()
-    time.sleep(max(0.05, min(sample_seconds, 0.5)))
-    total_2, idle_2 = _cpu_times()
-    total_delta = max(total_2 - total_1, 1)
-    idle_delta = max(idle_2 - idle_1, 0)
-    busy_delta = max(total_delta - idle_delta, 0)
-    return round((busy_delta / total_delta) * 100.0, 1)
+    cpu_pct, _ = _cpu_usage_and_iowait_percent(sample_seconds)
+    return cpu_pct
 
 
 def _detect_primary_ip() -> str:
@@ -304,9 +367,15 @@ def collect_local_snapshot(*, host_name: str = "", host_role: str = "", watched_
     inode_used = max(inode_total - inode_free, 0)
     cpu_count = max(int(os.cpu_count() or 1), 1)
     load1, load5, load15 = os.getloadavg()
+    container_runtime = _container_runtime()
     service_rows = [_service_status(name) for name in services]
     failed_services = [item for item in service_rows if str(item.get("status") or "") not in {"active", "inactive"}]
     primary_ip = _detect_primary_ip()
+    cpu_pct, iowait_pct = _cpu_usage_and_iowait_percent(
+        container_runtime=container_runtime,
+        cpu_count=cpu_count,
+    )
+    load_is_host_scoped = not container_runtime
     try:
         boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii", errors="ignore").strip()
     except OSError:
@@ -318,7 +387,10 @@ def collect_local_snapshot(*, host_name: str = "", host_role: str = "", watched_
         "host_role": resolved_role,
         "primary_ip": primary_ip,
         "metrics": {
-            "cpu_pct": _cpu_usage_percent(),
+            "cpu_pct": cpu_pct,
+            "cpu_scope": "cgroup" if container_runtime else "host",
+            "iowait_pct": iowait_pct,
+            "iowait_scope": "unavailable_in_container" if container_runtime else "host",
             "cpu_count": cpu_count,
             "memory_total_bytes": total_memory,
             "memory_available_bytes": available_memory,
@@ -337,10 +409,12 @@ def collect_local_snapshot(*, host_name: str = "", host_role: str = "", watched_
             "inode_total": inode_total,
             "inode_used": inode_used,
             "inode_used_pct": round((inode_used / max(inode_total, 1)) * 100.0, 1) if inode_total else 0.0,
-            "load_1": round(load1, 3),
-            "load_5": round(load5, 3),
-            "load_15": round(load15, 3),
-            "load_ratio": round(load1 / cpu_count, 3),
+            "load_1": round(load1, 3) if load_is_host_scoped else 0.0,
+            "load_5": round(load5, 3) if load_is_host_scoped else 0.0,
+            "load_15": round(load15, 3) if load_is_host_scoped else 0.0,
+            "load_ratio": round(load1 / cpu_count, 3) if load_is_host_scoped else 0.0,
+            "load_scope": "host" if load_is_host_scoped else "unavailable_in_container",
+            "host_load_1_observed": round(load1, 3) if container_runtime else 0.0,
             "failed_services_total": len(failed_services),
         },
         "services": service_rows,
@@ -431,6 +505,7 @@ def evaluate_snapshot(
     alerts: list[dict[str, Any]] = []
 
     cpu_pct = _safe_float(metrics.get("cpu_pct"))
+    iowait_pct = _safe_float(metrics.get("iowait_pct"))
     mem_pct = _safe_float(metrics.get("memory_used_pct"))
     mem_available_pct = _safe_float(metrics.get("memory_available_pct"))
     disk_pct = _safe_float(metrics.get("disk_used_pct"))
@@ -450,6 +525,15 @@ def evaluate_snapshot(
 
     if cpu_pct >= rules["cpu_pct_high"]:
         alerts.append(_base_event(snapshot, event_type="host_cpu_pressure", severity="high", message=f"CPU pressure on {host_name}: {cpu_pct:.1f}%"))
+    if iowait_pct >= rules["iowait_pct_high"]:
+        alerts.append(
+            _base_event(
+                snapshot,
+                event_type="host_iowait_pressure",
+                severity="high",
+                message=f"I/O wait pressure on {host_name}: {iowait_pct:.1f}%",
+            )
+        )
     if memory_pressure_status in {"high", "critical"}:
         alerts.append(
             _base_event(

@@ -173,8 +173,11 @@ def test_linux_system_recon_replacement_excludes_openclaw_health_checks() -> Non
 
     assert int(rule["threshold"]) >= 5
     assert "openclaw_send" in str(rule["expr"])
+    assert "who -q" in str(rule["expr"])
     assert "/usr/lib/node_modules/openclaw" in str(rule["expr"])
     assert "apparmor_parser" in str(rule["expr"])
+    assert "audit.type == 'EXECVE'" in str(rule["expr"])
+    assert "uname -m" in str(rule["expr"])
     assert not _matches(
         str(rule["expr"]),
         {
@@ -182,6 +185,65 @@ def test_linux_system_recon_replacement_excludes_openclaw_health_checks() -> Non
             "event.type": "linux_system_recon",
             "event.original": "type=EXECVE",
             "process.command_line": "apparmor_parser -r -T -W /etc/apparmor.d/ubuntu_pro_esm_cache",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_system_recon",
+            "audit.type": "EXECVE",
+            "event.original": "type=EXECVE",
+            "host.name": "lab-edge-01",
+            "log_source": "lab-edge-01",
+            "process.command_line": "uname -r",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_system_recon",
+            "audit.type": "EXECVE",
+            "event.original": "type=EXECVE",
+            "host.name": "pilot-web-01",
+            "log_source": "pilot-web-01",
+            "process.command_line": "uname -a",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        str(rule["expr"]),
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "linux_system_recon",
+            "event.original": "type=EXECVE",
+            "process.command_line": "who -q",
+            "tags": "",
+        },
+    )
+
+
+def test_windows_rdp_burst_excludes_trusted_opnsense_gateway() -> None:
+    rule = _pack_rule("windows_activity_v1.json", 2617)
+
+    assert "sigma_yaml" not in rule
+    assert "192.168.3.103" in str(rule["expr"])
+    assert not _matches(
+        str(rule["expr"]),
+        {
+            "event.type": "windows_rdp_auth_success",
+            "source.ip": "192.168.3.103",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        str(rule["expr"]),
+        {
+            "event.type": "windows_rdp_auth_success",
+            "source.ip": "198.51.100.24",
             "tags": "",
         },
     )
@@ -551,6 +613,8 @@ def test_assignment_overrides_replace_broad_fp_keywords_with_source_event_semant
     assert "host.name == 'vuln-mgr-01'" in str(overrides["DCK-018"]["expr"])
     assert "host.name == 'openclaw-gateway'" in str(overrides["DCK-019"]["expr"])
     assert "host.name == 'gamepanel-01'" in str(overrides["DCK-021"]["expr"])
+    assert "host.name == 'minecraft-01'" not in str(overrides["DCK-021"]["expr"])
+    assert "wings.service" in str(overrides["DCK-021"]["expr"])
     assert "event.provider == 'linux.docker'" in str(overrides["DCK-004"]["expr"])
     assert "host.name == 'pve'" in str(overrides["PVE-009"]["expr"])
     assert "assignment-full" in str(overrides["EDGE-004"]["sql_template"])
@@ -694,6 +758,18 @@ def test_assignment_overrides_reject_observed_false_positive_shapes() -> None:
             "tags": "",
         },
     )
+    assert not _matches(
+        str(overrides["DNS-005"]["expr"]),
+        {
+            "event.provider": "zeek",
+            "event.type": "zeek_conn",
+            "network.direction": "outbound",
+            "source.ip": "10.20.10.108",
+            "destination.ip": "10.20.10.254",
+            "destination.port": "53",
+            "tags": "",
+        },
+    )
     assert _matches(
         str(overrides["DNS-005"]["expr"]),
         {
@@ -809,6 +885,20 @@ def test_assignment_auth_rules_require_parsed_sudo_and_real_pam_failures() -> No
             "event.action": "authentication",
             "event.outcome": "success",
             "event.original": "op=PAM:authentication grantors=pam_permit res=success",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        pam_expr,
+        {
+            "event.provider": "linux.auditd",
+            "event.type": "audit_service_stop",
+            "event.action": "service_stop",
+            "event.outcome": "failure",
+            "event.original": (
+                "type=SERVICE_STOP msg=audit(1.0:2): "
+                "unit=siem-normalizer res=failed"
+            ),
             "tags": "",
         },
     )

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import re
+import time
 from typing import Any, Dict, Iterable
 
 
@@ -99,6 +101,24 @@ def _severity(value: Any, *, default: str = "info") -> str:
         "unknown": default,
     }
     return aliases.get(normalized, normalized or default)
+
+
+def _truthy(value: Any) -> bool:
+    return value is True or _text(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _recent_unix_timestamp(value: Any, *, max_age_seconds: int = 15_552_000) -> bool:
+    text = _text(value)
+    if not text:
+        return True
+    try:
+        timestamp = float(text)
+    except ValueError:
+        return True
+    if timestamp > 10_000_000_000:
+        timestamp /= 1000
+    now = time.time()
+    return now - max_age_seconds <= timestamp <= now + 86_400
 
 
 _INTERNAL_NETWORKS = tuple(
@@ -260,6 +280,18 @@ def parse_suricata_payload(event: Dict[str, Any], payload: Dict[str, Any] | str)
     }
     priority = _text(alert.get("severity"))
     severity = _suricata_alert_severity(priority) if event_type == "alert" else "info"
+    source_event_id = _text(_first(eve, "event.id"))
+    if not source_event_id:
+        canonical_record = json.dumps(
+            eve,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        source_event_id = (
+            "suricata-"
+            + hashlib.sha256(canonical_record.encode("utf-8")).hexdigest()[:32]
+        )
     normalized = _base(
         event,
         provider="suricata",
@@ -271,7 +303,7 @@ def parse_suricata_payload(event: Dict[str, Any], payload: Dict[str, Any] | str)
     )
     normalized.update(
         {
-            "event.id": _text(_first(eve, "event.id", "flow_id", "community_id")),
+            "event.id": source_event_id,
             "event.code": _text(_first(alert, "signature_id", "gid")),
             "event.outcome": "failure" if event_type == "alert" else "unknown",
             "rule.id": _text(_first(alert, "signature_id", "gid")),
@@ -285,6 +317,7 @@ def parse_suricata_payload(event: Dict[str, Any], payload: Dict[str, Any] | str)
             "network.transport": _text(_first(eve, "proto", "network.transport")).lower(),
             "network.protocol": _text(_first(eve, "app_proto", "network.protocol")).lower(),
             "network.community_id": _text(_first(eve, "community_id")),
+            "suricata.flow_id": _text(eve.get("flow_id")),
             "network.direction": _network_direction(source_ip, destination_ip),
             "dns.question.name": _text(_first(dns, "rrname", "query", "dns.question.name")),
             "dns.question.type": _text(_first(dns, "rrtype", "type", "dns.question.type")),
@@ -518,7 +551,22 @@ def _parse_misp(event: Dict[str, Any]) -> Dict[str, Any]:
         event_id = f"misp-{misp_event_id}-attribute-{attribute_id or indicator}"
     threat_level = _text(_first(event, "threat_level_id") or misp_event.get("threat_level_id"))
     orgc = _dict(misp_event.get("Orgc"))
-    severity = {"1": "high", "2": "medium", "3": "low", "4": "info"}.get(threat_level, "medium")
+    active = (
+        _truthy(attribute.get("to_ids"))
+        and not _truthy(attribute.get("deleted"))
+        and not _truthy(attribute.get("disable_correlation"))
+        and _recent_unix_timestamp(
+            _first(attribute, "last_seen", "timestamp", "first_seen")
+        )
+    )
+    severity = {
+        "1": "high",
+        "2": "medium",
+        "3": "low",
+        "4": "info",
+    }.get(threat_level, "medium")
+    if not active:
+        severity = "info"
     normalized = _base(
         event,
         provider="misp",
@@ -536,11 +584,165 @@ def _parse_misp(event: Dict[str, Any]) -> Dict[str, Any]:
             "threat.indicator.value": indicator,
             "threat.feed.name": _text(_first(event, "feed", "org") or orgc.get("name")) or "misp",
             "threat.confidence": _text(_first(event, "confidence", "threat.confidence")),
+            "threat.indicator.active": "true" if active else "false",
+            "threat.indicator.last_seen": _text(
+                _first(attribute, "last_seen", "timestamp", "first_seen")
+            ),
             "rule.name": _text(_first(event, "event_info", "info") or misp_event.get("info")),
             "event.outcome": "success",
         }
     )
-    normalized["tags"] = _tags(normalized["tags"], ["intel:ioc", f"ioc_type:{indicator_type}"])
+    normalized["tags"] = _tags(
+        normalized["tags"],
+        [
+            "intel:ioc",
+            "ioc:active" if active else "ioc:context-only",
+            f"ioc_type:{indicator_type}",
+        ],
+    )
+    return normalized
+
+
+def _remote_host(value: Any) -> str:
+    remote = _text(value)
+    if remote.startswith("[") and "]" in remote:
+        return remote[1 : remote.index("]")]
+    host, separator, port = remote.rpartition(":")
+    if separator and port.isdigit():
+        return host
+    return remote
+
+
+def _parse_step_ca(event: Dict[str, Any]) -> Dict[str, Any]:
+    method = _text(_first(event, "method", "http.request.method")).upper()
+    path = _text(_first(event, "path", "request.path", "url.path"))
+    status_text = _text(_first(event, "status", "statusCode", "http.response.status_code"))
+    action = "pki_request"
+    event_type = "pki_request"
+    if path.endswith("/sign") or "/sign/" in path:
+        action = "certificate_issued"
+        event_type = "certificate_issued"
+    elif path.endswith("/revoke") or "/revoke/" in path:
+        action = "certificate_revoked"
+        event_type = "certificate_revoked"
+    elif path.endswith("/renew") or "/renew/" in path:
+        action = "certificate_renewed"
+        event_type = "certificate_renewed"
+    elif path.endswith("/health"):
+        action = "health_check"
+        event_type = "pki_health"
+    try:
+        failed = int(status_text) >= 400
+    except ValueError:
+        failed = _text(_first(event, "level", "severity")).lower() in {
+            "error",
+            "fatal",
+            "critical",
+        }
+    normalized = _base(
+        event,
+        provider="step-ca",
+        dataset="step-ca.audit",
+        category="configuration",
+        event_type=event_type,
+        action=action,
+        severity="medium" if failed else "info",
+    )
+    normalized.update(
+        {
+            "event.id": _text(_first(event, "request-id", "request_id", "event.id")),
+            "event.code": status_text,
+            "event.outcome": "failure" if failed else "success",
+            "source.ip": _remote_host(_first(event, "remote-address", "remoteAddress", "source.ip")),
+            "http.request.method": method,
+            "http.response.status_code": status_text,
+            "url.path": path,
+            "user.name": _text(_first(event, "subject", "provisioner", "name", "user.name")),
+            "resource.name": _text(_first(event, "serial", "serialNumber", "certificate.serial")),
+            "resource.type": "x509_certificate",
+        }
+    )
+    normalized["tags"] = _tags(normalized["tags"], ["telemetry:pki", f"pki:{action}"])
+    return normalized
+
+
+def _parse_minio(event: Dict[str, Any]) -> Dict[str, Any]:
+    api = _dict(event.get("api"))
+    request_parameters = _dict(event.get("requestParameters"))
+    status_text = _text(
+        _first(api, "statusCode", "status_code")
+        or _first(event, "statusCode", "http.response.status_code")
+    )
+    api_name = _text(_first(api, "name", "apiName") or _first(event, "api.name", "action"))
+    try:
+        failed = int(status_text) >= 400
+    except ValueError:
+        failed = _text(_first(api, "status", "event.outcome")).lower() not in {
+            "",
+            "ok",
+            "success",
+        }
+    bucket = _text(_first(api, "bucket") or _first(request_parameters, "bucketName", "bucket"))
+    object_name = _text(_first(api, "object") or _first(request_parameters, "objectName", "object"))
+    remote = _text(_first(event, "remotehost", "remoteHost", "source.ip"))
+    normalized = _base(
+        event,
+        provider="minio",
+        dataset="minio.audit",
+        category="file",
+        event_type="object_storage_access",
+        action=api_name or "object_request",
+        severity="medium" if failed else "info",
+    )
+    normalized.update(
+        {
+            "event.id": _text(_first(event, "requestID", "requestId", "event.id")),
+            "event.code": api_name,
+            "event.outcome": "failure" if failed else "success",
+            "source.ip": _remote_host(remote),
+            "http.request.method": _text(_first(api, "method", "httpMethod")),
+            "http.response.status_code": status_text,
+            "user.name": _text(_first(event, "accessKey", "userIdentity", "user.name")),
+            "resource.name": object_name or bucket,
+            "resource.type": "object" if object_name else "bucket",
+            "evidence.uri": f"s3://{bucket}/{object_name}".rstrip("/") if bucket else "",
+        }
+    )
+    tags = ["telemetry:evidence", f"minio:{api_name or 'request'}"]
+    if "delete" in api_name.lower():
+        tags.append("object:delete")
+    normalized["tags"] = _tags(normalized["tags"], tags)
+    return normalized
+
+
+def _parse_arkime(event: Dict[str, Any]) -> Dict[str, Any]:
+    outcome = _text(_first(event, "event.outcome", "outcome")).lower() or "unknown"
+    severity = _severity(
+        _first(event, "event.severity", "severity"),
+        default="info" if outcome == "success" else "high",
+    )
+    normalized = _base(
+        event,
+        provider="arkime",
+        dataset="arkime.health",
+        category="availability",
+        event_type="ndr_capture_health",
+        action="health_snapshot",
+        severity=severity,
+    )
+    normalized.update(
+        {
+            "event.outcome": outcome,
+            "service.name": "arkime",
+            "service.state": _text(_first(event, "service.state", "state")),
+            "network.sessions": _text(_first(event, "arkime.sessions", "sessions")),
+            "file.count": _text(_first(event, "arkime.pcap.files", "pcap_files")),
+            "file.size": _text(_first(event, "arkime.pcap.bytes", "pcap_bytes")),
+            "cluster.name": "rdegon-arkime",
+            "cluster.health": _text(_first(event, "opensearch.status", "cluster.status")),
+        }
+    )
+    normalized["tags"] = _tags(normalized["tags"], ["telemetry:ndr", "telemetry:pcap"])
     return normalized
 
 
@@ -596,6 +798,12 @@ def parse_security_tool_event(raw_event: Dict[str, Any]) -> Dict[str, Any]:
         return _parse_trivy(raw_event)
     if "velociraptor" in identity or "ClientId" in raw_event or "client_id" in raw_event and "artifact" in raw_event:
         return _parse_velociraptor(raw_event)
+    if "step-ca" in identity or "step_ca" in identity:
+        return _parse_step_ca(raw_event)
+    if "minio" in identity:
+        return _parse_minio(raw_event)
+    if "arkime" in identity:
+        return _parse_arkime(raw_event)
     if "misp" in identity or "Attribute" in raw_event and "Event" in raw_event:
         return _parse_misp(raw_event)
     if any(marker in identity for marker in ("yara", "malware", "clamav", "static-analysis")):

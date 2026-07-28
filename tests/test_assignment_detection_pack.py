@@ -55,6 +55,20 @@ class AssignmentDetectionPackTests(unittest.TestCase):
             self.assertNotIn("FINAL AS", sql)
             self.assertIn("AS c FINAL", sql)
 
+    def test_volume_drop_ignores_explicitly_bursty_sources(self) -> None:
+        sql = curated_rules.curated_batch_sql(
+            {
+                "id": 8012,
+                "source_id": "HB-012",
+                "title": "HB-012 source volume drop",
+                "severity": "high",
+            }
+        )
+
+        self.assertIn("positionCaseInsensitiveUTF8(c.tags, 'bursty-telemetry') = 0", sql)
+        self.assertIn("b.baseline_1h >= 500", sql)
+        self.assertIn("b.baseline_1h * 0.01", sql)
+
     def test_curated_heartbeat_rules_use_timestamps_instead_of_keywords(self) -> None:
         base = {
             "id": 8002,
@@ -81,6 +95,10 @@ class AssignmentDetectionPackTests(unittest.TestCase):
         self.assertIn("GROUP BY c.hostname", silence_sql)
         self.assertIn("heartbeat.last_seen_ts AS ts_last", silence_sql)
         self.assertIn("INNER JOIN", silence_sql)
+        self.assertIn(
+            "lowerUTF8(c.hostname) NOT IN ('win-rtx-test', 'desktop-5jmjvbh')",
+            silence_sql,
+        )
         self.assertNotIn("positionCaseInsensitiveUTF8(toString(tags), 'allowlist:')", silence_sql)
         self.assertIn("positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0", silence_sql)
         self.assertNotIn("positionCaseInsensitiveUTF8(toString(message), 'last_seen')", silence_sql)
@@ -129,6 +147,82 @@ class AssignmentDetectionPackTests(unittest.TestCase):
         self.assertIn("HAVING count() >= 5", sql)
         self.assertIn("hits / count() >= 0.8", sql)
         self.assertIn("avg(cpu_pct) > 90", sql)
+
+    def test_metric_rules_use_numeric_sustained_runtime_signals(self) -> None:
+        expectations = {
+            "MET-001": ('"cpu_pct":([0-9.]+)', '"cpu_scope":"', "hits / count() >= 0.8"),
+            "MET-003": ('"memory_available_pct":([0-9.]+)', "avg(memory_available_pct) < 10"),
+            "MET-008": ('"iowait_pct":([0-9.]+)', '"iowait_scope":"host"', "avg(iowait_pct) > 35"),
+            "MET-009": ('"load_ratio":([0-9.]+)', '"load_scope":"host"', "avg(load_ratio) > 2"),
+        }
+        for offset, (source_id, required_parts) in enumerate(expectations.items(), start=8418):
+            with self.subTest(source_id=source_id):
+                sql = curated_rules.curated_batch_sql(
+                    {
+                        "id": offset,
+                        "source_id": source_id,
+                        "title": source_id,
+                        "severity": "high",
+                    }
+                )
+                self.assertIn("subcategory = 'host_runtime_snapshot'", sql)
+                if source_id == "MET-003":
+                    self.assertIn("HAVING count() >= 5", sql)
+                else:
+                    self.assertIn("HAVING count() >= 10", sql)
+                    self.assertIn("maxIf(ts", sql)
+                for part in required_parts:
+                    self.assertIn(part, sql)
+
+    def test_restart_loop_rule_counts_only_flapping_or_restart_events(self) -> None:
+        sql = curated_rules.curated_batch_sql(
+            {
+                "id": 8429,
+                "source_id": "MET-012",
+                "title": "MET-012",
+                "severity": "high",
+            }
+        )
+
+        self.assertIn("subcategory = 'host_service_flapping'", sql)
+        self.assertIn("subcategory = 'linux_systemd_restart_scheduled'", sql)
+        self.assertIn(
+            "countIf(subcategory = 'host_service_flapping') >= 3",
+            sql,
+        )
+        self.assertIn("countIf(subcategory = 'linux_systemd_restart_scheduled') >= 5", sql)
+        self.assertIn("container-getty@", sql)
+        self.assertNotIn("positionCaseInsensitiveUTF8(toString(message), 'restarted') > 0", sql)
+
+    def test_unacknowledged_alert_rule_queries_alert_state_not_log_keywords(self) -> None:
+        sql = curated_rules.curated_batch_sql(
+            {
+                "id": 8221,
+                "source_id": "ALERT-005",
+                "title": "ALERT-005",
+                "severity": "high",
+            }
+        )
+
+        self.assertIn("FROM siem.alerts_raw", sql)
+        self.assertIn("lowerUTF8(severity) = 'critical'", sql)
+        self.assertIn("lowerUTF8(status) = 'open'", sql)
+        self.assertIn("assignee = ''", sql)
+        self.assertIn("ts <= now() - INTERVAL 15 MINUTE", sql)
+        self.assertNotIn("device_product = 'linux.python'", sql)
+
+    def test_volume_spike_rule_requires_exceptional_sustained_volume(self) -> None:
+        sql = curated_rules.curated_batch_sql(
+            {
+                "id": 8011,
+                "source_id": "HB-011",
+                "title": "HB-011",
+                "severity": "high",
+            }
+        )
+
+        self.assertIn("toUInt64(100000)", sql)
+        self.assertIn("baseline_10m * 20", sql)
 
     def test_generated_correlation_sql_qualifies_child_alert_columns(self) -> None:
         row = _row("CORR-999", "AUTH-001 then AUTH-002")

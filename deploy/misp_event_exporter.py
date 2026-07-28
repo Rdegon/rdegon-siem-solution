@@ -18,6 +18,31 @@ AUTHKEY_PATTERN = re.compile(
     r"(?:new key created|Authentication key changed to):\s*([A-Za-z0-9]{40})",
     re.IGNORECASE,
 )
+EVENT_FIELDS = {
+    "id",
+    "uuid",
+    "info",
+    "threat_level_id",
+    "analysis",
+    "published",
+    "timestamp",
+    "date",
+    "Orgc",
+}
+ATTRIBUTE_FIELDS = {
+    "id",
+    "uuid",
+    "type",
+    "category",
+    "value",
+    "to_ids",
+    "timestamp",
+    "deleted",
+    "disable_correlation",
+    "comment",
+    "first_seen",
+    "last_seen",
+}
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -153,7 +178,7 @@ def _attribute_documents(items: Iterable[dict[str, Any]]) -> Iterable[tuple[str,
             attributes = [attributes]
         if not isinstance(attributes, list):
             continue
-        event_meta = {key: value for key, value in event.items() if key != "Attribute"}
+        event_meta = {key: value for key, value in event.items() if key in EVENT_FIELDS}
         event_id = str(event.get("uuid") or event.get("id") or "")
         for attribute in attributes:
             if not isinstance(attribute, dict):
@@ -162,7 +187,10 @@ def _attribute_documents(items: Iterable[dict[str, Any]]) -> Iterable[tuple[str,
             timestamp = int(attribute.get("timestamp") or event.get("timestamp") or 0)
             fallback = f"{attribute.get('type', '')}:{attribute.get('value', '')}"
             identity = f"{event_id}:{attribute_id or fallback}:{timestamp}"
-            yield identity, timestamp, {"Event": event_meta, "Attribute": attribute}
+            compact_attribute = {
+                key: value for key, value in attribute.items() if key in ATTRIBUTE_FIELDS
+            }
+            yield identity, timestamp, {"Event": event_meta, "Attribute": compact_attribute}
 
 
 def export_once(args: argparse.Namespace) -> dict[str, int]:

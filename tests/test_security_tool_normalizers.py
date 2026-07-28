@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import unittest
 
 from services.normalizer.normalizer_core import apply_rules
@@ -104,6 +105,60 @@ class SecurityToolNormalizerTests(unittest.TestCase):
         self.assertEqual("NXDOMAIN", normalized["dns.response_code"])
         self.assertEqual("outbound", normalized["network.direction"])
 
+    def test_suricata_flow_id_is_not_reused_as_source_event_id(self) -> None:
+        base_payload = {
+            "timestamp": "2026-07-28T12:47:08.911206Z",
+            "flow_id": 1380328458185220,
+            "src_ip": "192.168.3.102",
+            "dest_ip": "1.1.1.1",
+            "proto": "UDP",
+        }
+        def event(payload: dict) -> dict:
+            return {
+                "source_type": "syslog",
+                "source": "192.168.3.102",
+                "message": (
+                    "<182>1 2026-07-28T15:47:08+03:00 "
+                    "lab-edge-01 suricata-eve - - - "
+                    + json.dumps(payload, separators=(",", ":"))
+                ),
+            }
+
+        query = self._normalize(
+            event({
+                **base_payload,
+                "event_type": "dns",
+                "dns": {"type": "query", "id": 3684, "rrname": "_ta"},
+            })
+        )
+        answer = self._normalize(
+            event({
+                **base_payload,
+                "event_type": "dns",
+                "dns": {"type": "answer", "id": 3684, "rrname": "_ta"},
+            })
+        )
+        replay = self._normalize(
+            event({
+                **base_payload,
+                "event_type": "dns",
+                "dns": {"type": "query", "id": 3684, "rrname": "_ta"},
+            })
+        )
+
+        self.assertEqual("1380328458185220", query["suricata.flow_id"])
+        self.assertRegex(query["event.id"], r"^suricata-[0-9a-f]{32}$")
+        self.assertNotEqual(query["event.id"], answer["event.id"])
+        self.assertEqual(query["event.id"], replay["event.id"])
+        transport_fields = {
+            key: _transport_field_value(value) for key, value in query.items()
+        }
+        stored = json.loads(
+            WriterWorker(WriterSettings())._build_normalized_json(transport_fields)
+        )
+        self.assertEqual("1380328458185220", stored["suricata"]["flow_id"])
+        self.assertEqual("1380328458185220", stored["network"]["flow_id"])
+
     def test_suricata_fast_alert_is_not_left_as_generic_syslog(self) -> None:
         normalized = self._normalize(
             {
@@ -195,6 +250,8 @@ class SecurityToolNormalizerTests(unittest.TestCase):
                     "id": "7",
                     "type": "ip-dst",
                     "value": "203.0.113.50",
+                    "to_ids": True,
+                    "timestamp": str(int(time.time())),
                 },
                 "Event": {
                     "id": "42",
@@ -210,6 +267,106 @@ class SecurityToolNormalizerTests(unittest.TestCase):
         self.assertEqual("ip-dst", normalized["threat.indicator.type"])
         self.assertEqual("Rdegon-SOC", normalized["threat.feed.name"])
         self.assertEqual("high", normalized["event.severity"])
+        self.assertEqual("true", normalized["threat.indicator.active"])
+        self.assertIn("ioc:active", normalized["tags"])
+
+    def test_misp_context_only_attribute_cannot_enter_active_enrichment(self) -> None:
+        normalized = self._normalize(
+            {
+                "source_type": "misp",
+                "source": "soc-ti-01",
+                "Attribute": {
+                    "id": "8",
+                    "type": "domain",
+                    "value": "context.example",
+                    "to_ids": False,
+                },
+                "Event": {"id": "42", "threat_level_id": "1"},
+            }
+        )
+
+        self.assertEqual("false", normalized["threat.indicator.active"])
+        self.assertEqual("info", normalized["event.severity"])
+        self.assertIn("ioc:context-only", normalized["tags"])
+
+    def test_misp_stale_to_ids_attribute_is_context_only(self) -> None:
+        normalized = self._normalize(
+            {
+                "source_type": "misp",
+                "Attribute": {
+                    "id": "9",
+                    "type": "ip-dst",
+                    "value": "203.0.113.99",
+                    "to_ids": True,
+                    "timestamp": "1451606400",
+                },
+                "Event": {"id": "42", "threat_level_id": "1"},
+            }
+        )
+
+        self.assertEqual("false", normalized["threat.indicator.active"])
+        self.assertIn("ioc:context-only", normalized["tags"])
+
+    def test_step_ca_issue_maps_pki_audit_fields(self) -> None:
+        normalized = self._normalize(
+            {
+                "source_type": "step-ca",
+                "source": "soc-pki-01",
+                "method": "POST",
+                "path": "/1.0/sign",
+                "status": 201,
+                "remote-address": "10.20.10.133:42210",
+                "request-id": "pki-request-1",
+            }
+        )
+
+        self.assertEqual("step-ca", normalized["event.provider"])
+        self.assertEqual("certificate_issued", normalized["event.type"])
+        self.assertEqual("certificate_issued", normalized["event.action"])
+        self.assertEqual("10.20.10.133", normalized["source.ip"])
+        self.assertEqual("success", normalized["event.outcome"])
+
+    def test_minio_put_object_maps_evidence_uri(self) -> None:
+        normalized = self._normalize(
+            {
+                "source_type": "minio",
+                "source": "soc-evidence-01",
+                "requestID": "minio-request-1",
+                "remotehost": "10.20.10.128",
+                "api": {
+                    "name": "PutObject",
+                    "bucket": "soc-evidence",
+                    "object": "cases/42/evidence.json",
+                    "statusCode": 200,
+                },
+            }
+        )
+
+        self.assertEqual("minio", normalized["event.provider"])
+        self.assertEqual("object_storage_access", normalized["event.type"])
+        self.assertEqual("PutObject", normalized["event.action"])
+        self.assertEqual("s3://soc-evidence/cases/42/evidence.json", normalized["evidence.uri"])
+        self.assertEqual("success", normalized["event.outcome"])
+
+    def test_arkime_metrics_map_ndr_health(self) -> None:
+        normalized = self._normalize(
+            {
+                "source_type": "arkime",
+                "source": "soc-ndr-01",
+                "event.outcome": "success",
+                "event.severity": "info",
+                "service.state": "active",
+                "arkime.sessions": 42,
+                "arkime.pcap.files": 3,
+                "arkime.pcap.bytes": 8192,
+                "opensearch.status": "green",
+            }
+        )
+
+        self.assertEqual("arkime", normalized["event.provider"])
+        self.assertEqual("ndr_capture_health", normalized["event.type"])
+        self.assertEqual("42", normalized["network.sessions"])
+        self.assertEqual("green", normalized["cluster.health"])
 
     def test_malware_result_maps_hash_rule_and_evidence(self) -> None:
         normalized = self._normalize(

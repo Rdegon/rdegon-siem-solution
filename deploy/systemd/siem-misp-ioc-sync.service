@@ -1,0 +1,14 @@
+[Unit]
+Description=Synchronize active MISP IOC attributes into SIEM enrichment
+After=clickhouse-server.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/siem-misp-ioc-sync
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict

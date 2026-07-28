@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
@@ -118,6 +119,7 @@ class WriterWorker:
             fields.get("@timestamp"),
             fields.get("event.created"),
             fields.get("event.ingested"),
+            fields.get("ingest_ts"),
         ]
         for candidate in candidates:
             text = str(candidate or "").strip()
@@ -143,6 +145,13 @@ class WriterWorker:
             except ValueError:
                 continue
         return datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def _insert_deduplication_token(self, messages: List[Any]) -> str:
+        identities = sorted(str(message.id) for message in messages)
+        payload = "\n".join(
+            [self._settings.group_name, self._settings.events_table, *identities]
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _normalize_tags(self, value: Any) -> List[str]:
         if value is None:
@@ -231,6 +240,11 @@ class WriterWorker:
                 "bytes": fields.get("network.bytes", ""),
                 "packets": fields.get("network.packets", ""),
                 "domain": fields.get("network.domain", ""),
+                "flow_id": fields.get("suricata.flow_id", "")
+                or fields.get("network.flow.id", ""),
+            },
+            "suricata": {
+                "flow_id": fields.get("suricata.flow_id", ""),
             },
             "user": {
                 "name": fields.get("user.name", ""),
@@ -273,6 +287,9 @@ class WriterWorker:
             "threat": {
                 "indicator": fields.get("threat.indicator.value", ""),
                 "indicator_type": fields.get("threat.indicator.type", ""),
+                "active": str(fields.get("threat.indicator.active", "")).lower()
+                in {"1", "true", "yes", "on"},
+                "last_seen": fields.get("threat.indicator.last_seen", ""),
                 "feed": fields.get("threat.feed.name", ""),
                 "confidence": fields.get("threat.confidence", ""),
             },
@@ -444,6 +461,16 @@ class WriterWorker:
             "host": [fields.get("host.name", ""), fields.get("log_source", "")],
             "user": [fields.get("user.name", ""), fields.get("user.target.name", "")],
             "process": [fields.get("process.name", ""), fields.get("process.executable", "")],
+            "hash": [
+                fields.get("file.sha256", ""),
+                fields.get("file.sha1", ""),
+                fields.get("file.md5", ""),
+            ],
+            "domain": [
+                fields.get("dns.question.name", ""),
+                fields.get("url.domain", ""),
+            ],
+            "url": [fields.get("url.original", "")],
         }
         tags: List[str] = []
         seen: set[str] = set()
@@ -705,7 +732,15 @@ class WriterWorker:
                 continue
 
             try:
-                ch.execute(insert_sql, rows)
+                ch.execute(
+                    insert_sql,
+                    rows,
+                    settings={
+                        "insert_deduplication_token": self._insert_deduplication_token(
+                            ack_messages
+                        )
+                    },
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "Failed to insert rows into ClickHouse",

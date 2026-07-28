@@ -357,6 +357,18 @@ if [ ! -s /etc/step-ca/config/ca.json ]; then
     --provisioner-password-file /etc/step-ca/secrets/provisioner_password
   chown -R step-ca:step-ca /etc/step-ca
 fi
+jq '
+  .authority.claims = ((.authority.claims // {}) + {
+    "minTLSCertDuration": "5m",
+    "maxTLSCertDuration": "8760h",
+    "defaultTLSCertDuration": "720h",
+    "disableRenewal": false,
+    "allowRenewalAfterExpiry": true
+  })
+' /etc/step-ca/config/ca.json >/etc/step-ca/config/ca.json.tmp
+install -o step-ca -g step-ca -m 0640 \
+  /etc/step-ca/config/ca.json.tmp /etc/step-ca/config/ca.json
+rm -f /etc/step-ca/config/ca.json.tmp
 cat >/etc/systemd/system/step-ca.service <<'EOF'
 [Unit]
 Description=Rdegon SOC internal certificate authority
@@ -381,7 +393,8 @@ ReadWritePaths=/etc/step-ca
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now step-ca
+systemctl enable step-ca
+systemctl restart step-ca
 for attempt in $(seq 1 30); do
   if curl --fail --silent --show-error --cacert /etc/step-ca/certs/root_ca.crt \
     https://10.20.10.132:9000/health >/dev/null; then
@@ -488,7 +501,8 @@ step ca certificate soc-evidence-01 \
 chown minio-user:minio-user /etc/minio/certs/public.crt /etc/minio/certs/private.key
 chmod 0644 /etc/minio/certs/public.crt
 chmod 0600 /etc/minio/certs/private.key
-systemctl enable --now minio
+systemctl enable minio
+systemctl restart minio
 for attempt in $(seq 1 30); do
   curl -fsS https://10.20.10.133:9000/minio/health/ready >/dev/null && break
   sleep 2

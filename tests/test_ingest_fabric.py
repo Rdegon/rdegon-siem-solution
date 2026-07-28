@@ -784,6 +784,61 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("healthy", sources["items"][0]["status"])
         self.assertEqual("healthy", collectors["items"][0]["status"])
 
+    async def test_low_volume_control_plane_sensors_are_event_driven(self) -> None:
+        for provider in ("step-ca", "minio", "velociraptor"):
+            await self.redis_client.push_raw_event(
+                self.fake_redis,
+                {
+                    "source": f"soc-{provider}",
+                    "source_type": "unknown",
+                    "collector": f"{provider}-forwarder",
+                    "collector_profile": f"{provider}-json",
+                    "ingest_profile": f"{provider}-json",
+                    "event.dataset": f"{provider}.audit",
+                },
+            )
+
+        aged_ts = (
+            datetime.now(tz=timezone.utc) - timedelta(days=1)
+        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        for provider in ("step-ca", "minio", "velociraptor"):
+            source_key = f"soc-{provider}"
+            source_row = await self.redis_client._load_hash_record(
+                self.fake_redis,
+                self.redis_client.SOURCE_HEALTH_HASH_KEY,
+                source_key,
+            )
+            collector_row = await self.redis_client._load_hash_record(
+                self.fake_redis,
+                self.redis_client.COLLECTOR_HEALTH_HASH_KEY,
+                f"{provider}-json",
+            )
+            for row in (source_row, collector_row):
+                row["last_seen_ts"] = aged_ts
+                row["last_event_ts"] = aged_ts
+            await self.redis_client._save_hash_record(
+                self.fake_redis,
+                self.redis_client.SOURCE_HEALTH_HASH_KEY,
+                source_key,
+                source_row,
+            )
+            await self.redis_client._save_hash_record(
+                self.fake_redis,
+                self.redis_client.COLLECTOR_HEALTH_HASH_KEY,
+                f"{provider}-json",
+                collector_row,
+            )
+
+        sources = await self.redis_client.list_source_health(self.fake_redis)
+        collectors = await self.redis_client.list_collector_health(self.fake_redis)
+
+        self.assertEqual({"healthy"}, {item["status"] for item in sources["items"]})
+        self.assertEqual({"healthy"}, {item["status"] for item in collectors["items"]})
+        self.assertEqual(
+            {"Event-driven"},
+            {item["source_type"] for item in sources["items"] + collectors["items"]},
+        )
+
     async def test_retired_and_malformed_sensor_sources_are_not_health_gates(self) -> None:
         for event in (
             {

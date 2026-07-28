@@ -1,14 +1,16 @@
 {
   "pack_id": "security-services-v1",
   "title": "Source-specific correlation for SOC security services",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "active",
   "owner": "soc-platform",
   "notes": [
     "Rules require normalized fields produced by the dedicated Zeek, Falco, Velociraptor and malware-analysis adapters.",
     "Zeek capture-loss notices remain health telemetry and do not become attack incidents.",
     "MISP indicator publication is inventory input, not an incident. Only sightings in protected-source telemetry should alert.",
-    "Service-down events require two observations to exclude boot and restart transients."
+    "Service-down events require two observations to exclude boot and restart transients.",
+    "PKI and evidence-storage rules require repeated explicit failures; normal certificate and object operations remain telemetry.",
+    "Arkime degradation requires two failed health snapshots and never alerts on ordinary capture volume."
   ],
   "stream_rules": [
     {
@@ -65,6 +67,39 @@
       "entity_field": "host.name",
       "status": "active",
       "expr": "(event.provider == 'host.metrics' and event.type == 'host_service_down' and (host.name == 'soc-ndr-01' or host.name == 'soc-dfir-01' or host.name == 'soc-analysis-01' or host.name == 'soc-ti-01' or host.name == 'soc-pki-01' or host.name == 'soc-evidence-01') and service.name != '' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3006,
+      "title": "Repeated MinIO Authorization Failure",
+      "description": "Five explicit HTTP 401 or 403 responses from one source within five minutes; successful access, missing objects and ordinary API errors do not match.",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 5,
+      "entity_field": "source.ip",
+      "status": "active",
+      "expr": "(event.provider == 'minio' and event.type == 'object_storage_access' and event.outcome == 'failure' and (http.response.status_code == '401' or http.response.status_code == '403') and source.ip != '' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3007,
+      "title": "Repeated step-ca Signing Or Revocation Failure",
+      "description": "Five failed certificate sign or revoke requests from one source within five minutes; health checks and successful certificate lifecycle operations do not match.",
+      "severity": "high",
+      "window_s": 300,
+      "threshold": 5,
+      "entity_field": "source.ip",
+      "status": "active",
+      "expr": "(event.provider == 'step-ca' and (event.type == 'certificate_issued' or event.type == 'certificate_revoked') and event.outcome == 'failure' and source.ip != '' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+    },
+    {
+      "id": 3008,
+      "title": "Arkime Capture Pipeline Degraded",
+      "description": "Two consecutive failed Arkime health snapshots within ten minutes; successful capture snapshots and traffic-volume changes do not match.",
+      "severity": "high",
+      "window_s": 600,
+      "threshold": 2,
+      "entity_field": "host.name",
+      "status": "active",
+      "expr": "(event.provider == 'arkime' and event.type == 'ndr_capture_health' and event.outcome == 'failure' and host.name == 'soc-ndr-01' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
     }
   ],
   "batch_rules": []

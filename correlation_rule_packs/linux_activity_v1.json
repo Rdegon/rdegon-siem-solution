@@ -325,7 +325,7 @@
       "suppression_key": "host.name + service.name + linux_activity_v1",
       "status": "active",
       "operator_action": "Review the recon commands, user context, and whether the burst belongs to expected service health checks. Escalate unknown interactive or remote-origin recon.",
-      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_system_recon' and not event.original icontains 'key=\"openclaw_send\"' and not event.original icontains '/usr/lib/node_modules/openclaw' and not process.command_line icontains '/usr/lib/node_modules/openclaw' and not (process.command_line icontains 'apparmor_parser' and process.command_line icontains '/etc/apparmor.d/') and not tags icontains 'allowlist:')"
+      "expr": "(event.provider == 'linux.auditd' and event.type == 'linux_system_recon' and audit.type == 'EXECVE' and not process.command_line icontains 'who -q' and not event.original icontains 'key=\"openclaw_send\"' and not event.original icontains '/usr/lib/node_modules/openclaw' and not process.command_line icontains '/usr/lib/node_modules/openclaw' and not (process.command_line icontains 'apparmor_parser' and process.command_line icontains '/etc/apparmor.d/') and not ((host.name == 'lab-edge-01' or log_source == 'lab-edge-01') and (process.command_line == 'uname -m' or process.command_line == 'uname -o' or process.command_line == 'uname -r')) and not tags icontains 'allowlist:')"
     }
   ],
   "batch_rules": [

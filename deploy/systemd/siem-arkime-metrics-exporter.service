@@ -1,0 +1,17 @@
+[Unit]
+Description=Export Arkime health metrics for SIEM
+After=opensearch.service arkimecapture.service arkimeviewer.service
+Wants=opensearch.service arkimecapture.service arkimeviewer.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/siem/deploy/arkime_metrics_exporter.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/opensearch /srv/arkime-pcap
+ReadWritePaths=/var/log/siem
+UMask=0077

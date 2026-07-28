@@ -7,6 +7,7 @@ const SOURCE_ALIAS_OVERRIDES: Record<string, string> = {
   "192.168.3.81": "desktop-rdegon",
   "192.168.3.101": "pve",
   "192.168.3.102": "lab-edge-01",
+  "192.168.3.103": "opnsense-edge-01",
   "192.168.1.22": "desktop-rdegon",
   "192.168.1.102": "lab-edge-01",
   "192.168.1.35": "siem-ingest",
@@ -35,7 +36,8 @@ const SOURCE_ALIAS_OVERRIDES: Record<string, string> = {
   "10.20.30.125": "pilot-cache-01",
   "10.20.30.126": "openclaw-gateway",
   "10.20.40.1": "lab-edge-01",
-  "opnsense-edge-01": "lab-edge-01",
+  "172.31.255.2": "opnsense-edge-01",
+  "opnsense-staging": "opnsense-edge-01",
   "pilot-web-01.lab.home.arpa": "pilot-web-01",
   "openclaw-gateway.lab.home.arpa": "openclaw-gateway",
   "45.89.111.208": "vm15611031",
@@ -47,6 +49,7 @@ const SOURCE_ALIAS_OVERRIDES: Record<string, string> = {
 };
 
 const SOURCE_FRIENDLY_COPY: Record<string, LocalizedCopy> = {
+  "opnsense-edge-01": { en: "OPNsense NGFW", ru: "OPNsense NGFW" },
   "desktop-rdegon": { en: "Analyst workstation", ru: "Рабочая станция аналитика" },
   "vuln-mgr-01": { en: "Vulnerability manager", ru: "Узел менеджера уязвимостей" },
   "pilot-web-01": { en: "Pilot web service", ru: "Пилотный веб-сервис" },

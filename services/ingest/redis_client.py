@@ -441,9 +441,19 @@ def _health_status(last_seen_ts: str, *, source_type: str = "", synthetic: bool 
 def _runtime_source_type(row: dict[str, Any]) -> str:
     explicit = _guess_runtime_source_type(str(row.get("id") or row.get("source") or ""), str(row.get("source_type") or ""))
     explicit_lower = explicit.lower()
-    if explicit_lower in {"falco", "misp", "malware", "malware_analysis", "static-analysis"}:
+    if explicit_lower in {
+        "falco",
+        "minio",
+        "misp",
+        "malware",
+        "malware_analysis",
+        "static-analysis",
+        "step-ca",
+        "step_ca",
+        "velociraptor",
+    }:
         return "Event-driven"
-    if explicit_lower in {"zeek", "suricata"}:
+    if explicit_lower in {"arkime", "zeek", "suricata"}:
         return "Network"
     if explicit_lower.startswith("windows"):
         return "Platform"
@@ -459,11 +469,23 @@ def _runtime_source_type(row: dict[str, Any]) -> str:
     ).lower()
     if "vuln" in inferred_tokens or "scanner" in inferred_tokens:
         return "Vulnerability scanner"
-    if any(token in inferred_tokens for token in ("falco", "misp", "malware", "static-analysis")):
+    if any(
+        token in inferred_tokens
+        for token in (
+            "falco",
+            "minio",
+            "misp",
+            "malware",
+            "static-analysis",
+            "step-ca",
+            "step_ca",
+            "velociraptor",
+        )
+    ):
         return "Event-driven"
     if any(token in inferred_tokens for token in ("windows", "winlog", "sysmon")):
         return "Platform"
-    if any(token in inferred_tokens for token in ("zeek", "suricata")):
+    if any(token in inferred_tokens for token in ("arkime", "zeek", "suricata")):
         return "Network"
     if "network" in inferred_tokens or "syslog_tcp" in inferred_tokens:
         return "Network"

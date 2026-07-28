@@ -1091,6 +1091,10 @@ def build_pack(
             "operator_action": row["response"],
             "description": f"{row['source_id']}: {row['logic']} Источники: {row['sources']}.",
         }
+        if override.get("replacement_rule_id") is not None:
+            common["replacement_rule_id"] = int(override["replacement_rule_id"])
+        if override.get("replacement_reason"):
+            common["replacement_reason"] = str(override["replacement_reason"])
         if override.get("legacy_event_offset_cutoffs"):
             common["legacy_event_offset_cutoffs"] = dict(
                 override["legacy_event_offset_cutoffs"]

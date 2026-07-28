@@ -8,16 +8,17 @@
       "gateway": "192.168.3.1",
       "hosts": {
         "pve": "192.168.3.101",
-        "lab-edge-01": "192.168.3.102"
+        "lab-edge-01": "192.168.3.102",
+        "opnsense-edge-01": "192.168.3.103"
       }
     },
     "sec": {
       "cidr": "10.20.10.0/24",
       "bridge": "vmbr2",
-      "gateway": "10.20.10.1",
+      "gateway": "10.20.10.254",
       "purpose": "SIEM core services",
       "hosts": {
-        "lab-edge-01": "10.20.10.1",
+        "opnsense": "10.20.10.254",
         "siem-ingest": "10.20.10.104",
         "siem-processing": "10.20.10.105",
         "siem-storage": "10.20.10.106",
@@ -33,10 +34,10 @@
     "servers_games": {
       "cidr": "10.20.20.0/24",
       "bridge": "vmbr3",
-      "gateway": "10.20.20.1",
+      "gateway": "10.20.20.254",
       "purpose": "Public services and game services",
       "hosts": {
-        "lab-edge-01": "10.20.20.1",
+        "opnsense": "10.20.20.254",
         "minecraft-01": "10.20.20.100",
         "nextcloud-siem": "10.20.20.120",
         "navidrome-01": "10.20.20.121",
@@ -46,10 +47,10 @@
     "lab": {
       "cidr": "10.20.30.0/24",
       "bridge": "vmbr1",
-      "gateway": "10.20.30.1",
+      "gateway": "10.20.30.254",
       "purpose": "Pilot, vulnerability and lab workloads",
       "hosts": {
-        "lab-edge-01": "10.20.30.1",
+        "opnsense": "10.20.30.254",
         "vuln-mgr-01": "10.20.30.122",
         "pilot-web-01": "10.20.30.123",
         "pilot-db-01": "10.20.30.124",
@@ -61,10 +62,10 @@
     "users": {
       "cidr": "10.20.40.0/24",
       "bridge": "vmbr4",
-      "gateway": "10.20.40.1",
+      "gateway": "10.20.40.254",
       "purpose": "Reserved internal user/client segment",
       "hosts": {
-        "lab-edge-01": "10.20.40.1"
+        "opnsense": "10.20.40.254"
       }
     }
   },

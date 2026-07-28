@@ -21,7 +21,7 @@ def _matches(rule: dict[str, object], event: dict[str, str]) -> bool:
 
 def test_security_service_rules_are_active_and_parseable() -> None:
     rules = _rules()
-    assert set(rules) == {3001, 3002, 3003, 3004, 3005}
+    assert set(rules) == {3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008}
     for rule in rules.values():
         assert rule["status"] == "active"
         assert parse_expr(str(rule["expr"]))
@@ -102,6 +102,87 @@ def test_confirmed_malware_and_repeated_service_failure_match() -> None:
             "event.type": "host_service_down",
             "host.name": "pilot-web-01",
             "service.name": "docker",
+            "tags": "",
+        },
+    )
+
+
+def test_minio_rule_requires_explicit_repeated_authorization_failures() -> None:
+    rule = _rules()[3006]
+    assert _matches(
+        rule,
+        {
+            "event.provider": "minio",
+            "event.type": "object_storage_access",
+            "event.outcome": "failure",
+            "http.response.status_code": "403",
+            "source.ip": "10.20.40.15",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        rule,
+        {
+            "event.provider": "minio",
+            "event.type": "object_storage_access",
+            "event.outcome": "failure",
+            "http.response.status_code": "404",
+            "source.ip": "10.20.40.15",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        rule,
+        {
+            "event.provider": "minio",
+            "event.type": "object_storage_access",
+            "event.outcome": "success",
+            "http.response.status_code": "200",
+            "source.ip": "10.20.40.15",
+            "tags": "",
+        },
+    )
+
+
+def test_pki_and_arkime_rules_ignore_successful_operations() -> None:
+    rules = _rules()
+    assert _matches(
+        rules[3007],
+        {
+            "event.provider": "step-ca",
+            "event.type": "certificate_issued",
+            "event.outcome": "failure",
+            "source.ip": "10.20.40.15",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        rules[3007],
+        {
+            "event.provider": "step-ca",
+            "event.type": "certificate_issued",
+            "event.outcome": "success",
+            "source.ip": "10.20.40.15",
+            "tags": "",
+        },
+    )
+    assert _matches(
+        rules[3008],
+        {
+            "event.provider": "arkime",
+            "event.type": "ndr_capture_health",
+            "event.outcome": "failure",
+            "host.name": "soc-ndr-01",
+            "tags": "",
+        },
+    )
+    assert not _matches(
+        rules[3008],
+        {
+            "event.provider": "arkime",
+            "event.type": "ndr_capture_health",
+            "event.outcome": "success",
+            "host.name": "soc-ndr-01",
             "tags": "",
         },
     )

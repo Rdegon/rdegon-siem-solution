@@ -28,10 +28,10 @@ only 9.7 MiB swap used and zero memory PSI.
 
 | ID | Service | Placement | Runtime state |
 | --- | --- | --- | --- |
-| VM102 | Production edge, nftables, Unbound, Suricata | edge gateway | Active |
-| VM103 | OPNsense and Suricata | staged NGFW | Active in staging; not the production gateway |
+| VM102 | Public reverse proxy and VPN edge | published-service edge | Active through OPNsense |
+| VM103 | OPNsense 26.7.1_1, Unbound and Suricata 8 | production router, NGFW and IPS | Active on all routed SOC zones |
 | VM122 | Greenbone/OpenVAS | vulnerability management | Active in containers |
-| VM127 | Zeek 8.2.1 | five mirrored segment interfaces | Active |
+| VM127 | Zeek 8.2.1 and Arkime | five mirrored segment interfaces, indexed sessions and PCAP | Active |
 | CT128 | Velociraptor 0.77.1 | DFIR server and SIEM exporter | Active |
 | CT129 | ClamAV, YARA, Trivy, capa, FLOSS, oletools, PDFID, pefile, LIEF, Volatility, Chainsaw, Nuclei and testssl | static analysis | Active |
 | VM130 | Falco 0.44.1 and Velociraptor client | Docker/Gamepanel host | Active |
@@ -70,7 +70,9 @@ Validated integrations:
 - static-analysis verdicts including ClamAV and YARA;
 - MISP exporter and feed-cache runtime;
 - Greenbone findings and host runtime;
-- PKI and evidence-store host runtime.
+- step-ca audit events and PKI host runtime;
+- MinIO audit events, evidence metadata and evidence-store host runtime;
+- Arkime service/session metrics and Zeek network events.
 
 The final dynamic ingest inventory contained 23 operational sources and 32
 operational collectors, all healthy. The historical `UDP` pseudo-source
@@ -146,8 +148,9 @@ host in a failed systemd state. Apache/Postfix on CT120 were also recovered.
 - recent ClickHouse events existed for Windows, Linux, Proxmox, SIEM core,
   edge/Suricata, Zeek, Velociraptor, Greenbone, MISP host runtime, static
   analysis, PKI and evidence storage;
-- OPNsense Web returned HTTP 200 at `https://192.168.3.103`, and the public
-  Web/ingest edge returned in about 0.03 seconds;
+- OPNsense Web returned HTTP 200 at `https://192.168.3.103`; the production
+  hostname is `opnsense-edge-01`, IDS and Unbound are running, and all
+  production aliases, inter-zone rules and hybrid source NAT are active;
 - all running Linux QEMU/LXC guests and the Proxmox host had zero failed
   systemd units; Greenbone sync and the ingest recovery watchdog completed
   successfully after maintenance;
@@ -158,9 +161,8 @@ host in a failed systemd state. Apache/Postfix on CT120 were also recovered.
 
 ## Deferred gates
 
-- OPNsense remains staged until a controlled gateway cutover can be performed
-  without losing operator access.
-- CAPE remains deferred to an isolated physical node.
+- CAPE and disposable Windows detonation guests remain deferred to an isolated
+  node. They are intentionally outside the current physical host.
 - Continue measuring new telemetry and recalibrating source-specific rules as
   source versions and normal behavior change.
 

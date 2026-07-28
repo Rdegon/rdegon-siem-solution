@@ -11,8 +11,12 @@ import type { RuntimeBlob, SecurityServiceDetailResponse } from "../types";
 
 const SERVICE_TABS = [
   { id: "ndr", label: "NDR", to: "/security/ndr" },
+  { id: "ngfw", label: "NGFW", to: "/security/ngfw" },
+  { id: "ips", label: "IPS", to: "/security/ips" },
   { id: "dfir", label: "DFIR", to: "/security/dfir" },
   { id: "analysis", label: "Analysis", to: "/security/analysis" },
+  { id: "vulnerability", label: "VM", to: "/security/vulnerability" },
+  { id: "runtime", label: "Runtime", to: "/security/runtime" },
   { id: "threat-intel", label: "MISP", to: "/security/threat-intel" },
   { id: "pki", label: "PKI", to: "/security/pki" },
   { id: "evidence", label: "Evidence", to: "/security/evidence" },

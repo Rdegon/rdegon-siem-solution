@@ -31,7 +31,7 @@ started_at="$(date --iso-8601=seconds)"
 docker exec "${container}" greenbone-feed-sync \
   --type all \
   --fail-fast \
-  --no-wait \
+  --wait-interval 30 \
   --rsync-timeout 300 \
   --user gvm \
   --group gvm

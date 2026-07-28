@@ -218,6 +218,11 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         smoke_text = (ROOT / "deploy" / "vm4_enterprise_foundation_smoke.py").read_text(encoding="utf-8")
 
         self.assertIn("SLOW_API_TIMEOUT_SECONDS = 75.0", smoke_text)
+        self.assertIn('os.getenv("SIEM_VM4_SSH_HOST") or vm4_host', smoke_text)
+        self.assertIn("def _vm4_runtime_state(", smoke_text)
+        self.assertIn('os.getenv("SIEM_PROXMOX_PASSWORD"', smoke_text)
+        self.assertIn("pve.guest_exec(vmid, command", smoke_text)
+        self.assertIn("_connect_client(vm4_ssh_host, vm4_user, vm4_password)", smoke_text)
         self.assertIn("/api/dashboard/summary?window=24h&bucket_minutes=60&recent_limit=10", smoke_text)
         self.assertIn("timeout_seconds=SLOW_API_TIMEOUT_SECONDS if path in slow_json_paths", smoke_text)
         self.assertNotIn("/api/dashboard/summary?window=72h&bucket_minutes=15&recent_limit=20", smoke_text)

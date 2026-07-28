@@ -41,13 +41,18 @@ deps = import_app_module("deps")
 
 
 TARGET_STREAM_RULE_IDS = {
+    2617,
     2704,
     2706,
+    2709,
     2711,
     2715,
     2716,
     2717,
+    2726,
     8036,
+    8047,
+    8077,
     8081,
     8083,
     8084,
@@ -67,7 +72,17 @@ TARGET_STREAM_RULE_IDS = {
     9006,
     9007,
 }
-TARGET_ASSIGNMENT_BATCH_RULE_IDS = {8001, 8006, 8011, 8012, 8065}
+TARGET_ASSIGNMENT_BATCH_RULE_IDS = {
+    8001,
+    8002,
+    8006,
+    8011,
+    8012,
+    8065,
+    8221,
+    8425,
+    8429,
+}
 TARGET_SQL_BATCH_RULE_IDS = {4001, 4002}
 ASSIGNMENT_PACK_NAME = "siem_detection_pack_v1.json"
 MULTI_HOST_BATCH_SEED = ROOT / "sql" / "13_batch_corr_seed.sql"

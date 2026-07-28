@@ -46,6 +46,41 @@ def _resolve_base_url() -> str:
     return "https://192.168.1.39"
 
 
+def _vm4_runtime_state(
+    vm4_ssh_host: str,
+    vm4_user: str,
+    vm4_password: str,
+) -> tuple[int, str, str]:
+    command = (
+        "systemctl is-active siem-vault siem-keycloak "
+        "openvpn-client@home-gateway siem-jump-tunnels "
+        "siem-greenbone-sync.timer siem-vuln-policy-apply.timer && "
+        "export VAULT_ADDR=http://127.0.0.1:8200 && "
+        "/opt/siem/vault/current/vault status -format=json"
+    )
+    if os.getenv("SIEM_PROXMOX_PASSWORD", "").strip():
+        try:
+            from deploy.soc_foundation_provision import Proxmox
+        except ModuleNotFoundError:
+            from soc_foundation_provision import Proxmox
+
+        vmid = int(os.getenv("SIEM_VM4_VMID", "107") or "107")
+        with Proxmox() as pve:
+            return 0, pve.guest_exec(vmid, command, timeout=180), ""
+
+    ssh_client = _connect_client(vm4_ssh_host, vm4_user, vm4_password)
+    try:
+        code, out, err = _run_remote(
+            ssh_client,
+            command,
+            sudo_password=vm4_password,
+            use_sudo=True,
+        )
+        return code, _strip_sudo_echo(out, vm4_password), err
+    finally:
+        _close_ssh_client(ssh_client)
+
+
 class Client:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
@@ -712,6 +747,7 @@ def main() -> int:
     username = _required_env("SIEM_WEB_ADMIN_USER")
     password = _required_env("SIEM_WEB_ADMIN_PASSWORD")
     vm4_host = _required_env("SIEM_VM4_HOST")
+    vm4_ssh_host = str(os.getenv("SIEM_VM4_SSH_HOST") or vm4_host).strip()
     expected_content_backend = str(os.getenv("SIEM_EXPECT_CONTENT_STORE_BACKEND", "mongo") or "mongo").strip().lower()
     expected_stream_state_backend = str(os.getenv("SIEM_EXPECT_STREAM_STATE_BACKEND", "sqlite") or "sqlite").strip().lower()
 
@@ -861,7 +897,7 @@ def main() -> int:
         if path == "/api/health/overview":
             issues = list(payload.get("issues") or [])
             if issues and any(_is_host_runtime_stale_issue(item) for item in issues):
-                _remediate_host_runtime_staleness(vm4_host)
+                _remediate_host_runtime_staleness(vm4_ssh_host)
                 payload = _wait_for_overview_issues_to_clear(client, attempts=12, delay_seconds=5.0)
                 issues = list(payload.get("issues") or [])
             if issues and _env_enabled("SIEM_SMOKE_REMEDIATE_INGEST_OVERVIEW_ISSUES") and _ingest_remediable_issues_only(issues):
@@ -969,7 +1005,9 @@ def main() -> int:
                 )
             if not bool(payload.get("healthy")):
                 raise RuntimeError(f"/api/health/transport is not healthy: {payload.get('issues')}")
-            if not bool(payload.get("shadow_pipeline_healthy")) or str(payload.get("shadow_pipeline_status") or "") != "healthy":
+            shadow_compare_enabled = str(payload.get("shadow_compare_status") or "").strip().lower() == "enabled"
+            expected_shadow_status = "healthy" if shadow_compare_enabled else "not_required"
+            if not bool(payload.get("shadow_pipeline_healthy")) or str(payload.get("shadow_pipeline_status") or "") != expected_shadow_status:
                 raise RuntimeError(f"/api/health/transport shadow pipeline is not healthy: {payload}")
         if path == "/api/health/backups":
             for field in ("healthy", "issues", "targets"):
@@ -1202,25 +1240,21 @@ def main() -> int:
     vm4_user = str(os.getenv("SIEM_VM4_USER", "") or "").strip()
     vm4_password = str(os.getenv("SIEM_VM4_PASSWORD", "") or "").strip()
     if vm4_user and vm4_password:
-        ssh_client = _connect_client(vm4_host, vm4_user, vm4_password)
-        try:
-            code, out, err = _run_remote(
-                ssh_client,
-                "systemctl is-active siem-vault siem-keycloak openvpn-client@home-gateway siem-jump-tunnels siem-greenbone-sync.timer siem-vuln-policy-apply.timer && "
-                "export VAULT_ADDR=http://127.0.0.1:8200 && /opt/siem/vault/current/vault status -format=json",
-                sudo_password=vm4_password,
-                use_sudo=True,
+        code, out, err = _vm4_runtime_state(
+            vm4_ssh_host,
+            vm4_user,
+            vm4_password,
+        )
+        lines = [line.strip() for line in out.splitlines() if line.strip()]
+        states = lines[:6]
+        vault_payload = json.loads("\n".join(lines[6:])) if len(lines) > 6 else {}
+        if code != 0 or states != ["active", "active", "active", "active", "active", "active"]:
+            raise RuntimeError(
+                "VM4 runtime/access services are not green: "
+                f"states={states} stderr={err.strip()}"
             )
-            cleaned = _strip_sudo_echo(out, vm4_password)
-            lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-            states = lines[:6]
-            vault_payload = json.loads("\n".join(lines[6:])) if len(lines) > 6 else {}
-            if code != 0 or states != ["active", "active", "active", "active", "active", "active"]:
-                raise RuntimeError(f"VM4 runtime/access services are not green: states={states} stderr={err.strip()}")
-            if bool(vault_payload.get("sealed", True)):
-                raise RuntimeError("VM4 Vault is still sealed after service startup")
-        finally:
-            _close_ssh_client(ssh_client)
+        if bool(vault_payload.get("sealed", True)):
+            raise RuntimeError("VM4 Vault is still sealed after service startup")
         print("vm4 access/runtime services ok")
 
     _cleanup_smoke_artifacts(client)

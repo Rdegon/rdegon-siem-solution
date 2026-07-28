@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 
 
 class WriterWorkerSettingsTests(unittest.TestCase):
@@ -32,6 +33,41 @@ class WriterWorkerSettingsTests(unittest.TestCase):
         parsed = worker._parse_event_ts({"@timestamp": "1785057668.347427"})
 
         self.assertEqual(datetime.utcfromtimestamp(1785057668.347427), parsed)
+
+    def test_writer_uses_stable_ingest_timestamp_before_clock_fallback(self) -> None:
+        writer_worker = importlib.import_module("services.writer.worker")
+        worker = writer_worker.WriterWorker(writer_worker.WriterSettings())
+
+        parsed = worker._parse_event_ts(
+            {"ingest_ts": "2026-07-28T09:47:17Z"}
+        )
+
+        self.assertEqual(datetime(2026, 7, 28, 9, 47, 17), parsed)
+
+    def test_writer_insert_deduplication_token_is_stable_for_same_offsets(self) -> None:
+        writer_worker = importlib.import_module("services.writer.worker")
+        worker = writer_worker.WriterWorker(
+            writer_worker.WriterSettings(group_name="writer-standby")
+        )
+
+        first = worker._insert_deduplication_token(
+            [
+                SimpleNamespace(id="siem.filtered:1:42"),
+                SimpleNamespace(id="siem.filtered:0:10"),
+            ]
+        )
+        reordered = worker._insert_deduplication_token(
+            [
+                SimpleNamespace(id="siem.filtered:0:10"),
+                SimpleNamespace(id="siem.filtered:1:42"),
+            ]
+        )
+        different = worker._insert_deduplication_token(
+            [SimpleNamespace(id="siem.filtered:0:11")]
+        )
+
+        self.assertEqual(first, reordered)
+        self.assertNotEqual(first, different)
 
     def test_writer_coalesces_messages_during_micro_batch_window(self) -> None:
         writer_worker = importlib.import_module("services.writer.worker")

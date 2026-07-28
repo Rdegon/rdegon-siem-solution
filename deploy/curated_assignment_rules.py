@@ -260,6 +260,7 @@ FROM
           ON lowerUTF8(c.hostname) = e.host_key OR lowerUTF8(c.ip) = e.host_key
         WHERE c.enabled = 1
           AND c.hostname != ''
+          AND lowerUTF8(c.hostname) NOT IN ('win-rtx-test', 'desktop-5jmjvbh')
           AND positionCaseInsensitiveUTF8(c.tags, 'planned_offline') = 0
           AND positionCaseInsensitiveUTF8(c.tags, 'auto-discovered') = 0
           AND positionCaseInsensitiveUTF8(c.tags, 'operator') = 0
@@ -327,7 +328,7 @@ def _host_volume_spike_sql(item: dict[str, Any]) -> str:
     FROM recent AS r
     INNER JOIN baseline AS b ON r.entity_key = b.entity_key
     WHERE b.baseline_10m >= 100
-      AND r.recent_hits >= greatest(toUInt64(50000), toUInt64(b.baseline_10m * 10))"""
+      AND r.recent_hits >= greatest(toUInt64(100000), toUInt64(b.baseline_10m * 20))"""
     return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
 
 
@@ -386,6 +387,8 @@ def _host_volume_drop_sql(item: dict[str, Any]) -> str:
         INNER JOIN siem.cmdb_assets AS c FINAL ON lowerUTF8(c.hostname) = lowerUTF8(b.entity_key)
         WHERE c.enabled = 1
           AND positionCaseInsensitiveUTF8(c.tags, 'planned_offline') = 0
+          AND positionCaseInsensitiveUTF8(c.tags, 'bursty-telemetry') = 0
+          AND lowerUTF8(b.entity_key) NOT IN ('opnsense-staging', '127.0.0.1')
           AND b.baseline_1h >= 500
           AND ifNull(r.recent_hits, 0) < greatest(toUInt64(5), toUInt64(b.baseline_1h * 0.01))
     )
@@ -507,6 +510,195 @@ def _sustained_cpu_pressure_sql(item: dict[str, Any]) -> str:
        AND hits >= 5
        AND hits / count() >= 0.8
        AND avg(cpu_pct) > 90"""
+    return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
+
+
+def _sustained_runtime_metric_sql(
+    item: dict[str, Any],
+    *,
+    source_id: str,
+    metric_name: str,
+    threshold: float,
+    event_type: str,
+    required_json_marker: str = "",
+) -> str:
+    threshold_literal = str(float(threshold)).rstrip("0").rstrip(".")
+    condition = f"{metric_name} > {threshold_literal}"
+    scope_clause = (
+        "\n          AND positionCaseInsensitiveUTF8(toString(normalized_json), "
+        f"'{required_json_marker}') > 0"
+        if required_json_marker
+        else ""
+    )
+    candidate_sql = f"""    SELECT
+        if(host_name != '' AND host_name != '-', host_name, log_source) AS entity_key,
+        if(host_name != '' AND host_name != '-', host_name, log_source) AS source,
+        minIf(ts, {condition}) AS ts_first,
+        maxIf(ts, {condition}) AS ts_last,
+        countIf({condition}) AS hits,
+        concat(
+            '{{"event_type":"{event_type}","source_id":"{source_id}","source":"',
+            if(host_name != '' AND host_name != '-', host_name, log_source),
+            '","high_samples":', toString(countIf({condition})),
+            ',"samples":', toString(count()),
+            ',"average_{metric_name}":', toString(round(avg({metric_name}), 1)), '}}'
+        ) AS context_json
+    FROM
+    (
+        SELECT
+            ts,
+            host_name,
+            log_source,
+            toFloat64OrZero(
+                extract(toString(normalized_json), '"{metric_name}":([0-9.]+)')
+            ) AS {metric_name}
+        FROM siem.events
+        PREWHERE ts >= now() - INTERVAL {{WINDOW_S}} SECOND
+        WHERE device_product = 'host.metrics'
+          AND subcategory = 'host_runtime_snapshot'
+          AND positionCaseInsensitiveUTF8(toString(normalized_json), '"{metric_name}"') > 0
+          {scope_clause}
+          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+    )
+    GROUP BY entity_key, source
+    HAVING count() >= 10
+       AND hits >= 8
+       AND hits / count() >= 0.8
+       AND avg({metric_name}) > {threshold_literal}
+       AND maxIf(ts, {condition}) >= now() - INTERVAL 5 MINUTE"""
+    return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
+
+
+def _sustained_memory_pressure_sql(item: dict[str, Any]) -> str:
+    candidate_sql = """    SELECT
+        if(host_name != '' AND host_name != '-', host_name, log_source) AS entity_key,
+        if(host_name != '' AND host_name != '-', host_name, log_source) AS source,
+        minIf(ts, memory_available_pct < 10 OR swap_used_pct > 30) AS ts_first,
+        maxIf(ts, memory_available_pct < 10 OR swap_used_pct > 30) AS ts_last,
+        countIf(memory_available_pct < 10 OR swap_used_pct > 30) AS hits,
+        concat(
+            '{"event_type":"sustained_memory_pressure","source_id":"MET-003","source":"',
+            if(host_name != '' AND host_name != '-', host_name, log_source),
+            '","pressure_samples":', toString(countIf(memory_available_pct < 10 OR swap_used_pct > 30)),
+            ',"samples":', toString(count()),
+            ',"average_available_pct":', toString(round(avg(memory_available_pct), 1)),
+            ',"average_swap_pct":', toString(round(avg(swap_used_pct), 1)), '}'
+        ) AS context_json
+    FROM
+    (
+        SELECT
+            ts,
+            host_name,
+            log_source,
+            toFloat64OrZero(
+                extract(toString(normalized_json), '"memory_available_pct":([0-9.]+)')
+            ) AS memory_available_pct,
+            toFloat64OrZero(
+                extract(toString(normalized_json), '"swap_used_pct":([0-9.]+)')
+            ) AS swap_used_pct
+        FROM siem.events
+        PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
+        WHERE device_product = 'host.metrics'
+          AND subcategory = 'host_runtime_snapshot'
+          AND positionCaseInsensitiveUTF8(toString(normalized_json), '"memory_available_pct"') > 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+    )
+    GROUP BY entity_key, source
+    HAVING count() >= 5
+       AND hits >= 4
+       AND hits / count() >= 0.8
+       AND (avg(memory_available_pct) < 10 OR avg(swap_used_pct) > 30)"""
+    return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
+
+
+def _service_restart_loop_sql(item: dict[str, Any]) -> str:
+    candidate_sql = """    SELECT
+        concat(host_key, '|', service_name) AS entity_key,
+        host_key AS source,
+        min(ts) AS ts_first,
+        max(ts) AS ts_last,
+        count() AS hits,
+        concat(
+            '{"event_type":"service_restart_loop","source_id":"MET-012","source":"',
+            host_key, '","service":"', service_name,
+            '","restart_events":', toString(count()), '}'
+        ) AS context_json
+    FROM
+    (
+        SELECT
+            ts,
+            if(host_name != '' AND host_name != '-', host_name, log_source) AS host_key,
+            if(
+                extract(toString(normalized_json), '"service":"([^"]+)"') != '',
+                extract(toString(normalized_json), '"service":"([^"]+)"'),
+                if(
+                    extract(toString(message), '([A-Za-z0-9_.@-]+\\.service)') != '',
+                    extract(toString(message), '([A-Za-z0-9_.@-]+\\.service)'),
+                    'unknown-service'
+                )
+            ) AS service_name,
+            subcategory
+        FROM siem.events
+        PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
+        WHERE
+          (
+              subcategory = 'host_service_flapping'
+              OR
+              (
+                  subcategory = 'linux_systemd_restart_scheduled'
+                  AND event_action = 'service_restart'
+              )
+          )
+          AND positionCaseInsensitiveUTF8(toString(message), 'container-getty@') = 0
+          AND positionCaseInsensitiveUTF8(toString(message), 'getty@') = 0
+          AND positionCaseInsensitiveUTF8(toString(message), 'apt.systemd.daily') = 0
+          AND positionCaseInsensitiveUTF8(toString(message), 'unattended-upgrade') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'allowlist:') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'benchmark') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'synthetic') = 0
+          AND positionCaseInsensitiveUTF8(toString(tags), 'e2e') = 0
+    )
+    GROUP BY host_key, service_name
+    HAVING countIf(subcategory = 'host_service_flapping') >= 3
+        OR countIf(subcategory = 'linux_systemd_restart_scheduled') >= 5"""
+    return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
+
+
+def _critical_alert_unacknowledged_sql(item: dict[str, Any]) -> str:
+    candidate_sql = """    SELECT
+        concat(
+            if(source != '', source, entity_key),
+            '|rule:',
+            toString(rule_id)
+        ) AS entity_key,
+        if(source != '', source, entity_key) AS source,
+        min(ts_first) AS ts_first,
+        max(ts_last) AS ts_last,
+        count() AS hits,
+        concat(
+            '{"event_type":"critical_alert_unacknowledged",',
+            '"source_id":"ALERT-005","source":"',
+            if(source != '', source, entity_key),
+            '","target_rule_id":', toString(rule_id),
+            ',"open_alerts":', toString(count()), '}'
+        ) AS context_json
+    FROM siem.alerts_raw
+    PREWHERE ts >= now() - INTERVAL {WINDOW_S} SECOND
+    WHERE rule_id != 8221
+      AND lowerUTF8(severity) = 'critical'
+      AND lowerUTF8(status) = 'open'
+      AND assignee = ''
+      AND ts <= now() - INTERVAL 15 MINUTE
+      AND positionCaseInsensitiveUTF8(toString(context_json), 'benchmark') = 0
+      AND positionCaseInsensitiveUTF8(toString(context_json), 'synthetic') = 0
+      AND positionCaseInsensitiveUTF8(toString(context_json), 'e2e') = 0
+    GROUP BY source, rule_id, entity_key"""
     return _wrap_batch_candidate(item, candidate_sql=candidate_sql)
 
 
@@ -718,8 +910,41 @@ def curated_batch_sql(item: dict[str, Any]) -> str:
         )
     if source_id == "HB-010":
         return _future_event_sql(item)
+    if source_id == "MET-001":
+        return _sustained_runtime_metric_sql(
+            item,
+            source_id=source_id,
+            metric_name="cpu_pct",
+            threshold=90,
+            event_type="sustained_cpu_pressure",
+            required_json_marker='"cpu_scope":"',
+        )
     if source_id == "MET-002":
         return _sustained_cpu_pressure_sql(item)
+    if source_id == "MET-003":
+        return _sustained_memory_pressure_sql(item)
+    if source_id == "MET-008":
+        return _sustained_runtime_metric_sql(
+            item,
+            source_id=source_id,
+            metric_name="iowait_pct",
+            threshold=35,
+            event_type="sustained_iowait_pressure",
+            required_json_marker='"iowait_scope":"host"',
+        )
+    if source_id == "MET-009":
+        return _sustained_runtime_metric_sql(
+            item,
+            source_id=source_id,
+            metric_name="load_ratio",
+            threshold=2,
+            event_type="sustained_load_pressure",
+            required_json_marker='"load_scope":"host"',
+        )
+    if source_id == "MET-012":
+        return _service_restart_loop_sql(item)
+    if source_id == "ALERT-005":
+        return _critical_alert_unacknowledged_sql(item)
     if source_id == "HB-006":
         return _new_internal_ip_sql(item)
     if source_id == "HB-011":

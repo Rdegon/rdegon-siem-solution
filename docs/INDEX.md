@@ -33,6 +33,8 @@ current references unless noted otherwise.
   non-duplicating target stack, service map and phased delivery order.
 - `home_soc_rollout_2026-07-27.md` - factual deployment, resource,
   integration and acceptance record for the current SOC stack.
+- `home_soc_acceptance_2026-07-28.md` - current production acceptance,
+  source coverage, service placement and remaining intentional exclusions.
 - `web_performance_2026-07-27.md` - Web/API bottleneck analysis, cache
   architecture and concurrent acceptance metrics.
 - `production_recovery_and_rule_calibration_2026-07-26.md` - current recovery,

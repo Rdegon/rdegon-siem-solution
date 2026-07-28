@@ -1,0 +1,17 @@
+[Unit]
+Description=SIEM journald event exporter (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/siem/journal-exporter-%i.env
+ExecStart=/usr/bin/python3 /opt/siem/deploy/journal_event_exporter.py --unit ${SIEM_JOURNAL_UNIT} --provider ${SIEM_JOURNAL_PROVIDER} --host-name ${SIEM_JOURNAL_HOST} --state-path ${SIEM_JOURNAL_STATE} --output-path ${SIEM_JOURNAL_OUTPUT}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/siem-journal-exporter /var/log/siem
+UMask=0077
