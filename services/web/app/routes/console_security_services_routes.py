@@ -89,6 +89,8 @@ async def security_service_firewall_mutation_api(
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)[:800]}, status_code=409)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(_error_payload("Firewall operation", exc), status_code=502)
 
@@ -110,5 +112,7 @@ async def security_service_ids_mutation_api(
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)[:800]}, status_code=409)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(_error_payload("IDS operation", exc), status_code=502)

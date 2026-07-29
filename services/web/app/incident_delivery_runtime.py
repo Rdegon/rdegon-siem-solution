@@ -46,6 +46,9 @@ def record_incident_delivery(payload: dict[str, Any], *, actor: str) -> dict[str
         "skipped",
         "telegram_disabled",
         "edit_failed",
+        "deleted",
+        "expired",
+        "delete_failed",
         "failed",
         "unknown",
     }:

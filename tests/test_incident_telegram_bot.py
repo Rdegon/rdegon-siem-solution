@@ -113,6 +113,63 @@ class IncidentTelegramBotTests(unittest.TestCase):
         self.assertTrue(_incident_should_skip_delivery({"status": "false_positive"}))
         self.assertFalse(_incident_should_skip_delivery({"status": "open"}))
 
+    def test_poll_uses_main_scope_and_reconciles_absent_cards(self) -> None:
+        bot = self._bot()
+        requested: list[str] = []
+        processed: list[str] = []
+        reconciled: list[set[str]] = []
+
+        def request(path: str, **_kwargs) -> dict:
+            requested.append(path)
+            return {
+                "items": [
+                    {"record_id": "agg-1", "status": "open"},
+                    {"record_id": "agg-2", "status": "open"},
+                ]
+            }
+
+        bot._siem_request_json = request  # type: ignore[method-assign]
+        bot._process_incident = lambda _conn, item: processed.append(item["record_id"])  # type: ignore[method-assign]
+        bot._reconcile_absent_incidents = lambda _conn, keys: reconciled.append(keys)  # type: ignore[method-assign]
+        bot._poll_incidents(object())  # type: ignore[arg-type]
+
+        self.assertIn("scope=main", requested[0])
+        self.assertEqual(["agg-2", "agg-1"], processed)
+        self.assertEqual([{"agg-1", "agg-2"}], reconciled)
+
+    def test_delete_incident_card_uses_telegram_delete_message(self) -> None:
+        bot = self._bot()
+        calls: list[tuple[str, dict]] = []
+        bot._telegram_request = lambda method, payload: calls.append((method, payload)) or {"ok": True}  # type: ignore[method-assign]
+
+        result = bot._delete_incident_card(
+            chat_id="12345",
+            message_id=42,
+            reason="left_main_incident_queue",
+        )
+
+        self.assertEqual("deleted", result["status"])
+        self.assertEqual(
+            ("deleteMessage", {"chat_id": "12345", "message_id": 42}),
+            calls[0],
+        )
+
+    def test_telegram_request_redacts_bot_token_from_transport_errors(self) -> None:
+        bot = self._bot()
+        request_error = sys.modules["requests"].RequestException(
+            "timeout at https://api.telegram.org/botbot-token/getUpdates"
+        )
+        original_post = sys.modules["requests"].post
+        sys.modules["requests"].post = lambda *_args, **_kwargs: (_ for _ in ()).throw(request_error)
+        try:
+            with self.assertRaises(RuntimeError) as raised:
+                bot._telegram_request("getUpdates", {})
+        finally:
+            sys.modules["requests"].post = original_post
+
+        self.assertNotIn("bot-token", str(raised.exception))
+        self.assertIn("<redacted>", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

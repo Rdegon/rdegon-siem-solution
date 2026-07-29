@@ -357,6 +357,18 @@ def list_content_collection(collection_name: str) -> list[dict[str, Any]] | None
     return _STORE.list_collection(collection_name)
 
 
+def get_content_document(collection_name: str, key: str) -> dict[str, Any] | None:
+    return _STORE.get_text_document(collection_name, key)
+
+
+def upsert_content_document(
+    collection_name: str,
+    key: str,
+    payload: dict[str, Any],
+) -> bool:
+    return _STORE.upsert_document(collection_name, key, payload)
+
+
 def load_list(collection_name: str, file_path: Path, default: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if _STORE.backend == "mongo":
         rows = _STORE.list_collection(collection_name)

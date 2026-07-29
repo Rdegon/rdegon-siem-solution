@@ -76,6 +76,7 @@ from ..source_discovery import (
 from ..proxmox_fleet_runtime import list_proxmox_fleet_inventory, sync_proxmox_fleet_inventory
 from ..host_access_runtime import delete_host_access_profile, list_host_access_profiles, save_host_access_profile
 from ..topology_runtime import build_network_topology
+from ..topology_layout_runtime import get_topology_layout, save_topology_layout
 from ..correlation_pack_runtime import (
     get_correlation_pack,
     list_correlation_packs,
@@ -699,6 +700,40 @@ async def network_topology_api(
         )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.get("/api/topology/layout", response_class=JSONResponse)
+async def topology_layout_api(
+    workspace: str = Query("network", max_length=80),
+    user=Depends(require_permissions("assets:view")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(
+            await run_in_threadpool(get_topology_layout, workspace)
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.put("/api/topology/layout", response_class=JSONResponse)
+async def save_topology_layout_api(
+    payload: dict = Body(default={}),
+    user=Depends(require_permissions("cmdb:write")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(
+            await run_in_threadpool(
+                save_topology_layout,
+                dict(payload or {}),
+                actor=str(getattr(user, "username", "web") or "web"),
+            )
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.get("/api/topology/host-access", response_class=JSONResponse)

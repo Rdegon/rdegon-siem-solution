@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import datetime, timezone
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from typing import Any
 
 
@@ -84,6 +84,29 @@ SOURCE_KIND_LABELS: dict[str, str] = {
     "host": "Host",
 }
 
+NETWORK_SEGMENTS: tuple[dict[str, str], ...] = (
+    {"id": "sec", "label": "SEC", "cidr": "10.20.10.0/24"},
+    {"id": "servers-games", "label": "SERVERS / GAMES", "cidr": "10.20.20.0/24"},
+    {"id": "lab", "label": "LAB", "cidr": "10.20.30.0/24"},
+    {"id": "users", "label": "USERS", "cidr": "10.20.40.0/24"},
+    {"id": "mgmt", "label": "MGMT", "cidr": "192.168.3.0/24"},
+    {"id": "legacy", "label": "LEGACY", "cidr": "192.168.1.0/24"},
+)
+NETWORK_SEGMENT_BY_ID = {item["id"]: item for item in NETWORK_SEGMENTS}
+ASSET_GROUP_SEGMENTS: dict[str, str] = {
+    "siem_core": "sec",
+    "identity": "sec",
+    "vuln": "sec",
+    "devops": "servers-games",
+    "game": "servers-games",
+    "pilot": "servers-games",
+    "public_services": "servers-games",
+    "windows": "users",
+    "linux_common": "servers-games",
+    "edge_gateway": "mgmt",
+    "proxmox": "mgmt",
+}
+
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -110,6 +133,100 @@ def _is_ip_text(value: Any) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _network_segment(record: dict[str, Any]) -> dict[str, str]:
+    explicit = _text(
+        record.get("network_segment")
+        or record.get("segment")
+        or record.get("segment_id")
+    ).lower().replace("_", "-")
+    aliases = {
+        "server": "servers-games",
+        "servers": "servers-games",
+        "games": "servers-games",
+        "servers/games": "servers-games",
+        "servers-games": "servers-games",
+        "security": "sec",
+        "management": "mgmt",
+    }
+    explicit = aliases.get(explicit, explicit)
+    if explicit in NETWORK_SEGMENT_BY_ID:
+        segment = NETWORK_SEGMENT_BY_ID[explicit]
+        return {
+            "network_segment": segment["id"],
+            "segment_label": segment["label"],
+            "segment_cidr": segment["cidr"],
+            "segment_source": "explicit",
+        }
+
+    ip_text = _text(record.get("ip") or record.get("address") or record.get("source_ip"))
+    if ip_text:
+        try:
+            address = ip_address(ip_text.split("/", 1)[0])
+        except ValueError:
+            address = None
+        if address is not None:
+            for segment in NETWORK_SEGMENTS:
+                if address in ip_network(segment["cidr"]):
+                    return {
+                        "network_segment": segment["id"],
+                        "segment_label": segment["label"],
+                        "segment_cidr": segment["cidr"],
+                        "segment_source": "ip",
+                    }
+            if not address.is_private:
+                return {
+                    "network_segment": "external",
+                    "segment_label": "EXTERNAL",
+                    "segment_cidr": "Internet",
+                    "segment_source": "ip",
+                }
+
+    asset_groups = record.get("asset_groups") or record.get("asset_group") or []
+    if isinstance(asset_groups, str):
+        asset_groups = re.split(r"[,;\s]+", asset_groups)
+    for asset_group in asset_groups:
+        segment_id = ASSET_GROUP_SEGMENTS.get(_text(asset_group).lower())
+        if segment_id:
+            segment = NETWORK_SEGMENT_BY_ID[segment_id]
+            return {
+                "network_segment": segment["id"],
+                "segment_label": segment["label"],
+                "segment_cidr": segment["cidr"],
+                "segment_source": "asset_group",
+            }
+
+    kind = _text(record.get("source_kind") or record.get("type")).lower()
+    if kind in {"zone", "external_ip", "protected_public_ip", "vpn_host"}:
+        return {
+            "network_segment": "external",
+            "segment_label": "EXTERNAL",
+            "segment_cidr": "Internet",
+            "segment_source": "kind",
+        }
+    if kind in {"core_service", "collector"}:
+        segment = NETWORK_SEGMENT_BY_ID["sec"]
+        return {
+            "network_segment": segment["id"],
+            "segment_label": segment["label"],
+            "segment_cidr": segment["cidr"],
+            "segment_source": "kind",
+        }
+    if kind in {"proxmox_host", "virtual_router", "network_device"}:
+        segment = NETWORK_SEGMENT_BY_ID["mgmt"]
+        return {
+            "network_segment": segment["id"],
+            "segment_label": segment["label"],
+            "segment_cidr": segment["cidr"],
+            "segment_source": "kind",
+        }
+    return {
+        "network_segment": "unassigned",
+        "segment_label": "UNASSIGNED",
+        "segment_cidr": "",
+        "segment_source": "fallback",
+    }
 
 
 def _hostname_from_ip(ip_text: Any, *, prefix: str = "host") -> str:
@@ -700,7 +817,7 @@ def build_network_topology(*, hours: int = 24, limit: int = 240) -> dict[str, An
         ]
     )
 
-    collector_rows = collectors[:12]
+    collector_rows = collectors[:safe_limit]
     if not collector_rows:
         collector_rows = [{"collector_id": "collector-default", "name": "Default collector", "status": "unknown"}]
     for index, collector in enumerate(collector_rows):
@@ -725,11 +842,11 @@ def build_network_topology(*, hours: int = 24, limit: int = 240) -> dict[str, An
         str(item.get("collector_id") or "").strip(): f"collector:{_slug(item.get('collector_id') or item.get('name'))}"
         for item in collector_rows
     }
-    candidate_rows = list(discovery.get("items") or [])[:18]
-    fleet_rows = list(fleet.get("items") or [])[:22]
+    candidate_rows = list(discovery.get("items") or [])[:safe_limit]
+    fleet_rows = list(fleet.get("items") or [])[:safe_limit]
     identity_index = _build_identity_index(fleet_rows, candidate_rows)
 
-    source_rows = sources[:26]
+    source_rows = sources[:safe_limit]
     for index, source in enumerate(source_rows):
         source_name = str(source.get("source_name") or f"source-{index}")
         node_id = f"source:{_slug(source_name, f'source-{index}')}"
@@ -904,6 +1021,7 @@ def build_network_topology(*, hours: int = 24, limit: int = 240) -> dict[str, An
             node["access_profile_count"] = len(matched_profiles)
             node["access_status"] = "configured" if any(str(item.get("secret_status") or "") in {"configured", "reference"} for item in matched_profiles) else "metadata-only"
             node["access_profiles"] = [_profile_summary(item) for item in matched_profiles[:4]]
+        node.update(_network_segment(node))
 
     attention = [
         {
@@ -971,6 +1089,17 @@ def build_network_topology(*, hours: int = 24, limit: int = 240) -> dict[str, An
             {"id": "sources", "title": "Telemetry sources", "count": len(source_rows)},
             {"id": "collectors", "title": "Collectors", "count": len(collector_rows)},
             {"id": "core", "title": "SIEM core", "count": 6},
+        ],
+        "network_segments": [
+            {
+                **segment,
+                "node_count": sum(
+                    1
+                    for node in nodes.values()
+                    if node.get("network_segment") == segment["id"]
+                ),
+            }
+            for segment in NETWORK_SEGMENTS
         ],
         "nodes": list(nodes.values()),
         "edges": edges,

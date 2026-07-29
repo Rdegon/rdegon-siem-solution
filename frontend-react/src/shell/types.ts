@@ -1104,6 +1104,22 @@ export type NetworkTopologyResponse = {
   issues?: string[];
 };
 
+export type TopologyLayoutPosition = {
+  x: number;
+  y: number;
+  segment: string;
+};
+
+export type TopologyLayoutResponse = {
+  workspace: string;
+  version: number;
+  positions: Record<string, TopologyLayoutPosition>;
+  updated_at?: string;
+  updated_by?: string;
+  storage_backend?: string;
+  node_count?: number;
+};
+
 export type HostAccessProfileSummary = RuntimeBlob & {
   profile_id?: string;
   protocol?: string;

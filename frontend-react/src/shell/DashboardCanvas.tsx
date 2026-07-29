@@ -310,7 +310,14 @@ export function renderDashboardWidget(
                   {(data?.geo_sources?.countries || []).map((row: GeoCountrySummaryRow, index: number) => (
                     <tr key={`${row.country}-${index}`} onClick={() => options.onFocusCountry?.(String(row.country || ""), "source")}>
                       <td>
-                        <button type="button" className="react-inline-action">
+                        <button
+                          type="button"
+                          className="react-inline-action"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            options.onFocusCountry?.(String(row.country || ""), "source");
+                          }}
+                        >
                           {row.country}
                         </button>
                       </td>

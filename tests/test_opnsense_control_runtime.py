@@ -7,6 +7,7 @@ from services.web.app.opnsense_control_runtime import (
     OPNsenseConfig,
     get_opnsense_control_state,
     mutate_firewall,
+    _rule_payload,
 )
 
 
@@ -97,6 +98,18 @@ class SavepointOPNsenseClient(FakeOPNsenseClient):
 
 
 class OPNsenseControlRuntimeTests(unittest.TestCase):
+    def test_port_requires_transport_protocol(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ports require TCP"):
+            _rule_payload(
+                {
+                    "description": "SIEM invalid port rule",
+                    "interface": "opt5",
+                    "protocol": "any",
+                    "destination": "198.51.100.254",
+                    "destination_port": "65534",
+                }
+            )
+
     def test_config_uses_explicit_ca_file_for_requests(self) -> None:
         config = OPNsenseConfig(
             base_url="https://opnsense.internal",

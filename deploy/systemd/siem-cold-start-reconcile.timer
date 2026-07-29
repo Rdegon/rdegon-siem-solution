@@ -2,8 +2,8 @@
 Description=Reconcile SIEM guests and services after boot
 
 [Timer]
-OnBootSec=3min
-OnUnitInactiveSec=2min
+OnBootSec=2min
+OnUnitInactiveSec=5min
 AccuracySec=15s
 Persistent=true
 Unit=siem-cold-start-reconcile.service

@@ -108,6 +108,7 @@ import type {
   LocalUserRecord,
   LocalUsersResponse,
   NetworkTopologyResponse,
+  TopologyLayoutResponse,
   VulnCveRow,
   VulnExposureWorkbenchResponse,
   VulnFindingRow,
@@ -236,6 +237,16 @@ async function getJson<T>(url: string): Promise<T> {
 async function postJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
+    credentials: "include",
+    headers: buildMutationHeaders(),
+    body: JSON.stringify(body),
+  });
+  return parseResponse<T>(response);
+}
+
+async function putJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(url, {
+    method: "PUT",
     credentials: "include",
     headers: buildMutationHeaders(),
     body: JSON.stringify(body),
@@ -415,6 +426,10 @@ export const api = {
     getJson<SourceDiscoveryResponse>(`/api/sources/discovery${toQuery(params)}`),
   networkTopology: (params: { hours?: number; limit?: number } = {}) =>
     getJson<NetworkTopologyResponse>(`/api/topology/network${toQuery(params)}`),
+  topologyLayout: (workspace = "network") =>
+    getJson<TopologyLayoutResponse>(`/api/topology/layout${toQuery({ workspace })}`),
+  saveTopologyLayout: (body: Record<string, unknown>) =>
+    putJson<TopologyLayoutResponse>("/api/topology/layout", body),
   hostAccessProfiles: (params: { limit?: number; host_id?: string; ip?: string } = {}) =>
     getJson<HostAccessProfilesResponse>(`/api/topology/host-access${toQuery(params)}`),
   saveHostAccessProfile: (body: Record<string, unknown>) =>

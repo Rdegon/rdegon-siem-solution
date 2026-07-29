@@ -7,6 +7,7 @@ import { useShellContext } from "../context";
 import { useAsyncData } from "../hooks";
 import { EmptyState, MetricStrip, PanelHeader, StatusBadge } from "../ui";
 import type { HostAccessProfileRecord, NetworkPacketFlowRecord, NetworkTopologyResponse, TopologyEdgeRecord, TopologyNodeRecord } from "../types";
+import { MaxGraphTopologyCanvas } from "./topology/MaxGraphTopologyCanvas";
 
 const TOPOLOGY_LANES: Record<string, { label: string; order: number }> = {
   external: { label: "External activity", order: 0 },
@@ -141,6 +142,10 @@ function nodeLane(node: TopologyNodeRecord) {
 }
 
 function nodeNetworkSegment(node: TopologyNodeRecord): NetworkSegment {
+  const runtimeSegment = safeText(node["network_segment"], "").toLowerCase().replace("_", "-");
+  if (NETWORK_SEGMENTS.some((segment) => segment.id === runtimeSegment)) {
+    return runtimeSegment as NetworkSegment;
+  }
   const ip = safeText(node.ip, "").split("/", 1)[0];
   const kind = nodeSourceKind(node);
   const role = normalizeTopologyClass(node["entity_role"] || node.role, "");
@@ -3059,7 +3064,14 @@ export function TopologyPage() {
           </aside>
 
           <div className="react-topology-canvas-stage">
-            {mapMode !== "force" ? (
+            {mapMode === "network" ? (
+              <MaxGraphTopologyCanvas
+                nodes={scopedNodes}
+                edges={scopedEdges}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+              />
+            ) : mapMode !== "force" ? (
               <OlympusNetworkTopology
                 nodes={scopedNodes}
                 edges={scopedEdges}
@@ -3082,7 +3094,7 @@ export function TopologyPage() {
               />
             )}
             <div className="react-topology-canvas-status">
-              <span>{mapMode === "force" ? "LIVE RELATION GRAPH" : "REFERENCE VIEW"}</span>
+              <span>{mapMode === "force" ? "LIVE RELATION GRAPH" : mapMode === "network" ? "MAXGRAPH BLUEPRINT" : "REFERENCE VIEW"}</span>
               <b>{scopedNodes.length} nodes</b>
               <b>{scopedEdges.length} links</b>
               {selectedNode ? <b>Focus: {nodeDisplayLabel(selectedNode)}</b> : null}

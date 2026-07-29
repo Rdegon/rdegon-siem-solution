@@ -47,6 +47,33 @@ def test_record_delivery_persists_and_deduplicates_unchanged_state() -> None:
     assert save_mock.call_count == 1
 
 
+def test_record_delivery_accepts_card_lifecycle_states() -> None:
+    stored: list[dict] = []
+
+    with (
+        patch(
+            "services.web.app.incident_delivery_runtime.load_control_plane_rows",
+            side_effect=lambda _: [dict(row) for row in stored],
+        ),
+        patch(
+            "services.web.app.incident_delivery_runtime.save_control_plane_rows",
+            side_effect=lambda _, rows: stored.__setitem__(slice(None), [dict(row) for row in rows]),
+        ),
+    ):
+        for status in ("deleted", "expired", "delete_failed"):
+            result = record_incident_delivery(
+                {
+                    "incident_key": f"INC-{status}",
+                    "incident_view": "agg",
+                    "channel": "telegram",
+                    "delivery_status": status,
+                    "incident_status": "expired",
+                },
+                actor="incident-bot",
+            )
+            assert result["delivery_status"] == status
+
+
 def test_enrich_incidents_reports_telegram_queue_state() -> None:
     deliveries = [
         {

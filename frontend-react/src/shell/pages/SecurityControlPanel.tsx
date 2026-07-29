@@ -42,9 +42,11 @@ const EMPTY_FIREWALL_DRAFT: FirewallDraft = {
 function FirewallControl({
   data,
   refresh,
+  canMutate,
 }: {
   data: SecurityServiceControlResponse;
   refresh: () => void;
+  canMutate: boolean;
 }) {
   const { lang } = useShellContext();
   const [draft, setDraft] = useState<FirewallDraft>(EMPTY_FIREWALL_DRAFT);
@@ -111,6 +113,13 @@ function FirewallControl({
 
   const saveRule = () => {
     const operation = draft.uuid ? "update" : "create";
+    if (draft.destination_port.trim() && !["TCP", "UDP", "TCP/UDP"].includes(draft.protocol)) {
+      setResult(t(lang, {
+        en: "Destination port requires TCP, UDP or TCP/UDP protocol.",
+        ru: "Порт назначения можно задавать только для TCP, UDP или TCP/UDP.",
+      }));
+      return;
+    }
     if (!window.confirm(t(lang, {
       en: `${draft.uuid ? "Apply changes to" : "Create"} firewall rule "${draft.description}" on OPNsense?`,
       ru: `${draft.uuid ? "Применить изменения правила" : "Создать правило"} "${draft.description}" в OPNsense?`,
@@ -148,6 +157,8 @@ function FirewallControl({
               <button
                 className="react-primary-button"
                 type="button"
+                disabled={!canMutate}
+                title={!canMutate ? "Requires response:run permission" : undefined}
                 onClick={() => {
                   setDraft(EMPTY_FIREWALL_DRAFT);
                   setEditorOpen(true);
@@ -216,7 +227,8 @@ function FirewallControl({
                       <button
                         className="react-link-button"
                         type="button"
-                        disabled={Boolean(busy)}
+                        disabled={Boolean(busy) || !canMutate}
+                        title={!canMutate ? "Requires response:run permission" : undefined}
                         onClick={() => void runMutation(
                           "toggle",
                           { uuid: rule.uuid, enabled: !rule.enabled },
@@ -230,7 +242,8 @@ function FirewallControl({
                       <button
                         className="react-link-button"
                         type="button"
-                        disabled={Boolean(busy)}
+                        disabled={Boolean(busy) || !canMutate}
+                        title={!canMutate ? "Requires response:run permission" : undefined}
                         onClick={() => editRule(rule)}
                       >
                         {t(lang, { en: "Edit", ru: "Изменить" })}
@@ -238,7 +251,8 @@ function FirewallControl({
                       <button
                         className="react-link-button"
                         type="button"
-                        disabled={Boolean(busy)}
+                        disabled={Boolean(busy) || !canMutate}
+                        title={!canMutate ? "Requires response:run permission" : undefined}
                         onClick={() => deleteRule(rule)}
                       >
                         {t(lang, { en: "Delete", ru: "Удалить" })}
@@ -328,7 +342,20 @@ function FirewallControl({
           </label>
         </div>
         <div className="react-actions" style={{ marginTop: 16 }}>
-          <button className="react-primary-button" type="button" disabled={Boolean(busy) || draft.description.trim().length < 4} onClick={saveRule}>
+          <button
+            className="react-primary-button"
+            type="button"
+            disabled={
+              Boolean(busy)
+              || !canMutate
+              || draft.description.trim().length < 4
+              || (
+                Boolean(draft.destination_port.trim())
+                && !["TCP", "UDP", "TCP/UDP"].includes(draft.protocol)
+              )
+            }
+            onClick={saveRule}
+          >
             {busy || (draft.uuid
               ? t(lang, { en: "Save rule", ru: "Сохранить правило" })
               : t(lang, { en: "Create rule", ru: "Создать правило" }))}
@@ -349,9 +376,11 @@ function FirewallControl({
 function IdsControl({
   data,
   refresh,
+  canMutate,
 }: {
   data: SecurityServiceControlResponse;
   refresh: () => void;
+  canMutate: boolean;
 }) {
   const { lang, formatTimestamp } = useShellContext();
   const [busy, setBusy] = useState("");
@@ -404,10 +433,10 @@ function IdsControl({
           icon="rules"
           actions={
             <div className="react-actions">
-              <button className="react-link-button" type="button" disabled={Boolean(busy)} onClick={() => void run("reload", {}, "Reload rules")}>
+              <button className="react-link-button" type="button" disabled={Boolean(busy) || !canMutate} title={!canMutate ? "Requires response:run permission" : undefined} onClick={() => void run("reload", {}, "Reload rules")}>
                 {t(lang, { en: "Reload", ru: "Перезагрузить" })}
               </button>
-              <button className="react-primary-button" type="button" disabled={Boolean(busy)} onClick={() => {
+              <button className="react-primary-button" type="button" disabled={Boolean(busy) || !canMutate} title={!canMutate ? "Requires response:run permission" : undefined} onClick={() => {
                 if (window.confirm(t(lang, {
                   en: "Download signature updates and reload the active IPS policy?",
                   ru: "Скачать обновления сигнатур и перезагрузить действующую политику IPS?",
@@ -457,7 +486,8 @@ function IdsControl({
                     <button
                       className="react-link-button"
                       type="button"
-                      disabled={Boolean(busy)}
+                      disabled={Boolean(busy) || !canMutate}
+                      title={!canMutate ? "Requires response:run permission" : undefined}
                       onClick={() => toggleRuleset(ruleset)}
                     >
                       {ruleset.enabled
@@ -504,7 +534,7 @@ function IdsControl({
 }
 
 export function SecurityControlPanel({ serviceId }: { serviceId: string }) {
-  const { lang } = useShellContext();
+  const { lang, permissions } = useShellContext();
   const [refreshToken, setRefreshToken] = useState(0);
   const load = useCallback(
     () => {
@@ -515,6 +545,7 @@ export function SecurityControlPanel({ serviceId }: { serviceId: string }) {
   );
   const state = usePolledData<SecurityServiceControlResponse>(load, 20_000);
   const data = state.data;
+  const canMutate = permissions.includes("response:run");
   const refresh = () => setRefreshToken((value) => value + 1);
   const status = useMemo(() => {
     if (state.loading && !data) return "loading";
@@ -546,8 +577,23 @@ export function SecurityControlPanel({ serviceId }: { serviceId: string }) {
           title={t(lang, { en: "Device API", ru: "API устройства" })}
           subtitle={`${data.device_url || ""} | ${data.auth_mode || "unknown"}`}
           icon="control"
-          actions={<StatusBadge value={status} />}
+          actions={
+            <div className="react-actions">
+              <button className="react-link-button" type="button" onClick={refresh}>
+                {t(lang, { en: "Refresh device state", ru: "Обновить состояние" })}
+              </button>
+              <StatusBadge value={status} />
+            </div>
+          }
         />
+        {!canMutate ? (
+          <div className="react-callout">
+            {t(lang, {
+              en: "Device state is live and read-only for this account. Firewall and IPS changes require response:run.",
+              ru: "Состояние устройства актуально, но для этой учетной записи доступно только чтение. Изменения NGFW и IPS требуют права response:run.",
+            })}
+          </div>
+        ) : null}
         {!data.verify_tls ? (
           <div className="react-callout">
             {t(lang, {
@@ -557,7 +603,9 @@ export function SecurityControlPanel({ serviceId }: { serviceId: string }) {
           </div>
         ) : null}
       </section>
-      {serviceId === "ngfw" ? <FirewallControl data={data} refresh={refresh} /> : <IdsControl data={data} refresh={refresh} />}
+      {serviceId === "ngfw"
+        ? <FirewallControl data={data} refresh={refresh} canMutate={canMutate} />
+        : <IdsControl data={data} refresh={refresh} canMutate={canMutate} />}
     </>
   );
 }

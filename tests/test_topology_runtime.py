@@ -146,6 +146,86 @@ class TopologyRuntimeTests(unittest.TestCase):
         self.assertTrue(any(flow["id"] == "packet-flow-discovery" and flow["nodes"] == 1 for flow in payload["packet_flows"]))
         attention_item = next(item for item in payload["attention"] if item["kind"] == "discovery")
         self.assertIn("/app/assets?view=unconnected", attention_item["href"])
+        self.assertEqual("legacy", fleet_node["network_segment"])
+        self.assertEqual("ip", fleet_node["segment_source"])
+        self.assertEqual("mgmt", router_node["network_segment"])
+        self.assertEqual("external", external_node["network_segment"])
+
+    def test_all_sources_are_returned_and_auto_segmented(self) -> None:
+        sources = [
+            {
+                "source_name": f"source-{index}",
+                "collector_id": "collector-main",
+                "status": "active",
+                "events": index,
+                "ip": f"10.20.20.{index + 1}",
+            }
+            for index in range(40)
+        ]
+        sources.append(
+            {
+                "source_name": "new-game-source",
+                "collector_id": "collector-main",
+                "status": "active",
+                "events": 1,
+                "ip": "10.20.20.222",
+            }
+        )
+        with patch.object(
+            topology_runtime,
+            "_load_sources",
+            return_value=sources,
+        ), patch.object(
+            topology_runtime,
+            "_load_collectors",
+            return_value=[
+                {
+                    "collector_id": "collector-main",
+                    "name": "Main collector",
+                    "status": "active",
+                }
+            ],
+        ), patch.object(
+            topology_runtime,
+            "_load_geo_sources",
+            return_value=[],
+        ), patch.object(
+            topology_runtime,
+            "_load_discovery",
+            return_value={"items": [], "jobs": [], "metrics": {}},
+        ), patch.object(
+            topology_runtime,
+            "_load_fleet",
+            return_value={"items": [], "metrics": {}},
+        ), patch.object(
+            topology_runtime,
+            "_load_host_access_profiles",
+            return_value=[],
+        ):
+            payload = topology_runtime.build_network_topology(hours=24, limit=300)
+
+        returned_sources = [
+            node for node in payload["nodes"] if node["type"] == "source"
+        ]
+        self.assertEqual(41, len(returned_sources))
+        new_source = next(
+            node for node in returned_sources if node["id"] == "source:new-game-source"
+        )
+        self.assertEqual("servers-games", new_source["network_segment"])
+        self.assertEqual("10.20.20.0/24", new_source["segment_cidr"])
+        self.assertEqual("ip", new_source["segment_source"])
+        self.assertEqual(41, payload["metrics"]["monitored_sources"])
+
+    def test_explicit_segment_overrides_ip_classification(self) -> None:
+        classified = topology_runtime._network_segment(
+            {
+                "ip": "10.20.20.45",
+                "network_segment": "lab",
+                "asset_group": "game",
+            }
+        )
+        self.assertEqual("lab", classified["network_segment"])
+        self.assertEqual("explicit", classified["segment_source"])
 
 
 if __name__ == "__main__":

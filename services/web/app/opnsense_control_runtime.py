@@ -271,6 +271,12 @@ def get_opnsense_control_state(
         "auth_mode": config.auth_mode if config.configured else "none",
         "verify_tls": config.verify_tls,
         "device_url": config.base_url,
+        "required_permission": "response:run",
+        "supported_operations": (
+            ["create", "update", "toggle", "delete"]
+            if normalized == "ngfw"
+            else ["toggle_rule", "toggle_ruleset", "reload", "update"]
+        ),
     }
     if not config.configured:
         return {**base, "available": False, "error": "OPNsense control credentials are not configured"}
@@ -392,6 +398,8 @@ def _rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     protocol = next((item for item in _ALLOWED_PROTOCOLS if item.lower() == protocol_raw.lower()), "")
     source = _clean_text(payload.get("source") or "any")
     destination = _clean_text(payload.get("destination") or "any")
+    source_port = _clean_text(payload.get("source_port"))
+    destination_port = _clean_text(payload.get("destination_port"))
     if interface not in _ALLOWED_INTERFACES:
         raise ValueError(f"Unsupported firewall interface: {interface}")
     if action not in _ALLOWED_ACTIONS:
@@ -400,6 +408,10 @@ def _rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unsupported firewall protocol: {protocol_raw}")
     if not source or not destination:
         raise ValueError("Source and destination are required")
+    if (source_port or destination_port) and protocol not in {"TCP", "UDP", "TCP/UDP"}:
+        raise ValueError(
+            "Source and destination ports require TCP, UDP or TCP/UDP protocol"
+        )
     return {
         "rule": {
             "enabled": "1" if bool(payload.get("enabled", True)) else "0",
@@ -413,10 +425,10 @@ def _rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "protocol": protocol,
             "source_net": source,
             "source_not": "1" if bool(payload.get("source_not")) else "0",
-            "source_port": _clean_text(payload.get("source_port")),
+            "source_port": source_port,
             "destination_net": destination,
             "destination_not": "1" if bool(payload.get("destination_not")) else "0",
-            "destination_port": _clean_text(payload.get("destination_port")),
+            "destination_port": destination_port,
             "gateway": "",
             "disablereplyto": "1",
             "log": "1" if bool(payload.get("log", True)) else "0",
@@ -582,6 +594,9 @@ def mutate_ids(
     runtime_client = client or OPNsenseClient()
     action = str(operation or "").strip().lower()
     object_id = ""
+    ruleset_previous_enabled: bool | None = None
+    ruleset_mutation_started = False
+    rollback_error = ""
     try:
         if action == "toggle_rule":
             object_id = _clean_text(payload.get("sid"))
@@ -605,9 +620,11 @@ def mutate_ids(
                 if "enabled" in payload
                 else not bool(current.get("enabled"))
             )
+            ruleset_previous_enabled = bool(current.get("enabled"))
             runtime_client.post(
                 f"/api/ids/settings/toggle_ruleset/{urllib_quote(object_id)}/{1 if desired else 0}"
             )
+            ruleset_mutation_started = desired != ruleset_previous_enabled
             runtime_client.post("/api/ids/service/reload_rules", timeout_seconds=120)
             refreshed = {
                 row["filename"]: row
@@ -618,6 +635,7 @@ def mutate_ids(
                     f"/api/ids/settings/toggle_ruleset/{urllib_quote(object_id)}/{1 if bool(current.get('enabled')) else 0}"
                 )
                 runtime_client.post("/api/ids/service/reload_rules", timeout_seconds=120)
+                ruleset_mutation_started = False
                 raise RuntimeError(
                     f"Suricata ruleset {object_id} did not reach the requested state"
                 )
@@ -653,14 +671,39 @@ def mutate_ids(
         )
         return result
     except Exception as exc:
+        if (
+            action == "toggle_ruleset"
+            and ruleset_mutation_started
+            and ruleset_previous_enabled is not None
+            and object_id
+        ):
+            try:
+                runtime_client.post(
+                    f"/api/ids/settings/toggle_ruleset/{urllib_quote(object_id)}/"
+                    f"{1 if ruleset_previous_enabled else 0}"
+                )
+                runtime_client.post(
+                    "/api/ids/service/reload_rules",
+                    timeout_seconds=120,
+                )
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_error = str(rollback_exc)[:600]
         append_audit_event(
             actor=actor,
             action=f"opnsense.ids.{action}.failed",
             object_type="opnsense_ids",
             object_id=object_id,
             summary=f"OPNsense IDS operation {action} failed",
-            details={"error": str(exc)[:600]},
+            details={
+                "error": str(exc)[:600],
+                "rollback_attempted": bool(ruleset_mutation_started),
+                "rollback_error": rollback_error,
+            },
         )
+        if rollback_error:
+            raise RuntimeError(
+                f"{exc}; Suricata ruleset rollback also failed: {rollback_error}"
+            ) from exc
         raise
 
 

@@ -39,6 +39,8 @@ current references unless noted otherwise.
   approved platform plan with the live deployment and its remaining gates.
 - `web_performance_2026-07-27.md` - Web/API bottleneck analysis, cache
   architecture and concurrent acceptance metrics.
+- `security_operations_ui_2026-07-29.md` - production NGFW/IPS actions,
+  incident/Telegram reconciliation, maxGraph topology and cold-start contract.
 - `production_recovery_and_rule_calibration_2026-07-26.md` - current recovery,
   scanner placement, NDR backlog handling, rule calibration and validation record.
 - `network_relocation_runbook_2026-06-23.md` - legacy relocation fallback notes.

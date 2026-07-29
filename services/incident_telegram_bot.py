@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover - service-local fallback
 
 
 LOG = logging.getLogger("incident_telegram_bot")
-TERMINAL_STATUSES = {"closed", "false_positive"}
+TERMINAL_STATUSES = {"closed", "false_positive", "expired"}
 
 
 def _env(name: str, default: str = "") -> str:
@@ -76,6 +76,11 @@ def _safe_chat_title(user: dict[str, Any]) -> str:
     return str(user.get("username") or user.get("first_name") or user.get("last_name") or "operator").strip()
 
 
+def _redact_secret(value: Any, secret: str) -> str:
+    text = str(value or "")
+    return text.replace(secret, "<redacted>") if secret else text
+
+
 def _incident_hosts(incident: dict[str, Any]) -> list[str]:
     values: list[Any] = []
     for container in (incident, incident.get("cluster") or {}):
@@ -113,6 +118,7 @@ class BotConfig:
     enable_callbacks: bool
     telegram_proxy_url: str
     default_timezone: str
+    stale_grace_seconds: int = 180
 
     @property
     def telegram_enabled(self) -> bool:
@@ -140,6 +146,7 @@ def load_config() -> BotConfig:
         enable_callbacks=_env_bool("SIEM_BOT_ENABLE_CALLBACKS", True),
         telegram_proxy_url=_env("SIEM_TELEGRAM_PROXY_URL"),
         default_timezone=_env("SIEM_BOT_DEFAULT_TIMEZONE", "Europe/Moscow"),
+        stale_grace_seconds=max(60, _env_int("SIEM_BOT_STALE_GRACE_SECONDS", 180)),
     )
 
 
@@ -191,6 +198,7 @@ class IncidentTelegramBot:
             cur.execute("alter table incident_delivery_state add column if not exists telegram_message_id bigint")
             cur.execute("alter table incident_delivery_state add column if not exists telegram_chat_id text not null default ''")
             cur.execute("alter table incident_delivery_state add column if not exists delivery_count integer not null default 0")
+            cur.execute("alter table incident_delivery_state add column if not exists last_seen_at timestamptz not null default now()")
             cur.execute(
                 """
                 create table if not exists telegram_bot_state (
@@ -210,8 +218,15 @@ class IncidentTelegramBot:
             f"&scope=main&window={urllib.parse.quote(self.config.incident_window)}"
             f"&limit={self.config.incident_limit}"
         )
-        for item in reversed(list(payload.get("items") or [])):
-            self._process_incident(conn, dict(item or {}))
+        items = [dict(item or {}) for item in list(payload.get("items") or [])]
+        current_keys = {
+            incident_key
+            for incident_key in (self._incident_key(item) for item in items)
+            if incident_key
+        }
+        for item in reversed(items):
+            self._process_incident(conn, item)
+        self._reconcile_absent_incidents(conn, current_keys)
 
     def _process_incident(self, conn: psycopg.Connection[Any], incident: dict[str, Any]) -> None:
         incident_key = self._incident_key(incident)
@@ -219,7 +234,25 @@ class IncidentTelegramBot:
             return
         fingerprint = self._incident_fingerprint(incident)
         state = self._get_incident_state(conn, incident_key)
-        if state and str(state.get("fingerprint") or "") == fingerprint:
+        if (
+            state
+            and str(state.get("fingerprint") or "") == fingerprint
+            and str(state.get("incident_status") or "").lower() != "expired"
+        ):
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update incident_delivery_state
+                    set last_seen_at = now(), updated_at = now(),
+                        incident_status = %s, incident_title = %s
+                    where incident_key = %s
+                    """,
+                    (
+                        str(incident.get("status") or "new").strip().lower(),
+                        self._incident_title(incident),
+                        incident_key,
+                    ),
+                )
             stored_payload = state.get("payload") if isinstance(state.get("payload"), dict) else {}
             stored_telegram = (
                 stored_payload.get("telegram")
@@ -246,7 +279,13 @@ class IncidentTelegramBot:
         message_id = (state or {}).get("telegram_message_id")
         callback_ref = self._store_incident_callback_ref(conn, incident_key)
         timezone_name = self._get_chat_timezone(conn, chat_id)
-        if message_id:
+        if message_id and terminal:
+            telegram = self._delete_incident_card(
+                chat_id=chat_id,
+                message_id=int(message_id),
+                reason=f"terminal_{status}",
+            )
+        elif message_id:
             telegram = self._edit_incident(
                 incident,
                 incident_key,
@@ -265,7 +304,11 @@ class IncidentTelegramBot:
                 timezone_name=timezone_name,
                 callback_ref=callback_ref,
             )
-        next_message_id = telegram.get("message_id") or message_id
+        next_message_id = (
+            None
+            if telegram.get("status") == "deleted"
+            else telegram.get("message_id") or message_id
+        )
         delivered = int(telegram.get("status") in {"sent", "edited"})
         with conn.cursor() as cur:
             cur.execute(
@@ -273,17 +316,18 @@ class IncidentTelegramBot:
                 insert into incident_delivery_state (
                     incident_key, incident_view, fingerprint, incident_status,
                     incident_title, telegram_message_id, telegram_chat_id,
-                    delivery_count, delivered_at, updated_at, payload
+                    delivery_count, delivered_at, updated_at, last_seen_at, payload
                 )
-                values (%s, %s, %s, %s, %s, %s, %s, %s, now(), now(), %s::jsonb)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, now(), now(), now(), %s::jsonb)
                 on conflict (incident_key) do update set
                     fingerprint = excluded.fingerprint,
                     incident_status = excluded.incident_status,
                     incident_title = excluded.incident_title,
-                    telegram_message_id = coalesce(excluded.telegram_message_id, incident_delivery_state.telegram_message_id),
+                    telegram_message_id = excluded.telegram_message_id,
                     telegram_chat_id = excluded.telegram_chat_id,
                     delivery_count = incident_delivery_state.delivery_count + excluded.delivery_count,
                     updated_at = now(),
+                    last_seen_at = now(),
                     payload = excluded.payload
                 """,
                 (
@@ -307,6 +351,90 @@ class IncidentTelegramBot:
             telegram=telegram,
             delivery_count=delivered,
         )
+
+    def _reconcile_absent_incidents(
+        self,
+        conn: psycopg.Connection[Any],
+        current_keys: set[str],
+    ) -> None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select incident_key, telegram_message_id, telegram_chat_id
+                from incident_delivery_state
+                where incident_view = %s
+                  and incident_status not in ('closed', 'false_positive', 'expired')
+                  and last_seen_at < now() - make_interval(secs => %s)
+                order by last_seen_at asc
+                limit 500
+                """,
+                (self.config.incident_view, self.config.stale_grace_seconds),
+            )
+            stale_rows = list(cur.fetchall())
+        for incident_key, message_id, stored_chat_id in stale_rows:
+            key = str(incident_key or "").strip()
+            if not key or key in current_keys:
+                continue
+            chat_id = str(stored_chat_id or self.config.telegram_chat_id)
+            telegram = (
+                self._delete_incident_card(
+                    chat_id=chat_id,
+                    message_id=int(message_id),
+                    reason="left_main_incident_queue",
+                )
+                if message_id
+                else {"status": "expired", "reason": "left_main_incident_queue"}
+            )
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update incident_delivery_state
+                    set incident_status = 'expired',
+                        fingerprint = 'expired:' || fingerprint,
+                        telegram_message_id = null,
+                        updated_at = now()
+                    where incident_key = %s
+                    """,
+                    (key,),
+                )
+            self._publish_delivery_state(
+                {"record_id": key, "status": "expired"},
+                incident_key=key,
+                telegram=telegram,
+                delivery_count=0,
+            )
+
+    def _delete_incident_card(
+        self,
+        *,
+        chat_id: str,
+        message_id: int,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not self.config.telegram_enabled:
+            return {"status": "telegram_disabled", "reason": reason}
+        try:
+            self._telegram_request(
+                "deleteMessage",
+                {"chat_id": chat_id, "message_id": int(message_id)},
+            )
+            return {
+                "status": "deleted",
+                "message_id": int(message_id),
+                "reason": reason,
+            }
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning(
+                "unable to delete stale Telegram incident card %s: %s",
+                message_id,
+                exc,
+            )
+            return {
+                "status": "delete_failed",
+                "message_id": int(message_id),
+                "reason": reason,
+                "error": str(exc)[:300],
+            }
 
     def _publish_delivery_state(
         self,
@@ -670,7 +798,8 @@ class IncidentTelegramBot:
             body = response.json()
         except requests.RequestException as exc:
             detail = getattr(getattr(exc, "response", None), "text", "")
-            raise RuntimeError(f"Telegram request failed: {method}; {str(detail)[:400] or exc}") from exc
+            safe_detail = _redact_secret(detail or exc, self.config.telegram_bot_token)
+            raise RuntimeError(f"Telegram request failed: {method}; {safe_detail[:400]}") from exc
         if not bool(body.get("ok")):
             raise RuntimeError(f"Telegram request failed: {method} -> {body}")
         return body

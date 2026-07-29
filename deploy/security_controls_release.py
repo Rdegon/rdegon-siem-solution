@@ -28,22 +28,29 @@ FILES = (
     "services/web/main.py",
     "services/web/requirements-web.txt",
     "services/web/app/opnsense_control_runtime.py",
+    "services/web/app/content_store.py",
     "services/web/app/incident_delivery_runtime.py",
     "services/web/app/security_services_runtime.py",
+    "services/web/app/topology_layout_runtime.py",
     "services/web/app/topology_runtime.py",
     "services/web/app/deps.py",
     "services/web/app/routes/alerts.py",
     "services/web/app/routes/console_health_routes.py",
     "services/web/app/routes/console_security_services_routes.py",
+    "services/web/app/routes/console_assets_routes.py",
     "correlation_rule_packs/siem_detection_pack_v1.json",
     "correlation_rule_packs/windows_activity_v1.json",
     "deploy/publish_current_fp_remediation.py",
+    "frontend-react/package.json",
+    "frontend-react/package-lock.json",
     "frontend-react/src/shell/api.ts",
+    "frontend-react/src/shell/DashboardCanvas.tsx",
     "frontend-react/src/shell/types.ts",
     "frontend-react/src/shell/pages/SecurityControlPanel.tsx",
     "frontend-react/src/shell/pages/SecurityServicePage.tsx",
     "frontend-react/src/shell/pages/IncidentsPage.tsx",
     "frontend-react/src/shell/pages/TopologyPage.tsx",
+    "frontend-react/src/shell/pages/topology/MaxGraphTopologyCanvas.tsx",
     "frontend-react/src/styles/page-families.css",
     "frontend-react/src/styles/shell.css",
 )
@@ -374,20 +381,24 @@ def main() -> int:
     with Proxmox() as pve:
         for relative in FILES:
             _push_file(pve, relative, backup_root)
-        _configure_opnsense_alternate_hostname(pve)
-        _install_opnsense_trust(pve)
-        _configure_opnsense_secret(pve)
+        if str(os.getenv("SIEM_OPNSENSE_ROOT_PASSWORD") or "").strip():
+            _configure_opnsense_alternate_hostname(pve)
+            _install_opnsense_trust(pve)
+            _configure_opnsense_secret(pve)
         output = pve.guest_exec(
             VMID,
             "set -euo pipefail; "
             f"cd {shlex.quote(WEB_ROOT)}; "
             f"{shlex.quote(WEB_PYTHON)} -m pip install --disable-pip-version-check --no-input -r requirements-web.txt >/dev/null; "
             f"{shlex.quote(WEB_PYTHON)} -m py_compile main.py app/opnsense_control_runtime.py "
+            "app/content_store.py app/topology_layout_runtime.py app/topology_runtime.py "
             "app/deps.py app/routes/alerts.py app/routes/console_health_routes.py "
-            "app/routes/console_security_services_routes.py; "
+            "app/routes/console_security_services_routes.py app/routes/console_assets_routes.py; "
             f"cd {shlex.quote(REMOTE_ROOT)}; "
             f"{shlex.quote(WEB_PYTHON)} deploy/publish_current_fp_remediation.py >/tmp/siem-current-fp-publish.json; "
-            f"cd {shlex.quote(WEB_ROOT + '/frontend-react')}; runuser -u rdegon -- npm run build >/dev/null; "
+            f"cd {shlex.quote(WEB_ROOT + '/frontend-react')}; "
+            "runuser -u rdegon -- npm ci --no-audit --no-fund >/dev/null; "
+            "runuser -u rdegon -- npm run build >/dev/null; "
             "systemctl restart siem-web; "
             "for attempt in $(seq 1 30); do curl -kfsS --max-time 3 https://127.0.0.1/healthz >/dev/null && break; sleep 1; done; "
             "systemctl is-active siem-web nginx; "
