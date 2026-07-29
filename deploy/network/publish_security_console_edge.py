@@ -43,7 +43,7 @@ def main() -> int:
         verification = pve.guest_exec(
             VMID,
             "nft list table ip nat | "
-            "grep -E 'dport (8005|8444|8889|9001|9392) dnat' | "
+            "grep -E 'dport (3000|8005|8444|8889|9001|9392) dnat' | "
             "sort -u",
             timeout=60,
         )

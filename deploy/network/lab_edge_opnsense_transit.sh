@@ -116,6 +116,7 @@ table ip nat {
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 8889 dnat to 10.20.10.107:8889
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 9001 dnat to 10.20.10.107:9001
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 9392 dnat to 10.20.30.122:9392
+    iifname "eth0" ip daddr 192.168.3.102 tcp dport 3000 dnat to 10.20.30.123:3000
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 1514-1518 dnat to 10.20.10.104
     iifname "eth0" ip daddr 192.168.3.102 udp dport 1514-1518 dnat to 10.20.10.104
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 9443 dnat to 10.20.20.120:443
@@ -158,7 +159,8 @@ verify() {
     10.20.10.128:8889 \
     10.20.10.131:443 \
     10.20.10.133:9001 \
-    10.20.30.122:9392; do
+    10.20.30.122:9392 \
+    10.20.30.123:3000; do
     timeout 5 bash -c "</dev/tcp/${endpoint/:/\/}" >/dev/null 2>&1
   done
   systemctl is-active --quiet nftables

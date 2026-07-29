@@ -32,6 +32,7 @@ clients must receive the same `10.20.0.0/16` route from their VPN profile.
 | Greenbone | `http://192.168.3.102:9392/` |
 | MISP | `https://192.168.3.102:8444/` |
 | MinIO | `https://192.168.3.102:9001/` |
+| Gitea | `http://192.168.3.102:3000/` |
 
 ## Cold-start order
 
