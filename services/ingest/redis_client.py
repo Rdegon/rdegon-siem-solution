@@ -113,6 +113,10 @@ LEGACY_OPTIONAL_COLLECTOR_PROFILES = {
     "vpn",
     "vulnscanner-http",
 }
+SUPERSEDED_COLLECTOR_PROFILE_ALIASES = {
+    "minecraft": "game-server",
+    "threat-intelligence": "threat-intel",
+}
 TERMINAL_REPLAY_FAILURE_REASONS = {"payload_not_object", "dlq_item_not_found"}
 NON_OPERATIONAL_DLQ_TOKENS = (
     "ci-test",
@@ -823,11 +827,27 @@ def _annotate_collector_gating(
         if not bool(source.get("health_gating_excluded"))
     }
     active_source_profiles.discard("")
+    active_collector_profiles = {
+        _health_profile(item)
+        for item in annotated
+        if not bool(item.get("health_gating_excluded"))
+        and str(item.get("status") or "").strip().lower() == "healthy"
+    }
+    active_replacement_profiles = active_source_profiles | active_collector_profiles
     for item in annotated:
         if bool(item.get("health_gating_excluded")):
             continue
         profile = _health_profile(item)
         status = str(item.get("status") or "").strip().lower()
+        replacement_profile = SUPERSEDED_COLLECTOR_PROFILE_ALIASES.get(profile, "")
+        if (
+            replacement_profile
+            and status in {"stale", "delayed", "missing", "unknown"}
+            and replacement_profile in active_replacement_profiles
+        ):
+            item["health_gating_excluded"] = True
+            item["health_gating_reason"] = "superseded_collector_alias"
+            continue
         if (
             profile in LEGACY_OPTIONAL_COLLECTOR_PROFILES
             and status in {"stale", "delayed", "missing", "unknown"}

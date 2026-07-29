@@ -112,6 +112,10 @@ table ip nat {
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 8443 dnat to 10.20.10.104:443
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 8000 dnat to 10.20.10.128:8000
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 8005 dnat to 10.20.10.127:8005
+    iifname "eth0" ip daddr 192.168.3.102 tcp dport 8444 dnat to 10.20.10.107:8444
+    iifname "eth0" ip daddr 192.168.3.102 tcp dport 8889 dnat to 10.20.10.107:8889
+    iifname "eth0" ip daddr 192.168.3.102 tcp dport 9001 dnat to 10.20.10.107:9001
+    iifname "eth0" ip daddr 192.168.3.102 tcp dport 9392 dnat to 10.20.30.122:9392
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 1514-1518 dnat to 10.20.10.104
     iifname "eth0" ip daddr 192.168.3.102 udp dport 1514-1518 dnat to 10.20.10.104
     iifname "eth0" ip daddr 192.168.3.102 tcp dport 9443 dnat to 10.20.20.120:443
@@ -149,6 +153,14 @@ verify() {
   done
   curl -kfsS --connect-timeout 5 --max-time 15 https://10.20.10.104/health >/dev/null
   curl -kfsS --connect-timeout 5 --max-time 15 https://10.20.10.107/ >/dev/null
+  for endpoint in \
+    10.20.10.127:8005 \
+    10.20.10.128:8889 \
+    10.20.10.131:443 \
+    10.20.10.133:9001 \
+    10.20.30.122:9392; do
+    timeout 5 bash -c "</dev/tcp/${endpoint/:/\/}" >/dev/null 2>&1
+  done
   systemctl is-active --quiet nftables
   systemctl is-active --quiet suricata
 }

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useShellContext } from "../context";
 import { useAsyncData } from "../hooks";
-import { DrawerFieldGrid, EmptyState, KeyValue, PanelHeader, SectionIntro, StatCard, StatusBadge } from "../ui";
+import { DrawerFieldGrid, EmptyState, KeyValue, MetricStrip, PanelHeader, StatusBadge } from "../ui";
 import type { HostAccessProfileRecord, NetworkPacketFlowRecord, NetworkTopologyResponse, TopologyEdgeRecord, TopologyNodeRecord } from "../types";
 
 const TOPOLOGY_LANES: Record<string, { label: string; order: number }> = {
@@ -42,6 +42,7 @@ type TopologyGraphCommand = {
 };
 
 type TopologyMapMode = "network" | "telemetry" | "posture" | "force";
+type NetworkSegment = "external" | "mgmt" | "sec" | "servers-games" | "lab" | "users" | "legacy" | "unassigned";
 
 type HostAccessForm = {
   profile_id: string;
@@ -125,6 +126,24 @@ function nodeLane(node: TopologyNodeRecord) {
   if (node.type === "collector") return "collector";
   if (node.type === "core_service") return "core";
   return "inventory";
+}
+
+function nodeNetworkSegment(node: TopologyNodeRecord): NetworkSegment {
+  const ip = safeText(node.ip, "").split("/", 1)[0];
+  const kind = nodeSourceKind(node);
+  const role = normalizeTopologyClass(node["entity_role"] || node.role, "");
+  if (node.type === "external_ip" || node.type === "zone" || nodeLane(node) === "external") return "external";
+  if (ip.startsWith("10.20.10.")) return "sec";
+  if (ip.startsWith("10.20.20.")) return "servers-games";
+  if (ip.startsWith("10.20.30.")) return "lab";
+  if (ip.startsWith("10.20.40.")) return "users";
+  if (ip.startsWith("192.168.3.")) return "mgmt";
+  if (ip.startsWith("192.168.1.")) return "legacy";
+  if (node.type === "core_service" || node.type === "collector" || kind === "siem_core") return "sec";
+  if (kind === "workstation") return "users";
+  if (node.type === "protected_public_ip" || kind.includes("vpn") || kind === "virtual_router" || role === "ngfw") return "mgmt";
+  if (ip && !ip.startsWith("10.") && !ip.startsWith("172.16.") && !ip.startsWith("192.168.")) return "external";
+  return "unassigned";
 }
 
 function nodeTone(node: TopologyNodeRecord) {
@@ -2184,44 +2203,48 @@ function buildActualNetworkModel(nodes: TopologyGraphNode[], edges: TopologyEdge
   const modelNodes: OlympusMapNode[] = [];
   const modelEdges: OlympusMapEdge[] = [];
   const visualBySourceId = new Map<string, string>();
-  const laneGroups = new Map<string, TopologyGraphNode[]>();
+  const segmentGroups = new Map<NetworkSegment, TopologyGraphNode[]>();
   for (const node of nodes) {
-    const lane = nodeLane(node);
-    const group = laneGroups.get(lane) || [];
+    const segment = nodeNetworkSegment(node);
+    const group = segmentGroups.get(segment) || [];
     group.push(node);
-    laneGroups.set(lane, group);
+    segmentGroups.set(segment, group);
   }
 
   const zones: OlympusMapZone[] = [
-    { id: "external", label: "External activity", meta: `${(laneGroups.get("external") || []).length} actual nodes from API`, x: 24, y: 92, width: 244, height: 760, tone: "external" },
-    { id: "edge", label: "Protected edge", meta: `${(laneGroups.get("edge") || []).length} public/VPN nodes from API`, x: 300, y: 92, width: 244, height: 760, tone: "edge" },
-    { id: "inventory", label: "Hosts / inventory", meta: `${(laneGroups.get("inventory") || []).length} fleet/discovery nodes from API`, x: 576, y: 92, width: 430, height: 760, tone: "hosts" },
-    { id: "source", label: "Telemetry sources", meta: `${(laneGroups.get("source") || []).length} source records from API`, x: 1038, y: 92, width: 336, height: 760, tone: "telemetry" },
-    { id: "collector", label: "Collectors", meta: `${(laneGroups.get("collector") || []).length} collector records from API`, x: 1406, y: 92, width: 142, height: 760, tone: "management" },
-    { id: "core", label: "SIEM core", meta: `${(laneGroups.get("core") || []).length} core services from API`, x: 1580, y: 92, width: 136, height: 760, tone: "siem" },
+    { id: "external", label: "External activity", meta: `${(segmentGroups.get("external") || []).length} observed public nodes`, x: 24, y: 84, width: 220, height: 716, tone: "external" },
+    { id: "mgmt", label: "MGMT", meta: `192.168.3.0/24 · ${(segmentGroups.get("mgmt") || []).length} nodes`, x: 270, y: 84, width: 250, height: 332, tone: "management" },
+    { id: "sec", label: "SEC", meta: `10.20.10.0/24 · ${(segmentGroups.get("sec") || []).length} nodes`, x: 546, y: 84, width: 382, height: 332, tone: "siem" },
+    { id: "servers-games", label: "Servers / games", meta: `10.20.20.0/24 · ${(segmentGroups.get("servers-games") || []).length} nodes`, x: 954, y: 84, width: 350, height: 332, tone: "hosts" },
+    { id: "lab", label: "LAB", meta: `10.20.30.0/24 · ${(segmentGroups.get("lab") || []).length} nodes`, x: 1330, y: 84, width: 386, height: 332, tone: "holding" },
+    { id: "users", label: "USERS", meta: `10.20.40.0/24 · ${(segmentGroups.get("users") || []).length} nodes`, x: 270, y: 446, width: 250, height: 354, tone: "control" },
+    { id: "legacy", label: "Legacy observed", meta: `192.168.1.0/24 · ${(segmentGroups.get("legacy") || []).length} stale identities`, x: 546, y: 446, width: 580, height: 354, tone: "external" },
+    { id: "unassigned", label: "Unassigned", meta: `${(segmentGroups.get("unassigned") || []).length} records without segment evidence`, x: 1152, y: 446, width: 564, height: 354, tone: "network" },
   ];
 
-  actualPlaceColumn(modelNodes, visualBySourceId, laneGroups.get("external") || [], { zone: "external", x: 56, y: 134, width: 174, height: 52, rowGap: 62, max: 11 });
-  actualPlaceColumn(modelNodes, visualBySourceId, laneGroups.get("edge") || [], { zone: "edge", x: 332, y: 150, width: 174, height: 64, rowGap: 88, max: 8 });
-  actualPlaceColumn(modelNodes, visualBySourceId, laneGroups.get("inventory") || [], { zone: "inventory", x: 610, y: 128, width: 162, height: 60, columns: 2, columnGap: 34, rowGap: 76, max: 18 });
-  actualPlaceColumn(modelNodes, visualBySourceId, laneGroups.get("source") || [], { zone: "source", x: 1074, y: 128, width: 140, height: 58, columns: 2, columnGap: 34, rowGap: 76, max: 14 });
-  actualPlaceColumn(modelNodes, visualBySourceId, laneGroups.get("collector") || [], { zone: "collector", x: 1424, y: 140, width: 106, height: 60, rowGap: 88, max: 8 });
-  actualPlaceColumn(modelNodes, visualBySourceId, laneGroups.get("core") || [], { zone: "core", x: 1596, y: 132, width: 104, height: 60, rowGap: 90, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("external") || [], { zone: "external", x: 48, y: 126, width: 172, height: 50, rowGap: 58, max: 10 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("mgmt") || [], { zone: "mgmt", x: 298, y: 126, width: 194, height: 54, rowGap: 62, max: 4 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("sec") || [], { zone: "sec", x: 574, y: 126, width: 150, height: 54, columns: 2, columnGap: 24, rowGap: 62, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("servers-games") || [], { zone: "servers-games", x: 982, y: 126, width: 138, height: 54, columns: 2, columnGap: 22, rowGap: 62, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("lab") || [], { zone: "lab", x: 1358, y: 126, width: 154, height: 54, columns: 2, columnGap: 22, rowGap: 62, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("users") || [], { zone: "users", x: 298, y: 490, width: 194, height: 54, rowGap: 64, max: 4 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("legacy") || [], { zone: "legacy", x: 574, y: 490, width: 150, height: 54, columns: 3, columnGap: 20, rowGap: 64, max: 12 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("unassigned") || [], { zone: "unassigned", x: 1180, y: 490, width: 150, height: 54, columns: 3, columnGap: 18, rowGap: 64, max: 12 });
   actualAddVisibleEdges(modelEdges, edges, visualBySourceId, 56);
 
   return {
-    title: "Actual Topology API Projection",
-    subtitle: "Only real /api/topology/network nodes and edges are drawn. Aggregate cards are marked as '+N more actual'; no conceptual firewall, switch, bastion, DLQ or alert nodes are invented.",
-    treeTitle: "Real API lanes",
+    title: "Production network segments",
+    subtitle: "Runtime nodes are placed by their current IP subnet. Legacy 192.168.1.0/24 identities stay visible as cleanup evidence; links are drawn only when the API reports them.",
+    treeTitle: "Runtime segments",
     treeItems: [
       `${nodes.length.toLocaleString()} actual nodes`,
       `${edges.length.toLocaleString()} actual edges`,
-      `${(laneGroups.get("external") || []).length} external`,
-      `${(laneGroups.get("edge") || []).length} edge`,
-      `${(laneGroups.get("inventory") || []).length} inventory`,
-      `${(laneGroups.get("source") || []).length} sources`,
-      `${(laneGroups.get("collector") || []).length} collectors`,
-      `${(laneGroups.get("core") || []).length} core services`,
+      `${(segmentGroups.get("mgmt") || []).length} mgmt`,
+      `${(segmentGroups.get("sec") || []).length} sec`,
+      `${(segmentGroups.get("servers-games") || []).length} servers/games`,
+      `${(segmentGroups.get("lab") || []).length} lab`,
+      `${(segmentGroups.get("users") || []).length} users`,
+      `${(segmentGroups.get("legacy") || []).length} legacy`,
     ],
     nodes: modelNodes,
     edges: modelEdges,
@@ -2486,16 +2509,12 @@ function OlympusNetworkTopology({ nodes, edges, mode, selectedNodeId, searchTerm
   const selectedVisualId = model.nodes.find((node) => node.sourceId === selectedNodeId)?.id || "";
   const query = searchTerm.trim().toLowerCase();
   return (
-    <div className={`react-olympus-map-shell mode-${mode}`} aria-label="SIEM topology decision map inspired by Network Olympus monitoring">
+    <div className={`react-olympus-map-shell mode-${mode}`} aria-label="SIEM operational topology">
       <div className="react-olympus-map-header">
         <div>
-          <span>{mode === "network" ? "GENERAL SIEM NETWORK MAP" : mode === "telemetry" ? "SIEM TELEMETRY FLOW" : "SECURITY POSTURE MAP"}</span>
+          <span>{mode === "network" ? "NETWORK SEGMENTS" : mode === "telemetry" ? "TELEMETRY FLOW" : "SECURITY POSTURE"}</span>
           <strong>{model.title}</strong>
           <small>{model.subtitle}</small>
-        </div>
-        <div className="react-olympus-map-tabs">
-          <span className="active">VIEW</span>
-          <span>EDIT</span>
         </div>
       </div>
       <div className="react-olympus-legend" aria-label="Line type legend">
@@ -2507,17 +2526,7 @@ function OlympusNetworkTopology({ nodes, edges, mode, selectedNodeId, searchTerm
         ))}
       </div>
       <div className="react-olympus-map-body">
-        <aside className="react-olympus-map-tree" aria-label="Network map tree">
-          <strong>{model.treeTitle}</strong>
-          {model.treeItems.map((item, index) => <span key={`${item}:${index}`}>{item}</span>)}
-        </aside>
-        <div className="react-olympus-minimap" aria-hidden="true">
-          <svg viewBox={`0 0 ${OLYMPUS_VIEWBOX_WIDTH / 8} ${OLYMPUS_VIEWBOX_HEIGHT / 8}`}>
-            {model.zones.map((zone) => <rect key={zone.id} x={zone.x / 8} y={zone.y / 8} width={zone.width / 8} height={zone.height / 8} rx="3" />)}
-            {model.nodes.map((node) => <circle key={node.id} cx={(node.x + node.width / 2) / 8} cy={(node.y + node.height / 2) / 8} r="2.2" />)}
-          </svg>
-        </div>
-        <svg className="react-olympus-map" viewBox={`0 0 ${OLYMPUS_VIEWBOX_WIDTH} ${OLYMPUS_VIEWBOX_HEIGHT}`} role="img" aria-label="General SIEM network map">
+        <svg className="react-olympus-map" viewBox={`0 0 ${OLYMPUS_VIEWBOX_WIDTH} ${OLYMPUS_VIEWBOX_HEIGHT}`} role="img" aria-label="SIEM operational topology map">
           <defs>
             <marker id="olympusArrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
               <path d="M 0 0 L 8 4 L 0 8 z" className="react-olympus-arrow" />
@@ -2729,14 +2738,9 @@ export function TopologyPage() {
   }, [selectedNode]);
 
   const data = state.data;
-  const protectedIps = data?.protected_public_ips || [];
   const selectedEdges = selectedNode
     ? visibleEdges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id)
     : [];
-  const sourceNodes = useMemo(
-    () => graphNodes.filter((node) => node.type === "source").sort((left, right) => Number(right.events || 0) - Number(left.events || 0)),
-    [graphNodes],
-  );
   const packetFlows = useMemo(
     () => [...(data?.packet_flows || [])].sort((left, right) => Number(left.order || 0) - Number(right.order || 0)),
     [data?.packet_flows],
@@ -2792,41 +2796,28 @@ export function TopologyPage() {
 
   return (
     <div className="react-page react-page-topology">
-      <SectionIntro
-        kicker="Topology"
-        title="SIEM topology decision map"
-        subtitle="Three SOC views: network topology, telemetry flow and security posture/attack surface. Each view uses separate zones and link semantics."
-        icon="map"
-        actions={
-          <div className="react-actions react-wrap">
-            <Link className="react-link-button" to="/assets?view=unconnected">
-              Unconnected assets
-            </Link>
-            <Link className="react-link-button" to="/sources?view=fleet">
-              Proxmox fleet
-            </Link>
-            <Link className="react-link-button" to="/dashboards">
-              Geo dashboards
-            </Link>
-          </div>
-        }
-      />
+      <header className="react-topology-page-head">
+        <div>
+          <div className="react-top-kicker">Network operations</div>
+          <h1>Topology</h1>
+          <p>Current segments, telemetry paths and coverage derived from production runtime data.</p>
+        </div>
+        <div className="react-actions react-wrap">
+          <Link className="react-link-button" to="/assets?view=unconnected">Unconnected</Link>
+          <Link className="react-link-button" to="/sources?view=fleet">Fleet</Link>
+          <Link className="react-link-button" to="/dashboards">Dashboards</Link>
+        </div>
+      </header>
 
-      <div className="react-grid react-grid-5">
-        <StatCard
-          label="Nodes"
-          value={graphNodes.length.toLocaleString()}
-          hint={
-            normalizedTopology.dedupedNodes > 0
-              ? `${normalizedTopology.dedupedNodes.toLocaleString()} raw host/source duplicates merged for visual topology.`
-              : "Entities currently generated from topology data."
-          }
-        />
-        <StatCard label="Sources" value={metricValue(data, "monitored_sources")} hint="Telemetry sources observed in the current window." />
-        <StatCard label="External IPs" value={metricValue(data, "external_attack_sources")} hint="Public source IPs seen in attack geography." />
-        <StatCard label="Needs onboarding" value={metricValue(data, "unmanaged_candidates")} hint="Discovery candidates without connected telemetry." />
-        <StatCard label="Access profiles" value={metricValue(data, "host_access_profiles")} hint="Host cards with SOAR/IRP access metadata or Vault refs." />
-      </div>
+      <MetricStrip
+        items={[
+          { label: "Runtime nodes", value: graphNodes.length.toLocaleString(), hint: normalizedTopology.dedupedNodes ? `${normalizedTopology.dedupedNodes} duplicates merged` : "No visual duplicates" },
+          { label: "Sources", value: metricValue(data, "monitored_sources"), hint: "24h telemetry" },
+          { label: "External IPs", value: metricValue(data, "external_attack_sources"), hint: "Observed actors", tone: "warning" },
+          { label: "Onboarding", value: metricValue(data, "unmanaged_candidates"), hint: "Unmanaged candidates", tone: Number(data.metrics?.unmanaged_candidates || 0) > 0 ? "warning" : "success" },
+          { label: "Access profiles", value: metricValue(data, "host_access_profiles"), hint: "IR/SOAR access" },
+        ]}
+      />
       {(data.issues || []).length ? (
         <div className="react-inline-note react-inline-note-spaced">
           Topology is rendering partial data: {(data.issues || []).slice(0, 4).join(" / ")}
@@ -2835,10 +2826,19 @@ export function TopologyPage() {
 
       <section className="react-topology-shell">
         <div className="react-topology-toolbar">
-          <div>
-            <div className="react-top-kicker">Generated</div>
-            <strong>{formatTimestamp(data.generated_ts, "full")}</strong>
-            <div className="react-inline-note">Switch layers to avoid mixing network topology, event pipeline and attack-surface decisions in one operator view.</div>
+          <div className="react-topology-mode-switch" aria-label="Topology view">
+            <button type="button" className={mapMode === "network" ? "active" : ""} onClick={() => setMapMode("network")}>
+              Segments
+            </button>
+            <button type="button" className={mapMode === "telemetry" ? "active" : ""} onClick={() => setMapMode("telemetry")}>
+              Telemetry
+            </button>
+            <button type="button" className={mapMode === "posture" ? "active" : ""} onClick={() => setMapMode("posture")}>
+              Coverage
+            </button>
+            <button type="button" className={mapMode === "force" ? "active" : ""} onClick={() => setMapMode("force")}>
+              Graph
+            </button>
           </div>
           <div className="react-topology-controls">
             <input
@@ -2847,25 +2847,13 @@ export function TopologyPage() {
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Search host, IP, source, role..."
             />
-            <button type="button" className={`react-link-button${mapMode === "network" ? " active" : ""}`} onClick={() => setMapMode("network")}>
-              Network topology
-            </button>
-            <button type="button" className={`react-link-button${mapMode === "telemetry" ? " active" : ""}`} onClick={() => setMapMode("telemetry")}>
-              Telemetry flow
-            </button>
-            <button type="button" className={`react-link-button${mapMode === "posture" ? " active" : ""}`} onClick={() => setMapMode("posture")}>
-              Security posture
-            </button>
-            <button type="button" className={`react-link-button${mapMode === "force" ? " active" : ""}`} onClick={() => setMapMode("force")}>
-              Force graph
-            </button>
             {mapMode === "force" ? (
               <>
-                <button type="button" className="react-link-button" onClick={() => issueGraphCommand("zoom-out")}>
+                <button type="button" className="react-icon-button" title="Zoom out" aria-label="Zoom out" onClick={() => issueGraphCommand("zoom-out")}>
                   -
                 </button>
                 <span className="react-badge soft">{graphZoom}%</span>
-                <button type="button" className="react-link-button" onClick={() => issueGraphCommand("zoom-in")}>
+                <button type="button" className="react-icon-button" title="Zoom in" aria-label="Zoom in" onClick={() => issueGraphCommand("zoom-in")}>
                   +
                 </button>
                 <button type="button" className="react-link-button" onClick={() => issueGraphCommand("fit")}>
@@ -2881,32 +2869,13 @@ export function TopologyPage() {
             </button>
           </div>
         </div>
-        <div className="react-topology-layer-strip react-topology-layer-strip-inline">
+        <div className="react-topology-runtime-line">
+          <span>Generated {formatTimestamp(data.generated_ts, "full")}</span>
+          <span>{visibleEdges.length.toLocaleString()} runtime links</span>
           {(data.layers || []).map((layer) => (
-            <span key={safeText(layer.id)} className="react-badge soft">
-              {safeText(layer.title)}: {Number(layer.count || 0).toLocaleString()}
-            </span>
+            <span key={safeText(layer.id)}>{safeText(layer.title)} {Number(layer.count || 0).toLocaleString()}</span>
           ))}
-          <span className="react-badge soft">Protected: {protectedIps.join(", ") || "n/a"}</span>
-          {normalizedTopology.dedupedNodes > 0 ? <span className="react-badge soft">Deduped visual nodes: {normalizedTopology.dedupedNodes}</span> : null}
         </div>
-        {sourceNodes.length ? (
-          <div className="react-topology-source-strip" aria-label="Telemetry source cards">
-            <span>Source cards</span>
-            {sourceNodes.slice(0, 18).map((node) => (
-              <button
-                key={node.id}
-                type="button"
-                className={`react-topology-source-pill kind-${cytoscapeClassName(nodeSourceKind(node))}${selectedNodeId === node.id ? " active" : ""}`}
-                title={`${nodeDisplayLabel(node)} - ${nodeDisplayMeta(node)}`}
-                onClick={() => setSelectedNodeId(node.id)}
-              >
-                <strong>{nodeDisplayLabel(node)}</strong>
-                <small>{nodeDisplayMeta(node)}</small>
-              </button>
-            ))}
-          </div>
-        ) : null}
         <div className="react-topology-canvas-stage">
           {mapMode !== "force" ? (
             <OlympusNetworkTopology

@@ -42,12 +42,12 @@ SOURCE_IDENTITY_OVERRIDES: dict[str, dict[str, str]] = {
         "topology_lane": "inventory",
     },
     "opnsense-edge-01": {
-        "hostname": "lab-edge-01",
-        "ip": "192.168.3.102",
+        "hostname": "opnsense-edge-01",
+        "ip": "192.168.3.103",
         "source_kind": "virtual_router",
-        "entity_role": "edge-router",
-        "source_type_label": "Virtual router",
-        "topology_lane": "inventory",
+        "entity_role": "ngfw",
+        "source_type_label": "NGFW / router",
+        "topology_lane": "edge",
     },
     "lab-edge-01": {
         "hostname": "lab-edge-01",
@@ -305,7 +305,15 @@ def _resolve_identity(record: dict[str, Any], identity_index: dict[str, dict[str
         if token in identity_index:
             matched = dict(identity_index[token])
             break
-    resolved = _identity_profile_from_record({**matched, **record}, default_hostname_prefix=default_hostname_prefix)
+    authoritative: dict[str, Any] = {}
+    for source_name, profile in SOURCE_IDENTITY_OVERRIDES.items():
+        if _slug(source_name) in tokens:
+            authoritative = dict(profile)
+            break
+    resolved = _identity_profile_from_record(
+        {**matched, **record, **authoritative},
+        default_hostname_prefix=default_hostname_prefix,
+    )
     for key, value in matched.items():
         if value and not resolved.get(key):
             resolved[key] = value
@@ -826,7 +834,7 @@ def build_network_topology(*, hours: int = 24, limit: int = 240) -> dict[str, An
             y=_spread(index, max(1, len(candidate_rows)), top=12, bottom=88),
             status=status,
             role=str(candidate.get("probable_role") or candidate.get("source_family") or identity.get("entity_role") or ""),
-            ip=ip_text or str(identity.get("ip") or ""),
+            ip=str(identity.get("ip") or ip_text),
             hostname=str(identity.get("hostname") or ""),
             display_label=str(identity.get("display_label") or ""),
             source_kind=str(identity.get("source_kind") or "host"),
@@ -859,7 +867,7 @@ def build_network_topology(*, hours: int = 24, limit: int = 240) -> dict[str, An
             y=_spread(index, max(1, len(fleet_rows)), top=12, bottom=88),
             status=status,
             role=str(guest.get("role") or guest.get("os_family") or guest.get("guest_type") or identity.get("entity_role") or ""),
-            ip=ip_text or str(identity.get("ip") or ""),
+            ip=str(identity.get("ip") or ip_text),
             hostname=str(identity.get("hostname") or name),
             display_label=str(identity.get("display_label") or name),
             source_kind=str(identity.get("source_kind") or "proxmox_guest"),

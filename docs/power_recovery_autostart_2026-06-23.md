@@ -6,6 +6,20 @@ Date: 2026-06-23
 
 `pve-guests.service` is enabled and active. All production VM/LXC guests are set to `onboot=1`.
 
+The SIEM core startup dependency order is managed by
+`deploy/configure_proxmox_startup_order.py`:
+
+1. VM102 edge gateway;
+2. VM103 OPNsense routing and IPS;
+3. VM106 ClickHouse storage and correlation;
+4. VM108 Kafka transport and standby storage;
+5. VM105 normalization and filtering;
+6. VM104 ingest;
+7. VM107 Web, identity, Vault and control plane.
+
+This order prevents storage from racing the router and prevents processing
+workers from starting before the production transport.
+
 Startup order:
 
 | Order | Guest | Purpose |

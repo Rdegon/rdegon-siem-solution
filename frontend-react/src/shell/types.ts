@@ -2222,6 +2222,79 @@ export type SecurityServiceDetailResponse = {
   recent_alerts: RuntimeBlob[];
 };
 
+export type FirewallRuleRecord = {
+  uuid: string;
+  description: string;
+  enabled: boolean;
+  managed: boolean;
+  legacy?: boolean;
+  automatic?: boolean;
+  action?: string;
+  interface?: string;
+  direction?: string;
+  protocol?: string;
+  source?: string;
+  source_port?: string;
+  destination?: string;
+  destination_port?: string;
+  log?: boolean;
+  sort_order?: number | string;
+};
+
+export type FirewallAliasRecord = {
+  uuid: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  description?: string;
+  content?: string;
+  current_items?: number;
+  last_updated?: string;
+};
+
+export type IdsRulesetRecord = {
+  filename: string;
+  description: string;
+  enabled: boolean;
+  modified_local?: boolean;
+  documentation_url?: string;
+};
+
+export type SecurityServiceControlResponse = {
+  service_id: string;
+  generated_at?: string;
+  configured: boolean;
+  available: boolean;
+  auth_mode?: string;
+  verify_tls?: boolean;
+  device_url?: string;
+  error?: string;
+  firewall?: {
+    rules_total: number;
+    managed_rules: number;
+    enabled_rules: number;
+    rules: FirewallRuleRecord[];
+    aliases_total: number;
+    aliases: FirewallAliasRecord[];
+  };
+  ids?: {
+    status?: string;
+    alerts_total?: number;
+    alerts?: RuntimeBlob[];
+    rulesets_total?: number;
+    rulesets?: IdsRulesetRecord[];
+  };
+  system?: RuntimeBlob;
+};
+
+export type SecurityControlMutationResponse = RuntimeBlob & {
+  status?: string;
+  operation?: string;
+  revision?: string;
+  verified?: boolean;
+  service_status?: string;
+};
+
 export type IncidentListResponse = {
   view?: string;
   scope?: string;
@@ -2246,6 +2319,7 @@ export type IncidentListResponse = {
 
 export type IncidentDetailResponse = {
   view?: string;
+  evidence_state?: "deferred" | "loaded" | string;
   item: IncidentRecord | null;
   history?: IncidentHistoryEntry[];
   status_transitions?: IncidentStatusTransitions;

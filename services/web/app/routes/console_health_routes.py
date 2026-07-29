@@ -35,6 +35,9 @@ from ..control_plane_health import build_health_overview
 router = APIRouter()
 
 HEALTH_OVERVIEW_CACHE_TTL_SEC = int(os.getenv("SIEM_HEALTH_OVERVIEW_CACHE_TTL_SEC", "300") or "300")
+HEALTH_OVERVIEW_CACHE_MAX_STALE_SEC = int(
+    os.getenv("SIEM_HEALTH_OVERVIEW_CACHE_MAX_STALE_SEC", "2592000") or "2592000"
+)
 HEALTH_OVERVIEW_CACHE_FILE = Path(
     os.getenv("SIEM_HEALTH_OVERVIEW_CACHE_FILE", "/opt/siem/runtime-docs/health_overview_cache.json")
 )
@@ -66,16 +69,18 @@ _HEALTH_SURFACE_CACHE = StaleRuntimeCache(
 )
 
 
-def _read_health_overview_cache() -> dict | None:
+def _read_health_overview_cache(*, allow_stale: bool = False) -> tuple[dict, float] | None:
     if HEALTH_OVERVIEW_CACHE_TTL_SEC <= 0:
         return None
     try:
         if not HEALTH_OVERVIEW_CACHE_FILE.exists():
             return None
-        if time.time() - HEALTH_OVERVIEW_CACHE_FILE.stat().st_mtime > HEALTH_OVERVIEW_CACHE_TTL_SEC:
+        age_seconds = time.time() - HEALTH_OVERVIEW_CACHE_FILE.stat().st_mtime
+        maximum_age = HEALTH_OVERVIEW_CACHE_MAX_STALE_SEC if allow_stale else HEALTH_OVERVIEW_CACHE_TTL_SEC
+        if age_seconds > maximum_age:
             return None
         payload = json.loads(HEALTH_OVERVIEW_CACHE_FILE.read_text(encoding="utf-8"))
-        return payload if isinstance(payload, dict) else None
+        return (payload, age_seconds) if isinstance(payload, dict) else None
     except Exception:  # noqa: BLE001
         return None
 
@@ -192,6 +197,20 @@ def _build_health_overview_payload() -> dict:
     return payload
 
 
+def _refresh_health_overview_payload() -> dict:
+    payload = _build_health_overview_payload()
+    with _HEALTH_OVERVIEW_CACHE_LOCK:
+        _write_health_overview_cache(payload)
+    return payload
+
+
+def schedule_health_warmup() -> bool:
+    return _HEALTH_SURFACE_CACHE.schedule(
+        "overview",
+        _refresh_health_overview_payload,
+    )
+
+
 def _build_transport_payload() -> dict:
     ingest_transport = get_ingest_transport_health()
     platform_status = fetch_platform_status()
@@ -225,13 +244,41 @@ def _build_backup_payload() -> dict:
 @router.get("/api/health/overview", response_class=JSONResponse)
 async def health_overview_api(user=Depends(require_permissions("health:view"))) -> JSONResponse:
     try:
-        payload = await _HEALTH_SURFACE_CACHE.get_or_refresh(
-            "overview",
-            _build_health_overview_payload,
+        cached = _HEALTH_SURFACE_CACHE.get("overview")
+        if cached is not None:
+            payload, stale = cached
+            if stale:
+                schedule_health_warmup()
+            return JSONResponse(payload)
+        legacy = _read_health_overview_cache(allow_stale=True)
+        if legacy is not None:
+            payload, age_seconds = legacy
+            schedule_health_warmup()
+            return JSONResponse(
+                {
+                    **payload,
+                    "cache_state": {
+                        "stale": True,
+                        "refreshing": True,
+                        "age_seconds": round(age_seconds, 1),
+                    },
+                }
+            )
+        schedule_health_warmup()
+        return JSONResponse(
+            {
+                "generated_ts": "",
+                "issues": [],
+                "secrets": {"items": []},
+                "content": {"bundles": []},
+                "cache_state": {
+                    "stale": False,
+                    "refreshing": True,
+                    "age_seconds": 0,
+                },
+            },
+            status_code=202,
         )
-        with _HEALTH_OVERVIEW_CACHE_LOCK:
-            _write_health_overview_cache(payload)
-        return JSONResponse(payload)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=500)
 

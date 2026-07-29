@@ -3383,12 +3383,22 @@ def fetch_incident_detail_bundle(
     to_ts: str = "",
     event_limit: int = 80,
     alert_limit: int = 120,
+    include_evidence: bool = True,
 ) -> Dict[str, Any]:
     safe_view = "raw" if view == "raw" else "agg"
     safe_event_limit = max(1, min(int(event_limit or 80), 250))
     safe_alert_limit = max(1, min(int(alert_limit or 120), 300))
     cache_key = json.dumps(
-        [safe_view, record_id, window, from_ts, to_ts, safe_event_limit, safe_alert_limit],
+        [
+            safe_view,
+            record_id,
+            window,
+            from_ts,
+            to_ts,
+            safe_event_limit,
+            safe_alert_limit,
+            bool(include_evidence),
+        ],
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -3400,7 +3410,20 @@ def fetch_incident_detail_bundle(
     if not selected:
         raise ValueError(f"Incident not found: {record_id}")
     raw_alerts = _incident_raw_alert_rows(selected, safe_view, limit=safe_alert_limit)
-    related_events_bundle = _incident_related_events(selected, raw_alerts, limit=safe_event_limit)
+    related_events_bundle = (
+        _incident_related_events(selected, raw_alerts, limit=safe_event_limit)
+        if include_evidence
+        else {
+            "rows": [],
+            "row_count": _safe_int(selected.get("count_events"), 0)
+            or _safe_int(selected.get("raw_hits_total"), 0),
+            "limit": safe_event_limit,
+            "query_scope": {},
+            "partial": True,
+            "errors": ["Evidence is loading asynchronously."],
+            "sql": "",
+        }
+    )
     related_events = related_events_bundle["rows"]
     rules = _incident_rule_rows([int(row.get("rule_id") or 0) for row in raw_alerts] or [int(selected.get("rule_id") or 0)])
     commands = _incident_command_evidence(related_events)
@@ -3479,6 +3502,7 @@ def fetch_incident_detail_bundle(
     )
     payload = {
         "view": safe_view,
+        "evidence_state": "loaded" if include_evidence else "deferred",
         "item": selected_payload,
         "incident": selected_payload,
         "summary": summary,
@@ -3522,6 +3546,7 @@ def fetch_incident_detail_bundle(
             "updated_at": selected.get("updated_ts") or selected.get("ts_last"),
             "raw_query": str(related_events_bundle["sql"] or "")[:4000],
             "evidence_partial": bool(related_events_bundle.get("partial")),
+            "evidence_deferred": not include_evidence,
             "evidence_errors": related_events_bundle.get("errors", []),
         },
         "json_view": {
@@ -7503,6 +7528,7 @@ def update_alert_assignment(
     note: str = "",
 ) -> Dict[str, Any]:
     ensure_incident_workflow_support()
+    client = get_ch_client()
     next_status = (status or "new").strip().lower()
     next_assignee = (assignee or "").strip()
     if _incident_terminal_status_requires_note(next_status) and not str(note or "").strip():
@@ -7520,7 +7546,7 @@ def update_alert_assignment(
             WHERE {selector}
             LIMIT 1
         """
-        result = get_ch_client().query(current_query).result_rows
+        result = client.query(current_query).result_rows
         if not result:
             raise ValueError("Alert or incident not found")
         rule_id, current_status, current_assignee = result[0]
@@ -7548,13 +7574,14 @@ def update_alert_assignment(
         incident_key = str(selected_incident.get("agg_id") or selected_incident.get("record_id") or record_id).strip()
         if not incident_key:
             raise ValueError("Alert or incident not found")
-        matched_alert_ids = _match_alert_ids_for_incident_scope(incident_key)
-        if matched_alert_ids:
-            selector = "toString(alert_id) IN ({values})".format(
-                values=", ".join(_sql_quote(alert_id) for alert_id in matched_alert_ids)
-            )
-        else:
-            selector = f"{_incident_key_expr()} = {_sql_quote(incident_key)}"
+        matched_alert_ids = _match_alert_ids_for_materialized_incident(selected_incident, limit=5000)
+        if not matched_alert_ids:
+            matched_alert_ids = _match_alert_ids_for_incident_scope(incident_key, window="30d", limit=5000)
+        if not matched_alert_ids:
+            raise ValueError("No raw alerts matched the selected incident")
+        selector = "toString(alert_id) IN ({values})".format(
+            values=", ".join(_sql_quote(alert_id) for alert_id in matched_alert_ids)
+        )
     if next_status == current_status and next_assignee != current_assignee:
         if next_assignee and current_status in {"new", "open", "triaged", "reopened"}:
             next_status = "assigned"
@@ -7566,7 +7593,7 @@ def update_alert_assignment(
         allowed = INCIDENT_STATUS_TRANSITIONS.get(current_status, set())
         if next_status not in allowed:
             raise ValueError(f"Invalid transition: {current_status} -> {next_status}")
-    get_ch_client().command(
+    client.command(
         f"""
         ALTER TABLE {target}
         UPDATE
@@ -7574,9 +7601,25 @@ def update_alert_assignment(
             assignee = {safe_assignee},
             updated_ts = now()
         WHERE {selector}
+        SETTINGS mutations_sync = 2
         """
     )
-    get_ch_client().insert(
+    expected_updates = 1 if view == "raw" else len(matched_alert_ids)
+    verification_rows = client.query(
+        f"""
+        SELECT count()
+        FROM {target}
+        WHERE {selector}
+          AND lower(status) = {safe_status}
+          AND assignee = {safe_assignee}
+        """
+    ).result_rows
+    verified_updates = int(verification_rows[0][0]) if verification_rows and verification_rows[0] else 0
+    if verified_updates != expected_updates:
+        raise RuntimeError(
+            f"Incident assignment update was not fully applied: expected {expected_updates}, verified {verified_updates}"
+        )
+    client.insert(
         ALERT_HISTORY_TABLE,
         [[
             view,

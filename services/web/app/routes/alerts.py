@@ -174,6 +174,45 @@ def _is_internal_maintenance_alert(row: dict) -> bool:
     return is_non_operational_record(row) or MAINTENANCE_ALERT_PATTERN.search(_alert_haystack(row)) is not None
 
 
+HEALTH_SIGNAL_RULE_IDS = {
+    2101,
+    8001,
+    8002,
+    8003,
+    8004,
+    8305,
+    8355,
+    *range(8418, 8438),
+}
+HEALTH_SIGNAL_PATTERN = re.compile(
+    r"\b(?:host cpu pressure|source_silence|host_cpu_pressure|sustained_(?:cpu|memory|iowait|load)_pressure)\b"
+    r"|^hb-00[1-4]\b"
+    r"|^met-\d+\b",
+    re.IGNORECASE,
+)
+
+
+def _is_health_signal_alert(row: dict) -> bool:
+    try:
+        rule_id = int(row.get("rule_id") or 0)
+    except (TypeError, ValueError):
+        rule_id = 0
+    if rule_id in HEALTH_SIGNAL_RULE_IDS:
+        return True
+    haystack = _alert_haystack(row)
+    if HEALTH_SIGNAL_PATTERN.search(haystack):
+        return True
+    context = row.get("context") or _json_loads_safe(row.get("context_json"))
+    event_type = str(context.get("event_type") or "") if isinstance(context, dict) else ""
+    return event_type in {
+        "linux_systemd_unit_failed",
+        "service_failure",
+        "source_silence",
+        "host_cpu_pressure",
+        "sustained_iowait_pressure",
+    }
+
+
 def _matches_alert_query(row: dict, query: str) -> bool:
     token = str(query or "").strip().lower()
     if not token:
@@ -205,7 +244,10 @@ def _filter_rows(rows: list[dict], scope: str, query: str) -> list[dict]:
     filtered = [row for row in rows if _matches_alert_query(row, query)]
     if scope == "vpn-noise":
         return [row for row in filtered if _is_vpn_noise_alert(row)]
-    return [row for row in filtered if not _is_internal_maintenance_alert(row)]
+    operational = [row for row in filtered if not _is_internal_maintenance_alert(row)]
+    if scope == "health":
+        return [row for row in operational if _is_health_signal_alert(row)]
+    return [row for row in operational if not _is_health_signal_alert(row)]
 
 
 def _fast_list_metrics(rows: list[dict]) -> dict:
@@ -254,7 +296,7 @@ async def incidents_api(
     user=Depends(get_current_user),
 ) -> JSONResponse:
     safe_view = 'raw' if view == 'raw' else 'agg'
-    safe_scope = 'vpn-noise' if scope == 'vpn-noise' else 'main'
+    safe_scope = scope if scope in {'main', 'vpn-noise', 'health'} else 'main'
     safe_limit = max(10, min(int(limit or 200), 1000))
     fetch_limit = min(1200, max(safe_limit * 2, 200))
     cache_key = json.dumps(
@@ -289,7 +331,7 @@ async def incidents_api(
             'available_count': len(filtered_rows),
             'returned_count': len(items),
             'items': items,
-            'metrics': _fast_list_metrics(rows),
+            'metrics': _fast_list_metrics(filtered_rows),
             'status_transitions': {key: sorted(values) for key, values in INCIDENT_STATUS_TRANSITIONS.items()},
         }
         _INCIDENT_LIST_CACHE[cache_key] = (now_ts, payload)
@@ -310,6 +352,7 @@ async def incident_detail_api(
     to_ts: str = Query(''),
     event_limit: int = Query(200, ge=1, le=500),
     alert_limit: int = Query(500, ge=1, le=1000),
+    include_evidence: bool = Query(True),
     user=Depends(get_current_user),
 ) -> JSONResponse:
     safe_view = 'raw' if view == 'raw' else 'agg'
@@ -324,6 +367,7 @@ async def incident_detail_api(
                 to_ts=to_ts,
                 event_limit=event_limit,
                 alert_limit=alert_limit,
+                include_evidence=include_evidence,
             )
         )
     except ValueError as exc:
@@ -340,6 +384,7 @@ async def incident_detail_default_api(
     to_ts: str = Query(''),
     event_limit: int = Query(200, ge=1, le=500),
     alert_limit: int = Query(500, ge=1, le=1000),
+    include_evidence: bool = Query(True),
     user=Depends(get_current_user),
 ) -> JSONResponse:
     try:
@@ -353,6 +398,7 @@ async def incident_detail_default_api(
                 to_ts=to_ts,
                 event_limit=event_limit,
                 alert_limit=alert_limit,
+                include_evidence=include_evidence,
             )
         )
     except ValueError as exc:

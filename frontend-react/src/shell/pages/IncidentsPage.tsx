@@ -109,7 +109,9 @@ export function IncidentsPage() {
     selectedId: "",
   });
   const [view, setView] = useState<IncidentView>(() => (persistedState.view === "raw" ? "raw" : "agg"));
-  const [scope, setScope] = useState<"main" | "vpn-noise">(() => (persistedState.scope === "vpn-noise" ? "vpn-noise" : "main"));
+  const [scope, setScope] = useState<"main" | "vpn-noise" | "health">(() =>
+    persistedState.scope === "vpn-noise" || persistedState.scope === "health" ? persistedState.scope : "main",
+  );
   const [query, setQuery] = useState(() => String(persistedState.query || ""));
   const [windowPreset, setWindowPreset] = useState(() => String(persistedState.windowPreset || "24h"));
   const [fromTs, setFromTs] = useState(() => (persistedState.windowPreset === "custom" ? String(persistedState.fromTs || "") : ""));
@@ -146,7 +148,10 @@ export function IncidentsPage() {
     const params = new URLSearchParams(location.search || "");
     if (!params.toString()) return;
     if (params.has("view")) setView(String(params.get("view") || "agg") === "raw" ? "raw" : "agg");
-    if (params.has("scope")) setScope(String(params.get("scope") || "main") === "vpn-noise" ? "vpn-noise" : "main");
+    if (params.has("scope")) {
+      const requestedScope = String(params.get("scope") || "main");
+      setScope(requestedScope === "vpn-noise" || requestedScope === "health" ? requestedScope : "main");
+    }
     if (params.has("q")) setQuery(String(params.get("q") || "").trim());
     if (params.has("window")) setWindowPreset(String(params.get("window") || "24h").trim() || "24h");
     if (params.has("focus")) {
@@ -239,7 +244,7 @@ export function IncidentsPage() {
     },
     [view, scope, debouncedQuery, fromTs, toTs, limit, refreshToken, toUtcQueryValue, windowPreset],
   );
-  const loadIncidentDetail = useCallback(
+  const loadIncidentSummary = useCallback(
     () => {
       void refreshToken;
       const activeFromTs = windowPreset === "custom" ? fromTs : "";
@@ -251,13 +256,59 @@ export function IncidentsPage() {
             to_ts: activeToTs ? toUtcQueryValue(activeToTs) : "",
             event_limit: 50,
             alert_limit: 50,
+            include_evidence: false,
           })
         : Promise.resolve(null);
     },
     [view, selectedId, drawerOpen, refreshToken, windowPreset, fromTs, toTs, toUtcQueryValue],
   );
   const listState = usePolledData<IncidentListResponse>(loadIncidentList, refreshIntervalMs(refreshSeconds));
-  const detailState = usePolledData<IncidentDetailResponse | null>(loadIncidentDetail, refreshIntervalMs(refreshSeconds));
+  const detailState = usePolledData<IncidentDetailResponse | null>(loadIncidentSummary, refreshIntervalMs(refreshSeconds));
+  const summaryMatchesSelection = Boolean(
+    detailState.data?.item
+    && incidentRowId(detailState.data.item, view) === selectedId,
+  );
+  const loadIncidentEvidence = useCallback(
+    () => {
+      void refreshToken;
+      const activeFromTs = windowPreset === "custom" ? fromTs : "";
+      const activeToTs = windowPreset === "custom" ? toTs : "";
+      return selectedId && drawerOpen && summaryMatchesSelection
+        ? api.incidentDetail(view, selectedId, {
+            window: windowPreset,
+            from_ts: activeFromTs ? toUtcQueryValue(activeFromTs) : "",
+            to_ts: activeToTs ? toUtcQueryValue(activeToTs) : "",
+            event_limit: 50,
+            alert_limit: 50,
+            include_evidence: true,
+          })
+        : Promise.resolve(null);
+    },
+    [
+      drawerOpen,
+      fromTs,
+      refreshToken,
+      selectedId,
+      toTs,
+      toUtcQueryValue,
+      view,
+      windowPreset,
+      summaryMatchesSelection,
+    ],
+  );
+  const evidenceState = usePolledData<IncidentDetailResponse | null>(
+    loadIncidentEvidence,
+    refreshIntervalMs(refreshSeconds),
+  );
+  const evidenceMatchesSelection = Boolean(
+    evidenceState.data?.item
+    && incidentRowId(evidenceState.data.item, view) === selectedId,
+  );
+  const detailData = evidenceMatchesSelection
+    ? evidenceState.data
+    : summaryMatchesSelection
+      ? detailState.data
+      : null;
   const items = useMemo<IncidentRecord[]>(() => listState.data?.items || [], [listState.data?.items]);
   const windowedRows = useWindowedRows(items, {
     rowHeight: 48,
@@ -284,12 +335,12 @@ export function IncidentsPage() {
   }, [debouncedQuery, items, listState.data?.query, query, selectedId, view]);
 
   useEffect(() => {
-    const item = detailState.data?.item;
+    const item = detailData?.item;
     if (item) {
       setStatusValue(String(item.status || "new"));
       setAssigneeValue(String(item.assignee || ""));
     }
-  }, [detailState.data]);
+  }, [detailData]);
 
   useEffect(() => {
     setHostActionState("");
@@ -459,32 +510,32 @@ export function IncidentsPage() {
   if (listState.loading) return <EmptyState message={t(lang, { en: "Loading incident queue...", ru: "Загрузка очереди инцидентов..." })} />;
   if (listState.error || !listState.data) return <EmptyState message={listState.error || t(lang, { en: "No incident data", ru: "Нет данных по инцидентам" })} />;
 
-  const transitions: IncidentStatusTransitions = detailState.data?.status_transitions || listState.data.status_transitions || {};
-  const selected: IncidentRecord | null = detailState.data?.item || null;
+  const transitions: IncidentStatusTransitions = detailData?.status_transitions || listState.data.status_transitions || {};
+  const selected: IncidentRecord | null = detailData?.item || null;
   const allowedStatuses = transitions[String(selected?.status || "new")] || ["new", "assigned", "in_progress", "closed"];
   const selectedContext = primaryContext(selected);
   const selectedAssets = listValues(selected?.cluster?.assets);
-  const incidentSummary = detailState.data?.summary || {};
-  const incidentRisk = detailState.data?.risk || {};
-  const incidentEntities = detailState.data?.entities || {};
-  const networkContext = detailState.data?.network_context || {};
-  const authenticationContext = detailState.data?.authentication_context || {};
-  const processContext = detailState.data?.process_context || {};
-  const incidentRules = asRecordList(detailState.data?.rules);
-  const incidentTimeline = asRecordList(detailState.data?.timeline_preview || detailState.data?.timeline).slice(-12);
-  const rawAlertRows = asRecordList(detailState.data?.raw_alerts?.items).slice(0, 20);
-  const relatedEventRows = asRecordList(detailState.data?.related_events?.items).slice(0, 30);
-  const commandEvidenceRows = asRecordList(detailState.data?.command_evidence)
+  const incidentSummary = detailData?.summary || {};
+  const incidentRisk = detailData?.risk || {};
+  const incidentEntities = detailData?.entities || {};
+  const networkContext = detailData?.network_context || {};
+  const authenticationContext = detailData?.authentication_context || {};
+  const processContext = detailData?.process_context || {};
+  const incidentRules = asRecordList(detailData?.rules);
+  const incidentTimeline = asRecordList(detailData?.timeline_preview || detailData?.timeline).slice(-12);
+  const rawAlertRows = asRecordList(detailData?.raw_alerts?.items).slice(0, 20);
+  const relatedEventRows = asRecordList(detailData?.related_events?.items).slice(0, 30);
+  const commandEvidenceRows = asRecordList(detailData?.command_evidence)
     .filter((row) => !/^(?:[A-Za-z]:\\.*\\)?(?:powershell|pwsh|cmd|wscript|cscript|rundll32|wmic|schtasks|mshta|regsvr32)(?:\.exe)?$/i.test(String(row.process_command || "").trim()))
     .slice(0, 20);
-  const recommendations = Array.isArray(detailState.data?.recommendations) ? detailState.data?.recommendations || [] : [];
+  const recommendations = Array.isArray(detailData?.recommendations) ? detailData?.recommendations || [] : [];
   const entityUsers = asRecordList(incidentEntities.users);
   const entityHosts = asRecordList(incidentEntities.hosts);
   const entityIps = asRecordList(incidentEntities.ips);
   const entityProcesses = asRecordList(incidentEntities.processes);
   const processEventRows = asRecordList(processContext.process_events).slice(0, 12);
-  const totalRawAlerts = Number(detailState.data?.raw_alerts?.total || rawAlertRows.length || selected?.count_alerts || 0);
-  const totalRelatedEvents = Number(detailState.data?.related_events?.total || relatedEventRows.length || selected?.count_events || selected?.raw_hits_total || 0);
+  const totalRawAlerts = Number(detailData?.raw_alerts?.total || rawAlertRows.length || selected?.count_alerts || 0);
+  const totalRelatedEvents = Number(detailData?.related_events?.total || relatedEventRows.length || selected?.count_events || selected?.raw_hits_total || 0);
   const sampleHost = contextValue(selectedContext, "host_name", "source", "log_source", "observer_collector", "collector_profile") || "n/a";
   const sampleCategory = contextValue(selectedContext, "category", "event.category", "subcategory", "event.type") || "n/a";
   const incidentRangeOptions = timeRangeOptions(lang);
@@ -556,6 +607,7 @@ export function IncidentsPage() {
         </div>
         <div className="react-segmented">
           <button className={scope === "main" ? "active" : ""} type="button" onClick={() => { setSelectedId(""); setScope("main"); }}>{t(lang, { en: "All incidents", ru: "Все инциденты" })}</button>
+          <button className={scope === "health" ? "active" : ""} type="button" onClick={() => { setSelectedId(""); setScope("health"); }}>{t(lang, { en: "Platform health", ru: "Состояние платформы" })}</button>
           <button className={scope === "vpn-noise" ? "active" : ""} type="button" onClick={() => { setSelectedId(""); setScope("vpn-noise"); }}>{t(lang, { en: "VPN noise", ru: "VPN-шум" })}</button>
         </div>
         <button type="button" className="react-link-button" onClick={copyCurrentViewLink}>{t(lang, { en: "Copy link", ru: "Скопировать ссылку" })}</button>
@@ -707,6 +759,20 @@ export function IncidentsPage() {
                 </span>
               </div>
             </div>
+
+            {evidenceState.loading && !evidenceState.data ? (
+              <div className="react-inline-note">
+                {t(lang, {
+                  en: "Summary is ready. Related events and evidence are loading in the background.",
+                  ru: "Сводка готова. Связанные события и доказательства загружаются в фоне.",
+                })}
+              </div>
+            ) : null}
+            {evidenceState.error ? (
+              <div className="react-inline-note">
+                {incidentEvidenceError(evidenceState.error, lang)}
+              </div>
+            ) : null}
 
             {shouldShowCommandEvidence ? (
               <div className="react-card react-card-nested">
@@ -996,10 +1062,10 @@ export function IncidentsPage() {
             </div>
 
             <details className="react-details">
-              <summary>{t(lang, { en: "History", ru: "История" })} ({(detailState.data?.history || []).length})</summary>
+              <summary>{t(lang, { en: "History", ru: "История" })} ({(detailData?.history || []).length})</summary>
               <div className="react-card react-card-nested">
                 <div className="react-list react-list-compact">
-                  {(detailState.data?.history || []).map((entry: IncidentHistoryEntry, index: number) => (
+                  {(detailData?.history || []).map((entry: IncidentHistoryEntry, index: number) => (
                     <div key={`${entry.changed_ts}-${index}`} className="react-history-item">
                       <strong>{formatIncidentTimestamp(entry.changed_ts)}</strong>
                       <span>{entry.changed_by || "system"}</span>
@@ -1103,12 +1169,12 @@ export function IncidentsPage() {
 
             <details className="react-details">
               <summary>Technical debug</summary>
-              <JsonPreview value={detailState.data?.technical_debug || {}} />
+              <JsonPreview value={detailData?.technical_debug || {}} />
             </details>
 
             <details className="react-details">
               <summary>JSON view</summary>
-              <JsonPreview value={detailState.data?.json_view || detailState.data || {}} />
+              <JsonPreview value={detailData?.json_view || detailData || {}} />
             </details>
 
           </div>

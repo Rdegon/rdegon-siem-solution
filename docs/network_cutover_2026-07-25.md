@@ -2,6 +2,23 @@
 
 Date: 2026-07-25
 
+## Current edge state (updated 2026-07-29)
+
+The original cutover below predates the OPNsense deployment. The current edge
+is intentionally split:
+
+- VM103 `opnsense-edge-01` (`192.168.3.103`) is the upstream virtual router,
+  stateful NGFW and Suricata IDS/IPS control plane.
+- VM102 `lab-edge-01` (`192.168.3.102`) owns the `10.20.10.0/24`,
+  `10.20.20.0/24` and `10.20.30.0/24` segment gateways plus local/VPN-only
+  publication of SIEM and security-console entry points.
+- SIEM manages only firewall rules whose description starts with `SOC ` or
+  `SIEM `. Existing OPNsense rules remain visible but read-only in SIEM.
+
+The statement later in this historical record that OPNsense was not installed
+is superseded by this section. Current operator access and recovery checks are
+documented in `docs/operator_security_console_access.md`.
+
 ## Deployed topology
 
 | Role | Address | Use |
@@ -16,11 +33,8 @@ Date: 2026-07-25
 | `siem-web` | `10.20.10.107` | Web/API, Keycloak, PostgreSQL and MongoDB |
 | `siem-transport` | `10.20.10.108` | Kafka broker and standby ClickHouse |
 
-The active router is Ubuntu 24.04 on VM102 with nftables and Unbound. It is
-`lab-edge-01`, not OPNsense. The inspected detached VM102 disk is empty, and no
-OPNsense image, configuration backup or snapshot exists on the Proxmox host.
-Deploying OPNsense therefore requires a separate planned installation and
-cutover; it must not be assumed to be the current firewall.
+At the time of this cutover, VM102 was the only active router. That historical
+state has since been replaced by the two-node edge described above.
 
 ## Communication contract
 

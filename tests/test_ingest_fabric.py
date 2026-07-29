@@ -906,6 +906,101 @@ class IngestFabricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(collectors["items"][0]["health_gating_reason"], "orphaned_legacy_collector")
         self.assertNotIn("Stale collectors detected: 1", overview["issues"])
 
+    async def test_superseded_collector_aliases_do_not_mask_live_canonical_profiles(self) -> None:
+        now_ts = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        aged_ts = (
+            datetime.now(tz=timezone.utc) - timedelta(seconds=22_000)
+        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        pairs = (
+            ("minecraft", "game-server", "minecraft-01", "linux-auth"),
+            ("threat-intelligence", "threat-intel", "soc-ti-01", "threat-intel"),
+        )
+        for legacy_profile, canonical_profile, source_name, source_profile in pairs:
+            source_row = {
+                "id": source_name,
+                "source": source_name,
+                "source_alias": source_name,
+                "source_type": "Platform",
+                "collector": "host_runtime_agent",
+                "collector_profile": source_profile,
+                "ingest_profile": "host-runtime",
+                "first_seen_ts": now_ts,
+                "last_seen_ts": now_ts,
+                "last_event_ts": now_ts,
+                "last_stream_id": "2-0",
+                "events_total": 10,
+                "accepted_total": 10,
+                "rejected_total": 0,
+                "replayed_total": 0,
+                "synthetic_total": 0,
+                "last_error": "",
+            }
+            legacy_collector = {
+                "id": legacy_profile,
+                "collector": "host_runtime_agent",
+                "collector_profile": legacy_profile,
+                "ingest_profile": "host-runtime",
+                "first_seen_ts": aged_ts,
+                "last_seen_ts": aged_ts,
+                "last_event_ts": aged_ts,
+                "last_stream_id": "1-0",
+                "events_total": 2,
+                "accepted_total": 2,
+                "rejected_total": 0,
+                "replayed_total": 0,
+                "synthetic_total": 0,
+                "last_error": "",
+            }
+            canonical_collector = {
+                **legacy_collector,
+                "id": canonical_profile,
+                "collector_profile": canonical_profile,
+                "first_seen_ts": now_ts,
+                "last_seen_ts": now_ts,
+                "last_event_ts": now_ts,
+                "last_stream_id": "3-0",
+                "events_total": 20,
+                "accepted_total": 20,
+            }
+            await self.redis_client._save_hash_record(
+                self.fake_redis,
+                self.redis_client.SOURCE_HEALTH_HASH_KEY,
+                source_name,
+                source_row,
+            )
+            await self.redis_client._save_hash_record(
+                self.fake_redis,
+                self.redis_client.COLLECTOR_HEALTH_HASH_KEY,
+                legacy_profile,
+                legacy_collector,
+            )
+            await self.redis_client._save_hash_record(
+                self.fake_redis,
+                self.redis_client.COLLECTOR_HEALTH_HASH_KEY,
+                canonical_profile,
+                canonical_collector,
+            )
+
+        collectors = await self.redis_client.list_collector_health(
+            self.fake_redis,
+            include_excluded=True,
+        )
+        overview = await self.redis_client.build_ingest_overview(self.fake_redis, self.app._settings)
+        aliases = {
+            item["id"]: item
+            for item in collectors["items"]
+            if item["id"] in {"minecraft", "threat-intelligence"}
+        }
+
+        self.assertEqual(2, collectors["metrics"]["excluded"])
+        self.assertEqual(2, collectors["metrics"]["healthy"])
+        self.assertEqual(0, collectors["metrics"]["stale"])
+        self.assertEqual(
+            {"superseded_collector_alias"},
+            {item["health_gating_reason"] for item in aliases.values()},
+        )
+        self.assertNotIn("Stale collectors detected: 2", overview["issues"])
+
     async def test_replay_scans_past_latest_resolved_tail_to_find_older_unresolved_items(self) -> None:
         unresolved_ids: list[str] = []
         for index in range(2200):

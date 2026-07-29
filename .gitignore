@@ -22,8 +22,10 @@ frontend-react/coverage/
 .build/
 .tmp/
 .codex_tmp/
+.playwright-cli/
 .artifacts/
 artifacts/
+output/
 outputs/
 work_artifacts/
 backups/

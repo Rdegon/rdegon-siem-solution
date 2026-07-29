@@ -224,7 +224,7 @@ if [ ! -s .env ]; then
   set_env ADMIN_KEY "$admin_key"
   set_env DISABLE_PRINTING_PLAINTEXT_CREDENTIALS true
   set_env GPG_PASSPHRASE "$gpg_password"
-  set_env BASE_URL https://{ADDRESS}
+  set_env BASE_URL https://192.168.3.102:8444
   set_env ENABLE_DB_SETTINGS true
   set_env ENCRYPTION_KEY "$encryption_key"
   set_env SALT "$salt"
@@ -243,6 +243,12 @@ if [ ! -s .env ]; then
   set_env PHP_FCGI_SPARE_SERVERS 1
   chmod 0600 .env
 fi
+if grep -q '^BASE_URL=' .env; then
+  sed -i 's#^BASE_URL=.*#BASE_URL=https://192.168.3.102:8444#' .env
+else
+  printf 'BASE_URL=https://192.168.3.102:8444\\n' >>.env
+fi
+chmod 0600 .env
 : >/var/log/siem/misp-deploy.log
 docker compose pull >>/var/log/siem/misp-deploy.log 2>&1
 docker compose up -d >>/var/log/siem/misp-deploy.log 2>&1
@@ -257,6 +263,9 @@ if ! curl -kfsS https://127.0.0.1/users/login >/dev/null; then
   tail -n 100 /var/log/siem/misp-deploy.log
   exit 1
 fi
+docker compose exec -T misp-core /var/www/MISP/app/Console/cake \
+  Admin setSetting MISP.baseurl https://192.168.3.102:8444 \
+  >>/var/log/siem/misp-deploy.log 2>&1
 docker compose ps --format json
 """
     pve.guest_exec(VMID, script, timeout=3600)

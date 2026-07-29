@@ -35,16 +35,21 @@ class _FakeQueryResult:
 
     @property
     def result_rows(self):
-        return []
+        if self._rows and isinstance(self._rows[0], dict):
+            return []
+        return self._rows
 
 
 class _FakeClient:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, verification_count=0):
         self.rows = rows or []
+        self.verification_count = verification_count
         self.commands = []
         self.inserts = []
 
-    def query(self, _query):
+    def query(self, query):
+        if "SELECT count()" in query:
+            return _FakeQueryResult([[self.verification_count]])
         return _FakeQueryResult(self.rows)
 
     def command(self, query):
@@ -183,12 +188,16 @@ class IncidentAssignmentTests(unittest.TestCase):
         self.assertEqual(["uuid-1"], matched)
 
     def test_update_alert_assignment_for_agg_targets_matched_alert_ids(self) -> None:
-        client = _FakeClient()
+        client = _FakeClient(verification_count=2)
         incidents = [
             {
-                "agg_id": "asset:openclaw-gateway|campaign:linux_dns_query",
-                "record_id": "asset:openclaw-gateway|campaign:linux_dns_query",
+                "agg_id": "agg:hashed-ui-id",
+                "record_id": "agg:hashed-ui-id",
                 "rule_id": 4105,
+                "rule_name": "OpenClaw DNS Query Burst",
+                "entity_key": "openclaw-gateway",
+                "ts_first": "2026-03-29 11:50:00",
+                "ts_last": "2026-03-29 12:00:00",
                 "status": "open",
                 "assignee": "",
             }
@@ -196,12 +205,13 @@ class IncidentAssignmentTests(unittest.TestCase):
         with (
             patch.object(deps, "ensure_incident_workflow_support", return_value=None),
             patch.object(deps, "fetch_alerts_agg", return_value=incidents),
-            patch.object(deps, "_match_alert_ids_for_incident_scope", return_value=["uuid-1", "uuid-2"]),
+            patch.object(deps, "_match_alert_ids_for_materialized_incident", return_value=["uuid-1", "uuid-2"]),
+            patch.object(deps, "_match_alert_ids_for_incident_scope") as scope_matcher,
             patch.object(deps, "get_ch_client", return_value=client),
         ):
             deps.update_alert_assignment(
                 "agg",
-                "asset:openclaw-gateway|campaign:linux_dns_query",
+                "agg:hashed-ui-id",
                 status="false_positive",
                 assignee="system-fp-remediation",
                 changed_by="tester",
@@ -210,6 +220,38 @@ class IncidentAssignmentTests(unittest.TestCase):
         self.assertTrue(client.commands)
         self.assertIn("toString(alert_id) IN ('uuid-1', 'uuid-2')", client.commands[0])
         self.assertEqual(1, len(client.inserts))
+        scope_matcher.assert_not_called()
+
+    def test_update_alert_assignment_rejects_zero_raw_matches(self) -> None:
+        incidents = [
+            {
+                "agg_id": "agg:missing",
+                "record_id": "agg:missing",
+                "rule_id": 4105,
+                "rule_name": "OpenClaw DNS Query Burst",
+                "entity_key": "openclaw-gateway",
+                "ts_first": "2026-03-29 11:50:00",
+                "ts_last": "2026-03-29 12:00:00",
+                "status": "open",
+                "assignee": "",
+            }
+        ]
+        with (
+            patch.object(deps, "ensure_incident_workflow_support", return_value=None),
+            patch.object(deps, "fetch_alerts_agg", return_value=incidents),
+            patch.object(deps, "_match_alert_ids_for_materialized_incident", return_value=[]),
+            patch.object(deps, "_match_alert_ids_for_incident_scope", return_value=[]),
+            patch.object(deps, "get_ch_client", return_value=_FakeClient()),
+        ):
+            with self.assertRaisesRegex(ValueError, "No raw alerts matched"):
+                deps.update_alert_assignment(
+                    "agg",
+                    "agg:missing",
+                    status="false_positive",
+                    assignee="system-fp-remediation",
+                    changed_by="tester",
+                    note="false positive",
+                )
 
 
 if __name__ == "__main__":

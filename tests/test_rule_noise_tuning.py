@@ -983,6 +983,15 @@ def test_assignment_auth_rules_require_parsed_sudo_and_real_pam_failures() -> No
             "tags": "allowlist:siem_operational_sudo",
         },
     )
+    assert not _matches(
+        sudo_expr,
+        {
+            "event.provider": "linux.sudo",
+            "event.type": "sudo_command",
+            "event.original": "sudo: root : COMMAND=/usr/bin/psql -d siem_incident_bot -Atc select",
+            "tags": "",
+        },
+    )
     assert _matches(
         pam_expr,
         {

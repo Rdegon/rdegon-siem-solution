@@ -844,7 +844,7 @@ ADMIN_PASSWORD=$admin_password
 ADMIN_KEY=$admin_key
 DISABLE_PRINTING_PLAINTEXT_CREDENTIALS=true
 GPG_PASSPHRASE=$gpg_password
-BASE_URL=https://10.20.10.131
+BASE_URL=https://192.168.3.102:8444
 ENABLE_DB_SETTINGS=true
 ENCRYPTION_KEY=$encryption_key
 SALT=$salt
@@ -894,6 +894,8 @@ for attempt in $(seq 1 120); do
   sleep 5
 done
 curl -kfsS https://127.0.0.1/users/login >/dev/null
+docker compose exec -T misp-core /var/www/MISP/app/Console/cake \
+  Admin setSetting MISP.baseurl https://192.168.3.102:8444 >/dev/null
 docker compose ps --format json
 """,
         timeout=3600,

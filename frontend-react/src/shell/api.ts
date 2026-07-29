@@ -89,6 +89,8 @@ import type {
   SavedSearchMutationResponse,
   SecretsRequiredResponse,
   SecurityServiceDetailResponse,
+  SecurityServiceControlResponse,
+  SecurityControlMutationResponse,
   SecurityServicesResponse,
   ServiceAccountDetailResponse,
   ServiceAccountsResponse,
@@ -536,12 +538,26 @@ export const api = {
   securityServices: () => getJson<SecurityServicesResponse>("/api/security-services"),
   securityService: (serviceId: string) =>
     getJson<SecurityServiceDetailResponse>(`/api/security-services/${encodeURIComponent(serviceId)}`),
+  securityServiceControl: (serviceId: string, q = "") =>
+    getJson<SecurityServiceControlResponse>(
+      `/api/security-services/${encodeURIComponent(serviceId)}/control${toQuery({ q })}`,
+    ),
+  mutateFirewall: (operation: string, body: Record<string, unknown>) =>
+    postJson<SecurityControlMutationResponse>(
+      `/api/security-services/ngfw/firewall/${encodeURIComponent(operation)}`,
+      body,
+    ),
+  mutateIds: (operation: string, body: Record<string, unknown> = {}) =>
+    postJson<SecurityControlMutationResponse>(
+      `/api/security-services/ips/${encodeURIComponent(operation)}`,
+      body,
+    ),
   incidents: (params: { view?: string; q?: string; scope?: string; window?: string; limit?: number; from_ts?: string; to_ts?: string } = {}) =>
     getJson<IncidentListResponse>(`/api/incidents${toQuery(params)}`),
   incidentDetail: (
     view: string,
     recordId: string,
-    params?: { window?: string; from_ts?: string; to_ts?: string; event_limit?: number; alert_limit?: number },
+    params?: { window?: string; from_ts?: string; to_ts?: string; event_limit?: number; alert_limit?: number; include_evidence?: boolean },
   ) =>
     getJson<IncidentDetailResponse>(
       `/api/incidents/${encodeURIComponent(view)}/${encodeURIComponent(recordId)}${toQuery(params || {})}`,

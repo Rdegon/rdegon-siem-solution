@@ -1,5 +1,12 @@
 # SSO Operations And External Integrations: 2026-03-26
 
+> Historical implementation record. The current public issuer is
+> `https://192.168.3.102/realms/siem`; current network and console access are
+> documented in `docs/network_cutover_2026-07-25.md` and
+> `docs/operator_security_console_access.md`. References below to
+> `192.168.1.39` describe the former deployment and must not be used for new
+> clients.
+
 ## Purpose
 
 This document is the operational reference for the current `OIDC-first` identity model on the stand.

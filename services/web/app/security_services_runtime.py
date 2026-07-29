@@ -177,6 +177,57 @@ SECURITY_SERVICES: tuple[SecurityService, ...] = (
 )
 
 _SERVICE_INDEX = {item.service_id: item for item in SECURITY_SERVICES}
+SERVICE_WORKSPACES: dict[str, list[dict[str, Any]]] = {
+    "ndr": [
+        {"label": "Arkime sessions", "href": "http://192.168.3.102:8005/", "external": True, "kind": "native", "description": "Packet sessions and bounded PCAP evidence."},
+        {"label": "Network events", "href": "/events?q=soc-ndr-01", "kind": "siem", "description": "Normalized Zeek and Arkime telemetry."},
+        {"label": "Telemetry topology", "href": "/topology", "kind": "siem", "description": "Source-to-collector event path."},
+    ],
+    "ngfw": [
+        {"label": "OPNsense console", "href": "https://192.168.3.103/", "external": True, "kind": "native", "description": "Native router and firewall console."},
+        {"label": "Firewall events", "href": "/events?q=opnsense-edge-01", "kind": "siem", "description": "Normalized firewall decisions and audit events."},
+    ],
+    "ips": [
+        {"label": "OPNsense console", "href": "https://192.168.3.103/", "external": True, "kind": "native", "description": "Native Suricata policy and diagnostics."},
+        {"label": "IPS events", "href": "/events?q=suricata", "kind": "siem", "description": "Normalized alerts, flows, DNS and TLS evidence."},
+    ],
+    "dfir": [
+        {"label": "Velociraptor console", "href": "https://192.168.3.102:8889/app/index.html", "external": True, "kind": "native", "description": "Endpoint hunts and artifact collections."},
+        {"label": "Cases", "href": "/cases", "kind": "siem", "description": "Investigation case files and evidence."},
+        {"label": "Response", "href": "/response", "kind": "siem", "description": "Approved response workflows."},
+    ],
+    "analysis": [
+        {"label": "Analysis events", "href": "/events?q=soc-analysis-01", "kind": "siem", "description": "ClamAV, YARA and static-analysis verdicts."},
+        {"label": "Cases", "href": "/cases", "kind": "siem", "description": "Attach verdicts and hashes to investigations."},
+    ],
+    "vulnerability": [
+        {"label": "Vulnerability workspace", "href": "/vuln", "kind": "siem", "description": "Targets, scans, findings and remediation validation."},
+        {"label": "Greenbone console", "href": "http://192.168.3.102:9392/", "external": True, "kind": "native", "description": "Native scanner task and report console."},
+    ],
+    "runtime": [
+        {"label": "Host runtime", "href": "/host-runtime?host=gamepanel-01", "kind": "siem", "description": "Workload health and host operations."},
+        {"label": "Falco events", "href": "/events?q=falco", "kind": "siem", "description": "Runtime security detections."},
+        {"label": "Response", "href": "/response", "kind": "siem", "description": "Approved containment workflows."},
+    ],
+    "threat-intel": [
+        {"label": "Threat intelligence", "href": "/threat-intel", "kind": "siem", "description": "Indicators, sightings, expiry and confidence."},
+        {"label": "MISP console", "href": "https://192.168.3.102:8444/", "external": True, "kind": "native", "description": "Native event, feed and IOC management."},
+    ],
+    "pki": [
+        {"label": "Access governance", "href": "/access", "kind": "siem", "description": "Service identities and access lifecycle."},
+        {"label": "PKI events", "href": "/events?q=soc-pki-01", "kind": "siem", "description": "step-ca issuance and audit telemetry."},
+    ],
+    "evidence": [
+        {"label": "Evidence cases", "href": "/cases", "kind": "siem", "description": "Case-linked evidence and custody trail."},
+        {"label": "MinIO console", "href": "https://192.168.3.102:9001/", "external": True, "kind": "native", "description": "Native object storage console."},
+    ],
+}
+SERVICE_INTEGRATION_MODES = {
+    "ngfw": "managed_control",
+    "ips": "managed_control",
+    "vulnerability": "siem_workflow",
+    "threat-intel": "siem_workflow",
+}
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_LOCK = RLock()
 _CACHE_TTL_SECONDS = 30.0
@@ -215,6 +266,13 @@ def _service_payload(service: SecurityService) -> dict[str, Any]:
         "host_runtime": f"/host-runtime?host={service.host_name}",
         "sources": f"/sources?q={service.host_name}",
     }
+    payload["integration_mode"] = SERVICE_INTEGRATION_MODES.get(service.service_id, "telemetry_and_pivot")
+    payload["workspaces"] = deepcopy(SERVICE_WORKSPACES.get(service.service_id) or [])
+    payload["native_console_route"] = (
+        "direct"
+        if service.service_id in {"ngfw", "ips"}
+        else "10.20.0.0/16 via 192.168.3.103"
+    )
     return payload
 
 

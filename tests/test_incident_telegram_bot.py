@@ -57,7 +57,7 @@ class IncidentTelegramBotTests(unittest.TestCase):
     def test_format_incident_message_uses_real_event_count_and_hosts(self) -> None:
         bot = self._bot()
         incident = {
-            "agg_id": "agg-1",
+            "record_id": "agg-1",
             "severity_agg": "high",
             "status": "open",
             "summary": "SSH burst against SIEM",
@@ -70,6 +70,44 @@ class IncidentTelegramBotTests(unittest.TestCase):
         self.assertIn("События: 9", message)
         self.assertIn("Ответственный: не назначен", message)
         self.assertIn("Хосты: Веб-узел SIEM (siem-web), Шлюз OpenClaw (openclaw-gateway)", message)
+
+    def test_timestamp_only_change_does_not_create_a_new_fingerprint(self) -> None:
+        bot = self._bot()
+        first = {
+            "record_id": "agg-1",
+            "status": "open",
+            "severity": "high",
+            "title": "SSH burst",
+            "updated_ts": "2026-03-29T12:00:00Z",
+            "raw_hits_total": 9,
+        }
+        second = {**first, "updated_ts": "2026-03-29T12:01:00Z"}
+        self.assertEqual(bot._incident_fingerprint(first), bot._incident_fingerprint(second))
+
+    def test_record_id_is_the_canonical_incident_key(self) -> None:
+        bot = self._bot()
+        self.assertEqual("canonical", bot._incident_key({"record_id": "canonical", "agg_id": "storage"}))
+
+    def test_existing_telegram_card_is_edited_instead_of_sent_again(self) -> None:
+        bot = self._bot()
+        calls: list[tuple[str, dict]] = []
+
+        def telegram(method: str, payload: dict) -> dict:
+            calls.append((method, payload))
+            return {"ok": True, "result": {"message_id": 42}}
+
+        bot._telegram_request = telegram  # type: ignore[method-assign]
+        result = bot._edit_incident(
+            {"record_id": "agg-1", "status": "open", "title": "SSH burst"},
+            "agg-1",
+            chat_id="12345",
+            message_id=42,
+            timezone_name="Europe/Moscow",
+            callback_ref="callback",
+        )
+        self.assertEqual("edited", result["status"])
+        self.assertEqual("editMessageText", calls[0][0])
+        self.assertEqual(42, calls[0][1]["message_id"])
 
     def test_false_positive_incident_is_skipped_for_delivery(self) -> None:
         self.assertTrue(_incident_should_skip_delivery({"status": "false_positive"}))

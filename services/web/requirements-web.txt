@@ -10,3 +10,4 @@ Markdown==3.7
 pymongo==4.10.1
 psycopg[binary]==3.2.6
 paramiko==3.5.1
+requests==2.32.3

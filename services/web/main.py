@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import CONFIG
 from app.routes import alerts, auth, console, events, health
+from app.routes.console_health_routes import schedule_health_warmup
 from app.security import decode_access_token, get_token_from_request, validate_csrf_request
 
 logger = logging.getLogger('siem_web')
@@ -90,6 +91,10 @@ def create_app() -> FastAPI:
         allow_headers=["Accept", "Authorization", "Content-Type", "X-API-Token", "X-CSRF-Token"],
     )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+    @app.on_event("startup")
+    async def warm_runtime_surfaces() -> None:
+        schedule_health_warmup()
 
     @app.middleware("http")
     async def csrf_guard(request: Request, call_next):

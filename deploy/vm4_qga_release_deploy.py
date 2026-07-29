@@ -174,8 +174,6 @@ def main() -> int:
         state_output = pve.guest_exec(
             VMID,
             "set -euo pipefail; "
-            "rm -f /opt/siem/runtime-docs/health_surface_cache.json "
-            "/opt/siem/runtime-docs/health_overview_cache.json; "
             "systemctl restart siem-web; "
             "systemctl is-active --quiet siem-web nginx siem-keycloak siem-vault; "
             "for attempt in $(seq 1 30); do "

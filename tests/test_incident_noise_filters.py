@@ -186,6 +186,25 @@ class IncidentNoiseFilterTests(unittest.TestCase):
         }
         self.assertTrue(self.alerts_module._is_internal_maintenance_alert(row))
 
+    def test_platform_health_is_separate_from_main_incident_scope(self) -> None:
+        health = {
+            "rule_id": 8425,
+            "rule_name": "MET-008 High iowait",
+            "context_json": json.dumps({"event_type": "sustained_iowait_pressure"}),
+        }
+        security = {
+            "rule_id": 2604,
+            "rule_name": "Windows Encoded PowerShell Command",
+            "context_json": json.dumps({"event_type": "windows_powershell_encoded_command"}),
+        }
+        self.assertEqual([security], self.alerts_module._filter_rows([health, security], "main", ""))
+        self.assertEqual([health], self.alerts_module._filter_rows([health, security], "health", ""))
+
+    def test_service_availability_alert_is_routed_to_health_scope(self) -> None:
+        row = {"rule_id": 8355, "rule_name": "MC-001 Minecraft server stopped"}
+        self.assertEqual([], self.alerts_module._filter_rows([row], "main", ""))
+        self.assertEqual([row], self.alerts_module._filter_rows([row], "health", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,8 +5,9 @@ import { api } from "../api";
 import { AsyncGate } from "../async";
 import { t, useShellContext } from "../context";
 import { usePolledData } from "../hooks";
-import { MetricStrip, PageTabs, PanelHeader, SectionIntro, SeverityBadge, StatusBadge } from "../ui";
 import type { RuntimeBlob, SecurityServiceDetailResponse } from "../types";
+import { MetricStrip, PageTabs, PanelHeader, SectionIntro, SeverityBadge, StatusBadge } from "../ui";
+import { SecurityControlPanel } from "./SecurityControlPanel";
 
 
 const SERVICE_TABS = [
@@ -28,8 +29,7 @@ function numberValue(value: unknown) {
 }
 
 function textValue(value: unknown) {
-  const text = String(value ?? "").trim();
-  return text || "n/a";
+  return String(value ?? "").trim() || "n/a";
 }
 
 function listValue(value: unknown) {
@@ -51,15 +51,21 @@ export function SecurityServicePage() {
   const pivots = service?.pivots || {};
   const capabilities = listValue(service?.capabilities);
   const products = listValue(telemetry.products);
+  const interactive = normalizedServiceId === "ngfw" || normalizedServiceId === "ips";
+  const workspaces = Array.isArray(service?.workspaces) ? service.workspaces as RuntimeBlob[] : [];
+  const integrationMode = textValue(service?.integration_mode);
 
   return (
     <AsyncGate
       states={[state]}
-      loadingMessage={t(lang, { en: "Loading security service telemetry...", ru: "Загрузка телеметрии сервиса безопасности..." })}
+      loadingMessage={t(lang, {
+        en: "Loading security service telemetry...",
+        ru: "Загрузка телеметрии системы безопасности...",
+      })}
     >
       <div className="react-page react-page-security-service">
         <SectionIntro
-          kicker={t(lang, { en: "Security Systems", ru: "Системы безопасности" })}
+          kicker={t(lang, { en: "Security systems", ru: "Системы безопасности" })}
           title={service?.title || normalizedServiceId}
           subtitle={`${textValue(service?.product)} | ${textValue(service?.host_name)} | ${textValue(service?.address)}`}
           icon="intel"
@@ -68,36 +74,73 @@ export function SecurityServicePage() {
 
         <PageTabs items={SERVICE_TABS} />
 
+        {interactive ? <SecurityControlPanel serviceId={normalizedServiceId} /> : null}
+
+        <section className="react-card react-security-workspaces">
+          <PanelHeader
+            title="Operational workspaces"
+            subtitle="Verified SIEM workflows and native product consoles. Native 10.20.x.x consoles require the routed operator or VPN network."
+            icon="control"
+            actions={<StatusBadge value={integrationMode} />}
+          />
+          <div className="react-security-workspace-grid">
+            {workspaces.map((workspace, index) => {
+              const href = textValue(workspace.href);
+              const content = (
+                <>
+                  <strong>{textValue(workspace.label)}</strong>
+                  <span>{textValue(workspace.description)}</span>
+                  <small>{workspace.kind === "native" ? "Native product" : "SIEM workspace"}</small>
+                </>
+              );
+              return workspace.external ? (
+                <a key={`${href}-${index}`} className="react-security-workspace-link" href={href} target="_blank" rel="noreferrer">
+                  {content}
+                </a>
+              ) : (
+                <Link key={`${href}-${index}`} className="react-security-workspace-link" to={href}>
+                  {content}
+                </Link>
+              );
+            })}
+          </div>
+          {service?.native_console_route && service.native_console_route !== "direct" ? (
+            <div className="react-inline-note react-inline-note-spaced">
+              Native route: {textValue(service.native_console_route)}
+            </div>
+          ) : null}
+        </section>
+
         <MetricStrip
           items={[
             {
               label: t(lang, { en: "Events 15m", ru: "События 15 мин" }),
               value: numberValue(telemetry.events_15m),
-              hint: t(lang, { en: "Fresh telemetry accepted by SIEM.", ru: "Свежая телеметрия, принятая SIEM." }),
+              hint: t(lang, { en: "Fresh normalized telemetry.", ru: "Свежая нормализованная телеметрия." }),
               tone: Number(telemetry.events_15m || 0) > 0 ? "success" : "critical",
             },
             {
               label: t(lang, { en: "Events 1h", ru: "События 1 ч" }),
               value: numberValue(telemetry.events_1h),
-              hint: t(lang, { en: "Normalized source events in the last hour.", ru: "Нормализованные события источника за последний час." }),
+              hint: t(lang, { en: "Stored source events.", ru: "Сохраненные события источника." }),
               tone: "info",
             },
             {
               label: t(lang, { en: "Products", ru: "Продукты" }),
               value: numberValue(products.length),
-              hint: t(lang, { en: "Normalized products observed for this service.", ru: "Нормализованные продукты, замеченные у этого сервиса." }),
+              hint: t(lang, { en: "Observed normalized products.", ru: "Обнаруженные нормализованные продукты." }),
               tone: "default",
             },
             {
-              label: t(lang, { en: "Alerts 7d", ru: "Алерты 7 дн" }),
+              label: t(lang, { en: "Alerts 7d", ru: "Алерты 7 дней" }),
               value: numberValue(telemetry.alerts_7d_returned),
-              hint: t(lang, { en: "Recent operational alerts linked to this source.", ru: "Последние рабочие алерты, связанные с источником." }),
+              hint: t(lang, { en: "Linked correlation alerts.", ru: "Связанные алерты корреляции." }),
               tone: Number(telemetry.alerts_7d_returned || 0) > 0 ? "warning" : "success",
             },
             {
               label: t(lang, { en: "Last event", ru: "Последнее событие" }),
               value: formatTimestamp(telemetry.latest_event, "compact"),
-              hint: t(lang, { en: "Most recent stored event timestamp.", ru: "Время последнего сохраненного события." }),
+              hint: t(lang, { en: "Latest stored timestamp.", ru: "Время последнего сохраненного события." }),
               tone: "default",
             },
           ]}
@@ -107,8 +150,8 @@ export function SecurityServicePage() {
           <PanelHeader
             title={t(lang, { en: "Integration state", ru: "Состояние интеграции" })}
             subtitle={t(lang, {
-              en: "Placement, normalized products and SIEM pivots for the selected security service.",
-              ru: "Размещение, нормализованные продукты и переходы внутри SIEM для выбранного сервиса.",
+              en: "Placement, normalized products and investigation pivots.",
+              ru: "Размещение, нормализованные продукты и переходы расследования.",
             })}
             icon="sources"
             actions={
@@ -128,13 +171,17 @@ export function SecurityServicePage() {
             <div className="react-kv"><div className="react-kv-label">{t(lang, { en: "Asset group", ru: "Группа активов" })}</div><div className="react-kv-value">{textValue(service?.asset_group)}</div></div>
             <div className="react-kv"><div className="react-kv-label">{t(lang, { en: "Products seen", ru: "Продукты в событиях" })}</div><div className="react-kv-value">{products.join(", ") || "n/a"}</div></div>
           </div>
-          {capabilities.length ? <div className="react-chip-row" style={{ marginTop: 16 }}>{capabilities.map((item) => <span key={item} className="react-chip">{item}</span>)}</div> : null}
+          {capabilities.length ? (
+            <div className="react-chip-row" style={{ marginTop: 16 }}>
+              {capabilities.map((item) => <span key={item} className="react-chip">{item}</span>)}
+            </div>
+          ) : null}
         </section>
 
         <section className="react-card">
           <PanelHeader
             title={t(lang, { en: "Signal breakdown", ru: "Распределение сигналов" })}
-            subtitle={t(lang, { en: "Normalized source families observed during the last hour.", ru: "Нормализованные семейства событий за последний час." })}
+            subtitle={t(lang, { en: "Normalized event families observed during the last hour.", ru: "Нормализованные семейства событий за последний час." })}
             icon="events"
           />
           <div className="react-table-wrap">
@@ -142,7 +189,7 @@ export function SecurityServicePage() {
               <thead><tr><th>Product</th><th>Category</th><th>Signal</th><th>Severity</th><th>Events</th><th>Latest</th></tr></thead>
               <tbody>
                 {breakdown.map((row, index) => (
-                  <tr key={`${row.device_product || "product"}-${row.category || "category"}-${row.subcategory || "subcategory"}-${row.severity || index}`}>
+                  <tr key={`${row.device_product || "product"}-${row.subcategory || index}`}>
                     <td>{textValue(row.device_product)}</td>
                     <td>{textValue(row.category)}</td>
                     <td>{textValue(row.subcategory)}</td>
@@ -159,7 +206,7 @@ export function SecurityServicePage() {
         <section className="react-card">
           <PanelHeader
             title={t(lang, { en: "Recent alerts", ru: "Последние алерты" })}
-            subtitle={t(lang, { en: "Correlation output linked to this service during the last seven days.", ru: "Результаты корреляции, связанные с сервисом за последние семь дней." })}
+            subtitle={t(lang, { en: "Correlation output linked to this service.", ru: "Результаты корреляции, связанные с этой системой." })}
             icon="incidents"
           />
           {alerts.length ? (
@@ -180,13 +227,13 @@ export function SecurityServicePage() {
                 </tbody>
               </table>
             </div>
-          ) : <div className="react-empty">{t(lang, { en: "No linked alerts in the selected period.", ru: "Связанных алертов за выбранный период нет." })}</div>}
+          ) : <div className="react-empty">{t(lang, { en: "No linked alerts.", ru: "Связанных алертов нет." })}</div>}
         </section>
 
         <section className="react-card">
           <PanelHeader
             title={t(lang, { en: "Recent source events", ru: "Последние события источника" })}
-            subtitle={t(lang, { en: "Normalized evidence stored in the central SIEM event table.", ru: "Нормализованные данные, сохраненные в центральной таблице событий SIEM." })}
+            subtitle={t(lang, { en: "Normalized evidence stored in SIEM.", ru: "Нормализованные данные, сохраненные в SIEM." })}
             icon="events"
           />
           <div className="react-table-wrap">

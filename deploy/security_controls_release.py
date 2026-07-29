@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import base64
+import json
+import os
+import shlex
+import sys
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from deploy.soc_foundation_provision import Proxmox, required_env
+
+
+VMID = 107
+REMOTE_ROOT = "/opt/siem/siem-solution"
+WEB_ROOT = f"{REMOTE_ROOT}/services/web"
+WEB_PYTHON = "/opt/siem/venv-web/bin/python"
+
+FILES = (
+    "services/web/main.py",
+    "services/web/requirements-web.txt",
+    "services/web/app/opnsense_control_runtime.py",
+    "services/web/app/security_services_runtime.py",
+    "services/web/app/topology_runtime.py",
+    "services/web/app/deps.py",
+    "services/web/app/routes/alerts.py",
+    "services/web/app/routes/console_health_routes.py",
+    "services/web/app/routes/console_security_services_routes.py",
+    "correlation_rule_packs/siem_detection_pack_v1.json",
+    "correlation_rule_packs/windows_activity_v1.json",
+    "deploy/publish_current_fp_remediation.py",
+    "frontend-react/src/shell/api.ts",
+    "frontend-react/src/shell/types.ts",
+    "frontend-react/src/shell/pages/SecurityControlPanel.tsx",
+    "frontend-react/src/shell/pages/SecurityServicePage.tsx",
+    "frontend-react/src/shell/pages/IncidentsPage.tsx",
+    "frontend-react/src/shell/pages/TopologyPage.tsx",
+    "frontend-react/src/styles/page-families.css",
+    "frontend-react/src/styles/shell.css",
+)
+
+
+def _remote_path(relative: str) -> str:
+    if relative.startswith("frontend-react/"):
+        return str(
+            PurePosixPath(WEB_ROOT)
+            / "frontend-react"
+            / relative.removeprefix("frontend-react/")
+        )
+    return str(PurePosixPath(REMOTE_ROOT) / relative)
+
+
+def _push_file(pve: Proxmox, relative: str, backup_root: str) -> None:
+    source = ROOT / relative
+    destination = _remote_path(relative)
+    backup = str(PurePosixPath(backup_root) / destination.removeprefix("/").replace("/", "__"))
+    encoded = base64.b64encode(source.read_bytes()).decode("ascii")
+    release_id = PurePosixPath(backup_root).name
+    temporary = f"/tmp/{release_id}-{source.name}.b64"
+    staged = f"{destination}.{release_id}.tmp"
+    pve.guest_exec(
+        VMID,
+        f"install -d -m 0750 {shlex.quote(backup_root)}; "
+        f"install -d -o rdegon -g rdegon -m 0755 {shlex.quote(str(PurePosixPath(destination).parent))}; "
+        f"if [ -f {shlex.quote(destination)} ]; then cp -a {shlex.quote(destination)} {shlex.quote(backup)}; fi; "
+        f": > {shlex.quote(temporary)}",
+    )
+    for offset in range(0, len(encoded), 32_000):
+        pve.guest_exec(
+            VMID,
+            f"printf %s {shlex.quote(encoded[offset:offset + 32_000])} >> {shlex.quote(temporary)}",
+        )
+    pve.guest_exec(
+        VMID,
+        f"base64 -d {shlex.quote(temporary)} > {shlex.quote(staged)}; "
+        f"chmod 0644 {shlex.quote(staged)}; chown rdegon:rdegon {shlex.quote(staged)}; "
+        f"mv -f {shlex.quote(staged)} {shlex.quote(destination)}; "
+        f"rm -f {shlex.quote(temporary)}",
+    )
+
+
+def _push_bytes(pve: Proxmox, content: bytes, destination: str, *, mode: str) -> None:
+    encoded = base64.b64encode(content).decode("ascii")
+    temporary = f"{destination}.b64"
+    pve.guest_exec(
+        VMID,
+        f"install -d -m 0755 {shlex.quote(str(PurePosixPath(destination).parent))}; "
+        f": > {shlex.quote(temporary)}",
+    )
+    for offset in range(0, len(encoded), 32_000):
+        pve.guest_exec(
+            VMID,
+            f"printf %s {shlex.quote(encoded[offset:offset + 32_000])} >> {shlex.quote(temporary)}",
+        )
+    pve.guest_exec(
+        VMID,
+        f"base64 -d {shlex.quote(temporary)} > {shlex.quote(destination)}; "
+        f"rm -f {shlex.quote(temporary)}; chmod {mode} {shlex.quote(destination)}",
+    )
+
+
+def _configure_opnsense_secret(pve: Proxmox) -> None:
+    password = required_env("SIEM_OPNSENSE_ROOT_PASSWORD")
+    secret_file = "/tmp/siem-opnsense-password"
+    script_file = "/tmp/siem-configure-opnsense-secret.py"
+    script = (
+        "import base64\n"
+        "import os\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "sys.path.insert(0, str(Path.cwd()))\n"
+        "env_path = Path('/etc/siem/web.env')\n"
+        "for raw in env_path.read_text(encoding='utf-8').splitlines():\n"
+        "    if raw.strip() and not raw.lstrip().startswith('#') and '=' in raw:\n"
+        "        key, value = raw.split('=', 1)\n"
+        "        os.environ.setdefault(key.strip(), value.strip())\n"
+        "from app.secret_runtime import _vault_request\n"
+        "password = Path(sys.argv[1]).read_text(encoding='utf-8')\n"
+        "operator = __import__('json').loads(Path('/etc/siem/vault-operator.json').read_text(encoding='utf-8'))\n"
+        "root_token = str(operator.get('root_token') or '').strip()\n"
+        "if not root_token:\n"
+        "    raise RuntimeError('Vault root token is unavailable')\n"
+        "_vault_request('/v1/kv/data/siem/opnsense', method='POST', payload={'data': {'password': password}}, token=root_token)\n"
+        "updates = {\n"
+        f"    'SIEM_OPNSENSE_HOST': {required_env('SIEM_OPNSENSE_HOST', 'https://192.168.3.103')!r},\n"
+        f"    'SIEM_OPNSENSE_USER': {required_env('SIEM_OPNSENSE_USER', 'root')!r},\n"
+        "    'SIEM_OPNSENSE_ROOT_PASSWORD_REF': 'vault://kv/siem/opnsense#password',\n"
+        "    'SIEM_OPNSENSE_VERIFY_TLS': '0',\n"
+        "}\n"
+        "lines = env_path.read_text(encoding='utf-8').splitlines()\n"
+        "seen = set()\n"
+        "rendered = []\n"
+        "for line in lines:\n"
+        "    key = line.split('=', 1)[0].strip() if '=' in line and not line.lstrip().startswith('#') else ''\n"
+        "    if key in updates:\n"
+        "        rendered.append(f'{key}={updates[key]}')\n"
+        "        seen.add(key)\n"
+        "    elif key != 'SIEM_OPNSENSE_ROOT_PASSWORD':\n"
+        "        rendered.append(line)\n"
+        "for key, value in updates.items():\n"
+        "    if key not in seen:\n"
+        "        rendered.append(f'{key}={value}')\n"
+        "temporary = env_path.with_suffix('.security-controls.tmp')\n"
+        "temporary.write_text('\\n'.join(rendered).rstrip() + '\\n', encoding='utf-8')\n"
+        "os.chmod(temporary, 0o600)\n"
+        "temporary.replace(env_path)\n"
+    )
+    _push_bytes(pve, password.encode("utf-8"), secret_file, mode="0600")
+    _push_bytes(pve, script.encode("utf-8"), script_file, mode="0700")
+    pve.guest_exec(
+        VMID,
+        f"set -e; cd {shlex.quote(WEB_ROOT)}; "
+        f"{shlex.quote(WEB_PYTHON)} {shlex.quote(script_file)} {shlex.quote(secret_file)}; "
+        f"rm -f {shlex.quote(script_file)} {shlex.quote(secret_file)}",
+        timeout=180,
+    )
+
+
+def main() -> int:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_root = f"/var/backups/siem/security-controls-{stamp}"
+    with Proxmox() as pve:
+        for relative in FILES:
+            _push_file(pve, relative, backup_root)
+        _configure_opnsense_secret(pve)
+        output = pve.guest_exec(
+            VMID,
+            "set -euo pipefail; "
+            f"cd {shlex.quote(WEB_ROOT)}; "
+            f"{shlex.quote(WEB_PYTHON)} -m pip install --disable-pip-version-check --no-input -r requirements-web.txt >/dev/null; "
+            f"{shlex.quote(WEB_PYTHON)} -m py_compile main.py app/opnsense_control_runtime.py "
+            "app/deps.py app/routes/alerts.py app/routes/console_health_routes.py "
+            "app/routes/console_security_services_routes.py; "
+            f"cd {shlex.quote(REMOTE_ROOT)}; "
+            f"{shlex.quote(WEB_PYTHON)} deploy/publish_current_fp_remediation.py >/tmp/siem-current-fp-publish.json; "
+            f"cd {shlex.quote(WEB_ROOT + '/frontend-react')}; runuser -u rdegon -- npm run build >/dev/null; "
+            "systemctl restart siem-web; "
+            "for attempt in $(seq 1 30); do curl -kfsS --max-time 3 https://127.0.0.1/healthz >/dev/null && break; sleep 1; done; "
+            "systemctl is-active siem-web nginx; "
+            "curl -kfsS --max-time 5 https://127.0.0.1/healthz",
+            timeout=900,
+        )
+    print(
+        json.dumps(
+            {
+                "vmid": VMID,
+                "files": len(FILES),
+                "backup": backup_root,
+                "health": output.strip().splitlines(),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -941,7 +941,7 @@
       "entity_field": "host.name+user.name",
       "suppression_key": "host.name + source.ip + assignment.siem_detection_pack_v1",
       "source_format": "stream-expr",
-      "expr": "(event.provider == 'linux.sudo' and event.type == 'sudo_command' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
+      "expr": "(event.provider == 'linux.sudo' and event.type == 'sudo_command' and not event.original icontains 'siem_incident_bot' and not event.original icontains 'systemctl is-active' and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e')"
     },
     {
       "id": 8068,
@@ -6694,7 +6694,7 @@
       "entity_field": "host.name",
       "suppression_key": "host.name + source.ip + assignment.siem_detection_pack_v1",
       "source_format": "stream-expr",
-      "expr": "((event.provider == 'linux.minecraft' or event.provider == 'linux.wings' or event.provider == 'linux.systemd' or event.provider == 'linux.python') and (host.name == 'minecraft-01' or log_source == 'minecraft-01' or host.name == 'gamepanel-01' or log_source == 'gamepanel-01') and (event.original icontains 'minecraft' or event.original icontains 'server.jar' or event.original icontains 'wings') and (event.original icontains 'entered failed state' or event.original icontains 'failed with result' or event.original icontains 'Main process exited' or event.original icontains 'start request repeated too quickly' or event.original icontains 'Failed to start' or event.original icontains 'status=failed' or event.original icontains 'status=1/FAILURE' or event.original icontains 'status=2/INVALIDARGUMENT') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')"
+      "expr": "((event.provider == 'linux.minecraft' or event.provider == 'linux.systemd' or event.provider == 'linux.python') and (host.name == 'minecraft-01' or log_source == 'minecraft-01') and (event.original icontains 'minecraft.service' or event.original icontains 'server.jar' or event.original icontains 'minecraft server') and (event.original icontains 'entered failed state' or event.original icontains 'failed with result' or event.original icontains 'Main process exited' or event.original icontains 'start request repeated too quickly' or event.original icontains 'Failed to start' or event.original icontains 'status=failed' or event.original icontains 'status=1/FAILURE' or event.original icontains 'status=2/INVALIDARGUMENT') and not tags icontains 'allowlist:' and not tags icontains 'benchmark' and not tags icontains 'synthetic' and not tags icontains 'e2e' and not host.name icontains 'e2e' and not log_source icontains 'e2e' and not host.name icontains 'assignment-full' and not log_source icontains 'assignment-full' and not host.name icontains 'validation' and not log_source icontains 'validation')"
     },
     {
       "id": 8356,
