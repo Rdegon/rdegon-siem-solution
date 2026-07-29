@@ -178,6 +178,7 @@ export type IncidentRecord = RuntimeBlob & {
   context?: RuntimeBlob;
   samples?: RuntimeBlob[];
   cluster?: IncidentCluster;
+  notification_delivery?: RuntimeBlob;
 };
 
 export type IncidentHistoryEntry = {
@@ -2314,6 +2315,17 @@ export type IncidentListResponse = {
     [key: string]: unknown;
   };
   status_transitions?: IncidentStatusTransitions;
+  notification_delivery?: {
+    channel?: string;
+    queue_count?: number;
+    delivered?: number;
+    pending?: number;
+    failed?: number;
+    synchronized?: boolean;
+    applicable?: boolean;
+    updated_at?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 };
 

@@ -2212,29 +2212,65 @@ function buildActualNetworkModel(nodes: TopologyGraphNode[], edges: TopologyEdge
   }
 
   const zones: OlympusMapZone[] = [
-    { id: "external", label: "External activity", meta: `${(segmentGroups.get("external") || []).length} observed public nodes`, x: 24, y: 84, width: 220, height: 716, tone: "external" },
-    { id: "mgmt", label: "MGMT", meta: `192.168.3.0/24 · ${(segmentGroups.get("mgmt") || []).length} nodes`, x: 270, y: 84, width: 250, height: 332, tone: "management" },
-    { id: "sec", label: "SEC", meta: `10.20.10.0/24 · ${(segmentGroups.get("sec") || []).length} nodes`, x: 546, y: 84, width: 382, height: 332, tone: "siem" },
-    { id: "servers-games", label: "Servers / games", meta: `10.20.20.0/24 · ${(segmentGroups.get("servers-games") || []).length} nodes`, x: 954, y: 84, width: 350, height: 332, tone: "hosts" },
-    { id: "lab", label: "LAB", meta: `10.20.30.0/24 · ${(segmentGroups.get("lab") || []).length} nodes`, x: 1330, y: 84, width: 386, height: 332, tone: "holding" },
-    { id: "users", label: "USERS", meta: `10.20.40.0/24 · ${(segmentGroups.get("users") || []).length} nodes`, x: 270, y: 446, width: 250, height: 354, tone: "control" },
-    { id: "legacy", label: "Legacy observed", meta: `192.168.1.0/24 · ${(segmentGroups.get("legacy") || []).length} stale identities`, x: 546, y: 446, width: 580, height: 354, tone: "external" },
-    { id: "unassigned", label: "Unassigned", meta: `${(segmentGroups.get("unassigned") || []).length} records without segment evidence`, x: 1152, y: 446, width: 564, height: 354, tone: "network" },
+    { id: "mgmt", label: "MGMT", meta: `192.168.3.0/24 · ${(segmentGroups.get("mgmt") || []).length} nodes`, x: 24, y: 84, width: 250, height: 332, tone: "management" },
+    { id: "sec", label: "SEC", meta: `10.20.10.0/24 · ${(segmentGroups.get("sec") || []).length} nodes`, x: 300, y: 84, width: 420, height: 332, tone: "siem" },
+    { id: "servers-games", label: "Servers / games", meta: `10.20.20.0/24 · ${(segmentGroups.get("servers-games") || []).length} nodes`, x: 746, y: 84, width: 340, height: 332, tone: "hosts" },
+    { id: "lab", label: "LAB", meta: `10.20.30.0/24 · ${(segmentGroups.get("lab") || []).length} nodes`, x: 1112, y: 84, width: 380, height: 332, tone: "holding" },
+    { id: "users", label: "USERS", meta: `10.20.40.0/24 · ${(segmentGroups.get("users") || []).length} nodes`, x: 1518, y: 84, width: 198, height: 332, tone: "control" },
+    { id: "external", label: "External activity", meta: `${(segmentGroups.get("external") || []).length} observed public nodes`, x: 24, y: 446, width: 250, height: 354, tone: "external" },
+    { id: "legacy", label: "Legacy cleanup", meta: `192.168.1.0/24 · ${(segmentGroups.get("legacy") || []).length} stale identities`, x: 300, y: 446, width: 320, height: 354, tone: "external" },
+    { id: "unassigned", label: "Unassigned / discovery", meta: `${(segmentGroups.get("unassigned") || []).length} records without segment evidence`, x: 646, y: 446, width: 1070, height: 354, tone: "network" },
   ];
 
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("external") || [], { zone: "external", x: 48, y: 126, width: 172, height: 50, rowGap: 58, max: 10 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("mgmt") || [], { zone: "mgmt", x: 298, y: 126, width: 194, height: 54, rowGap: 62, max: 4 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("sec") || [], { zone: "sec", x: 574, y: 126, width: 150, height: 54, columns: 2, columnGap: 24, rowGap: 62, max: 8 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("servers-games") || [], { zone: "servers-games", x: 982, y: 126, width: 138, height: 54, columns: 2, columnGap: 22, rowGap: 62, max: 8 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("lab") || [], { zone: "lab", x: 1358, y: 126, width: 154, height: 54, columns: 2, columnGap: 22, rowGap: 62, max: 8 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("users") || [], { zone: "users", x: 298, y: 490, width: 194, height: 54, rowGap: 64, max: 4 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("legacy") || [], { zone: "legacy", x: 574, y: 490, width: 150, height: 54, columns: 3, columnGap: 20, rowGap: 64, max: 12 });
-  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("unassigned") || [], { zone: "unassigned", x: 1180, y: 490, width: 150, height: 54, columns: 3, columnGap: 18, rowGap: 64, max: 12 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("mgmt") || [], { zone: "mgmt", x: 52, y: 126, width: 194, height: 54, rowGap: 62, max: 4 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("sec") || [], { zone: "sec", x: 328, y: 126, width: 164, height: 54, columns: 2, columnGap: 24, rowGap: 62, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("servers-games") || [], { zone: "servers-games", x: 774, y: 126, width: 134, height: 54, columns: 2, columnGap: 20, rowGap: 62, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("lab") || [], { zone: "lab", x: 1140, y: 126, width: 154, height: 54, columns: 2, columnGap: 18, rowGap: 62, max: 8 });
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("users") || [], { zone: "users", x: 1546, y: 126, width: 142, height: 54, rowGap: 62, max: 4 });
+
+  const externalNodes = segmentGroups.get("external") || [];
+  const externalEvents = externalNodes.reduce((sum, node) => sum + Number(node.events || 0), 0);
+  modelNodes.push(olympusNode(
+    "derived:external:summary",
+    "Observed Internet actors",
+    `${externalNodes.length} IPs / ${externalEvents.toLocaleString()} events`,
+    52,
+    500,
+    "cloud",
+    "aggregate",
+    "external",
+    undefined,
+    194,
+    72,
+    externalNodes.length,
+    olympusSampleNames(actualRankNodes(externalNodes), 5),
+    externalNodes.length ? "degraded" : "healthy",
+  ));
+
+  const legacyNodes = segmentGroups.get("legacy") || [];
+  modelNodes.push(olympusNode(
+    "derived:legacy:summary",
+    "Legacy identities",
+    `${legacyNodes.length} records awaiting cleanup`,
+    328,
+    500,
+    "holding",
+    "aggregate",
+    "legacy",
+    undefined,
+    264,
+    72,
+    legacyNodes.length,
+    olympusSampleNames(actualRankNodes(legacyNodes), 5),
+    legacyNodes.length ? "stale" : "healthy",
+  ));
+
+  actualPlaceColumn(modelNodes, visualBySourceId, segmentGroups.get("unassigned") || [], { zone: "unassigned", x: 674, y: 500, width: 190, height: 54, columns: 4, columnGap: 36, rowGap: 64, max: 16 });
   actualAddVisibleEdges(modelEdges, edges, visualBySourceId, 56);
 
   return {
     title: "Production network segments",
-    subtitle: "Runtime nodes are placed by their current IP subnet. Legacy 192.168.1.0/24 identities stay visible as cleanup evidence; links are drawn only when the API reports them.",
+    subtitle: "Production assets are grouped by the current routed segment. External actors and legacy identities are summarized here and remain available in the detailed telemetry and coverage layers.",
     treeTitle: "Runtime segments",
     treeItems: [
       `${nodes.length.toLocaleString()} actual nodes`,

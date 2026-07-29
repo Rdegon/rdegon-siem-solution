@@ -613,6 +613,20 @@ export function IncidentsPage() {
         <button type="button" className="react-link-button" onClick={copyCurrentViewLink}>{t(lang, { en: "Copy link", ru: "Скопировать ссылку" })}</button>
         <button type="button" className="react-link-button" onClick={resetViewState}>{t(lang, { en: "Reset", ru: "Сбросить" })}</button>
       </div>
+      <div className="react-inline-note react-inline-note-spaced">
+        <strong>{t(lang, { en: "Telegram delivery", ru: "Доставка в Telegram" })}: </strong>
+        {scope === "main"
+          ? t(lang, {
+              en: `${listState.data.notification_delivery?.delivered || 0} delivered, ${listState.data.notification_delivery?.pending || 0} pending, ${listState.data.notification_delivery?.failed || 0} failed for the incidents currently shown.`,
+              ru: `${listState.data.notification_delivery?.delivered || 0} доставлено, ${listState.data.notification_delivery?.pending || 0} ожидают, ${listState.data.notification_delivery?.failed || 0} с ошибкой для показанных сейчас инцидентов.`,
+            })
+          : t(lang, {
+              en: "Not applicable to this operational scope; only security incidents are sent.",
+              ru: "Не применяется к этому операционному контуру; отправляются только ИБ-инциденты.",
+            })}
+        {" "}
+        <StatusBadge value={scope === "main" && !listState.data.notification_delivery?.synchronized ? "pending" : "synchronized"} />
+      </div>
       <TimeScopeBar
         rangeLabel={t(lang, { en: "Time range", ru: "Временной диапазон" })}
         rangeValue={windowPreset}
@@ -670,13 +684,14 @@ export function IncidentsPage() {
           ref={windowedRows.containerRef}
           className={`react-table-wrap react-incidents-table-wrap ${windowedRows.isWindowed ? "react-table-window windowed" : ""}`}
         >
-          <table className="react-table react-table-windowed" role="table" aria-label="Incident queue" aria-rowcount={items.length} aria-colcount={6}>
+          <table className="react-table react-table-windowed" role="table" aria-label="Incident queue" aria-rowcount={items.length} aria-colcount={7}>
             <thead>
               <tr role="row">
                 <th role="columnheader">{t(lang, { en: "Rule", ru: "Правило" })}</th>
                 <th role="columnheader">{t(lang, { en: "Severity", ru: "Важность" })}</th>
                 <th role="columnheader">{t(lang, { en: "Source", ru: "Источник" })}</th>
                 <th role="columnheader">{t(lang, { en: "Status", ru: "Статус" })}</th>
+                <th role="columnheader">Telegram</th>
                 <th role="columnheader">{t(lang, { en: "Assignee", ru: "Ответственный" })}</th>
                 <th role="columnheader">{t(lang, { en: "Last seen", ru: "Последняя активность" })}</th>
               </tr>
@@ -684,7 +699,7 @@ export function IncidentsPage() {
             <tbody>
               {windowedRows.topSpacerHeight ? (
                 <tr className="react-table-spacer" aria-hidden="true">
-                  <td colSpan={6} style={{ height: `${windowedRows.topSpacerHeight}px` }} />
+                  <td colSpan={7} style={{ height: `${windowedRows.topSpacerHeight}px` }} />
                 </tr>
               ) : null}
               {windowedRows.visibleRows.map((row: IncidentRecord, visibleIndex: number) => {
@@ -696,6 +711,9 @@ export function IncidentsPage() {
                     <td role="cell"><SeverityBadge value={row.severity_agg || row.severity || "info"} /></td>
                     <td role="cell">{row.source_summary || row.source || "n/a"}</td>
                     <td role="cell"><StatusBadge value={row.status || "new"} /></td>
+                    <td role="cell">
+                      <StatusBadge value={scope === "main" ? String(row.notification_delivery?.delivery_status || "pending") : "n/a"} />
+                    </td>
                     <td role="cell">{row.assignee || "n/a"}</td>
                     <td role="cell">{formatIncidentTimestamp(row.ts_last || row.ts)}</td>
                   </tr>
@@ -703,7 +721,7 @@ export function IncidentsPage() {
               })}
               {windowedRows.bottomSpacerHeight ? (
                 <tr className="react-table-spacer" aria-hidden="true">
-                  <td colSpan={6} style={{ height: `${windowedRows.bottomSpacerHeight}px` }} />
+                  <td colSpan={7} style={{ height: `${windowedRows.bottomSpacerHeight}px` }} />
                 </tr>
               ) : null}
             </tbody>

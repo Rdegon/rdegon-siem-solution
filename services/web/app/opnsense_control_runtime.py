@@ -47,6 +47,7 @@ class OPNsenseConfig:
     password: str
     verify_tls: bool
     timeout_seconds: int
+    ca_file: str = ""
 
     @property
     def configured(self) -> bool:
@@ -55,6 +56,12 @@ class OPNsenseConfig:
     @property
     def auth_mode(self) -> str:
         return "api_key" if self.api_key and self.api_secret else "web_session"
+
+    @property
+    def requests_verify(self) -> bool | str:
+        if not self.verify_tls:
+            return False
+        return self.ca_file or True
 
 
 def load_opnsense_config() -> OPNsenseConfig:
@@ -72,6 +79,7 @@ def load_opnsense_config() -> OPNsenseConfig:
         password=password,
         verify_tls=_env_bool("SIEM_OPNSENSE_VERIFY_TLS", False),
         timeout_seconds=max(3, min(int(os.getenv("SIEM_OPNSENSE_TIMEOUT_SECONDS", "15") or "15"), 60)),
+        ca_file=str(os.getenv("SIEM_OPNSENSE_CA_FILE", "") or "").strip(),
     )
 
 
@@ -93,7 +101,7 @@ class OPNsenseClient:
             return
         response = self.session.get(
             f"{self.config.base_url}/",
-            verify=self.config.verify_tls,
+            verify=self.config.requests_verify,
             timeout=self.config.timeout_seconds,
         )
         response.raise_for_status()
@@ -109,7 +117,7 @@ class OPNsenseClient:
                 "passwordfld": self.config.password,
                 "login": "1",
             },
-            verify=self.config.verify_tls,
+            verify=self.config.requests_verify,
             timeout=self.config.timeout_seconds,
         )
         response.raise_for_status()
@@ -140,7 +148,7 @@ class OPNsenseClient:
             json=payload if method.upper() == "POST" else None,
             headers=headers,
             auth=auth,
-            verify=self.config.verify_tls,
+            verify=self.config.requests_verify,
             timeout=timeout_seconds or self.config.timeout_seconds,
         )
         response.raise_for_status()
@@ -353,6 +361,25 @@ def _rollback_firewall(
         raise RuntimeError("OPNsense restored a backup, but the firewall policy does not match the pre-change state")
 
 
+def _firewall_savepoint(client: OPNsenseClient) -> str:
+    try:
+        response = client.post("/api/firewall/filter/savepoint")
+    except Exception:  # noqa: BLE001
+        return ""
+    return _clean_text(response.get("revision"), max_length=180)
+
+
+def _revert_firewall_savepoint(
+    client: OPNsenseClient,
+    revision: str,
+    baseline_signature: tuple[tuple[Any, ...], ...],
+) -> None:
+    client.post(f"/api/firewall/filter/revert/{urllib_quote(revision)}")
+    client.post("/api/firewall/filter/apply")
+    if _firewall_signature(_firewall_rows(client)) != baseline_signature:
+        raise RuntimeError("OPNsense reverted the savepoint, but the firewall policy does not match the pre-change state")
+
+
 def _rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     description = _clean_text(payload.get("description"))
     if not _MANAGED_DESCRIPTION_RE.match(description):
@@ -410,6 +437,7 @@ def mutate_firewall(
     if action not in {"create", "update", "toggle", "delete"}:
         raise ValueError(f"Unsupported firewall operation: {action}")
     rollback_backup = ""
+    rollback_revision = ""
     object_id = _clean_text(payload.get("uuid")) or "new"
     baseline_rules: list[dict[str, Any]] = []
     baseline_signature: tuple[tuple[Any, ...], ...] = ()
@@ -423,6 +451,7 @@ def mutate_firewall(
             expected_description = body["rule"]["description"]
             if any(row["description"] == expected_description for row in baseline_rules):
                 raise ValueError("A firewall rule with this description already exists")
+            rollback_revision = _firewall_savepoint(runtime_client)
             response = runtime_client.post("/api/firewall/filter/add_rule", body)
             mutation_started = True
             object_id = _clean_text(response.get("uuid"), max_length=40) or object_id
@@ -436,12 +465,14 @@ def mutate_firewall(
             expected_description = current["description"]
             if action == "update":
                 body = _rule_payload(payload)
+                rollback_revision = _firewall_savepoint(runtime_client)
                 runtime_client.post(f"/api/firewall/filter/set_rule/{uuid}", body)
                 mutation_started = True
                 expected_description = body["rule"]["description"]
             elif action == "toggle":
                 desired = bool(payload.get("enabled"))
                 if bool(current.get("enabled")) != desired:
+                    rollback_revision = _firewall_savepoint(runtime_client)
                     runtime_client.post(
                         f"/api/firewall/filter/toggle_rule/{uuid}/{1 if desired else 0}"
                     )
@@ -449,6 +480,7 @@ def mutate_firewall(
             else:
                 if _clean_text(payload.get("confirm")) != current["description"]:
                     raise ValueError("Rule description confirmation does not match")
+                rollback_revision = _firewall_savepoint(runtime_client)
                 runtime_client.post(f"/api/firewall/filter/del_rule/{uuid}")
                 mutation_started = True
         if mutation_started:
@@ -457,12 +489,17 @@ def mutate_firewall(
                 (backup_id for backup_id in backups_after if backup_id not in backup_ids_before),
                 "",
             )
-            if not rollback_backup:
+            if not rollback_revision and not rollback_backup:
                 raise RuntimeError(
-                    "OPNsense saved the change without exposing a rollback backup; "
+                    "OPNsense saved the change without exposing a rollback savepoint or backup; "
                     "the firewall policy was not applied"
                 )
-            runtime_client.post("/api/firewall/filter/apply")
+            apply_path = (
+                f"/api/firewall/filter/apply/{urllib_quote(rollback_revision)}"
+                if rollback_revision
+                else "/api/firewall/filter/apply"
+            )
+            runtime_client.post(apply_path)
         rules_after = _firewall_rows(runtime_client)
         if action == "delete":
             verified = all(row["uuid"] != object_id for row in rules_after)
@@ -479,10 +516,15 @@ def mutate_firewall(
             )
         if not verified:
             raise RuntimeError("Firewall mutation could not be verified")
+        if mutation_started and rollback_revision:
+            runtime_client.post(
+                f"/api/firewall/filter/cancel_rollback/{urllib_quote(rollback_revision)}"
+            )
         result = {
             "status": "applied",
             "operation": action,
             "rollback_backup": rollback_backup,
+            "rollback_revision": rollback_revision,
             "verified": True,
             "rules_total": len(rules_after),
             "object_id": object_id,
@@ -498,7 +540,16 @@ def mutate_firewall(
         return result
     except Exception as exc:
         rollback_error = ""
-        if mutation_started and rollback_backup and baseline_signature:
+        if mutation_started and rollback_revision and baseline_signature:
+            try:
+                _revert_firewall_savepoint(
+                    runtime_client,
+                    rollback_revision,
+                    baseline_signature,
+                )
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_error = str(rollback_exc)[:600]
+        elif mutation_started and rollback_backup and baseline_signature:
             try:
                 _rollback_firewall(runtime_client, rollback_backup, baseline_signature)
             except Exception as rollback_exc:  # noqa: BLE001
@@ -512,6 +563,7 @@ def mutate_firewall(
             details={
                 "error": str(exc)[:600],
                 "rollback_backup": rollback_backup,
+                "rollback_revision": rollback_revision,
                 "rollback_error": rollback_error,
             },
         )
@@ -535,15 +587,40 @@ def mutate_ids(
             object_id = _clean_text(payload.get("sid"))
             if not _SID_RE.match(object_id):
                 raise ValueError("A numeric Suricata SID is required")
-            runtime_client.post(f"/api/ids/settings/toggle_rule/{object_id}")
+            desired = payload.get("enabled")
+            suffix = "" if desired is None else f"/{1 if bool(desired) else 0}"
+            runtime_client.post(f"/api/ids/settings/toggle_rule/{object_id}{suffix}")
             runtime_client.post("/api/ids/service/reload_rules", timeout_seconds=120)
         elif action == "toggle_ruleset":
             object_id = _clean_text(payload.get("filename"))
-            available = {row["filename"] for row in _ids_state(runtime_client, "")["rulesets"]}
-            if object_id not in available:
+            available = {
+                row["filename"]: row
+                for row in _ids_state(runtime_client, "")["rulesets"]
+            }
+            current = available.get(object_id)
+            if current is None:
                 raise ValueError(f"Unknown Suricata ruleset: {object_id}")
-            runtime_client.post(f"/api/ids/settings/toggle_ruleset/{urllib_quote(object_id)}")
+            desired = (
+                bool(payload.get("enabled"))
+                if "enabled" in payload
+                else not bool(current.get("enabled"))
+            )
+            runtime_client.post(
+                f"/api/ids/settings/toggle_ruleset/{urllib_quote(object_id)}/{1 if desired else 0}"
+            )
             runtime_client.post("/api/ids/service/reload_rules", timeout_seconds=120)
+            refreshed = {
+                row["filename"]: row
+                for row in _ids_state(runtime_client, "")["rulesets"]
+            }.get(object_id)
+            if refreshed is None or bool(refreshed.get("enabled")) != desired:
+                runtime_client.post(
+                    f"/api/ids/settings/toggle_ruleset/{urllib_quote(object_id)}/{1 if bool(current.get('enabled')) else 0}"
+                )
+                runtime_client.post("/api/ids/service/reload_rules", timeout_seconds=120)
+                raise RuntimeError(
+                    f"Suricata ruleset {object_id} did not reach the requested state"
+                )
         elif action in {"reload", "update"}:
             object_id = action
             endpoint = "reload_rules" if action == "reload" else "update_rules"
@@ -562,7 +639,10 @@ def mutate_ids(
             "operation": action,
             "object_id": object_id,
             "service_status": status,
+            "verified": True,
         }
+        if action == "toggle_ruleset":
+            result["object_enabled"] = desired
         append_audit_event(
             actor=actor,
             action=f"opnsense.ids.{action}",

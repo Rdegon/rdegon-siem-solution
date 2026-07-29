@@ -220,6 +220,25 @@ class IncidentTelegramBot:
         fingerprint = self._incident_fingerprint(incident)
         state = self._get_incident_state(conn, incident_key)
         if state and str(state.get("fingerprint") or "") == fingerprint:
+            stored_payload = state.get("payload") if isinstance(state.get("payload"), dict) else {}
+            stored_telegram = (
+                stored_payload.get("telegram")
+                if isinstance(stored_payload.get("telegram"), dict)
+                else {}
+            )
+            self._publish_delivery_state(
+                incident,
+                incident_key=incident_key,
+                telegram={
+                    **stored_telegram,
+                    "message_id": (
+                        stored_telegram.get("message_id")
+                        or state.get("telegram_message_id")
+                    ),
+                    "status": stored_telegram.get("status") or "unchanged",
+                },
+                delivery_count=0,
+            )
             return
         status = str(incident.get("status") or "new").strip().lower()
         terminal = status in TERMINAL_STATUSES
@@ -282,6 +301,39 @@ class IncidentTelegramBot:
                     ),
                 ),
             )
+        self._publish_delivery_state(
+            incident,
+            incident_key=incident_key,
+            telegram=telegram,
+            delivery_count=delivered,
+        )
+
+    def _publish_delivery_state(
+        self,
+        incident: dict[str, Any],
+        *,
+        incident_key: str,
+        telegram: dict[str, Any],
+        delivery_count: int,
+    ) -> None:
+        try:
+            self._siem_request_json(
+                "/api/notification-delivery/incidents",
+                method="POST",
+                payload={
+                    "incident_key": incident_key,
+                    "incident_view": self.config.incident_view,
+                    "incident_status": str(incident.get("status") or ""),
+                    "channel": "telegram",
+                    "delivery_status": str(telegram.get("status") or "unknown"),
+                    "message_id": int(telegram.get("message_id") or 0),
+                    "delivery_count": int(delivery_count),
+                    "reason": str(telegram.get("reason") or telegram.get("error") or "")[:300],
+                    "updated_at": _utc_now().isoformat(),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("unable to publish incident delivery state for %s: %s", incident_key, exc)
 
     def _get_incident_state(self, conn: psycopg.Connection[Any], incident_key: str) -> dict[str, Any] | None:
         with conn.cursor() as cur:

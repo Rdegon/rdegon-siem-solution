@@ -73,7 +73,46 @@ class FakeOPNsenseClient:
         raise AssertionError(path)
 
 
+class SavepointOPNsenseClient(FakeOPNsenseClient):
+    def post(self, path: str, payload: dict | None = None) -> dict:
+        self.calls.append(("POST", path))
+        if path == "/api/firewall/filter/savepoint":
+            self.rollback_rules = [dict(row) for row in self.rules]
+            return {"revision": "revision-123"}
+        if path.startswith("/api/firewall/filter/toggle_rule/"):
+            if not self.ignore_toggle:
+                self.rules[0]["enabled"] = "0" if self.rules[0]["enabled"] == "1" else "1"
+            return {"result": "saved"}
+        if path == "/api/firewall/filter/apply/revision-123":
+            return {"status": "ok"}
+        if path == "/api/firewall/filter/cancel_rollback/revision-123":
+            return {"status": "ok"}
+        if path == "/api/firewall/filter/revert/revision-123":
+            assert self.rollback_rules is not None
+            self.rules = [dict(row) for row in self.rollback_rules]
+            return {"status": "reverted"}
+        if path == "/api/firewall/filter/apply":
+            return {"status": "ok"}
+        return super().post(path, payload)
+
+
 class OPNsenseControlRuntimeTests(unittest.TestCase):
+    def test_config_uses_explicit_ca_file_for_requests(self) -> None:
+        config = OPNsenseConfig(
+            base_url="https://opnsense.internal",
+            api_key="key",
+            api_secret="secret",
+            username="",
+            password="",
+            verify_tls=True,
+            timeout_seconds=5,
+            ca_file="/etc/siem/tls/opnsense-ca.crt",
+        )
+        self.assertEqual(
+            "/etc/siem/tls/opnsense-ca.crt",
+            config.requests_verify,
+        )
+
     def test_ngfw_state_is_read_from_device(self) -> None:
         client = FakeOPNsenseClient()
         state = get_opnsense_control_state("ngfw", client=client)
@@ -119,6 +158,45 @@ class OPNsenseControlRuntimeTests(unittest.TestCase):
             ("POST", "/api/core/backup/revert_backup/config-rollback.xml"),
             client.calls,
         )
+        self.assertEqual("1", client.rules[0]["enabled"])
+        audit.assert_called_once()
+
+    @patch("services.web.app.opnsense_control_runtime.append_audit_event")
+    def test_toggle_uses_savepoint_apply_verify_and_cancel(self, audit) -> None:
+        client = SavepointOPNsenseClient()
+        result = mutate_firewall(
+            "toggle",
+            {
+                "uuid": "11111111-1111-1111-1111-111111111111",
+                "enabled": False,
+            },
+            actor="admin",
+            client=client,
+        )
+        self.assertTrue(result["verified"])
+        self.assertEqual("revision-123", result["rollback_revision"])
+        self.assertIn(("POST", "/api/firewall/filter/apply/revision-123"), client.calls)
+        self.assertIn(
+            ("POST", "/api/firewall/filter/cancel_rollback/revision-123"),
+            client.calls,
+        )
+        audit.assert_called_once()
+
+    @patch("services.web.app.opnsense_control_runtime.append_audit_event")
+    def test_failed_savepoint_verification_reverts_revision(self, audit) -> None:
+        client = SavepointOPNsenseClient()
+        client.ignore_toggle = True
+        with self.assertRaisesRegex(RuntimeError, "could not be verified"):
+            mutate_firewall(
+                "toggle",
+                {
+                    "uuid": "11111111-1111-1111-1111-111111111111",
+                    "enabled": False,
+                },
+                actor="admin",
+                client=client,
+            )
+        self.assertIn(("POST", "/api/firewall/filter/revert/revision-123"), client.calls)
         self.assertEqual("1", client.rules[0]["enabled"])
         audit.assert_called_once()
 

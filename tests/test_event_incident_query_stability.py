@@ -177,6 +177,75 @@ class EventIncidentQueryStabilityTests(unittest.TestCase):
         self.assertEqual(["raw-1", "raw-2"], alert_ids)
         self.assertIn("toString(entity_key) = 'DESKTOP-5JMJVBH'", captured[0])
         self.assertIn("toInt64(rule_id) = 2604", captured[0])
+        self.assertNotIn("benchmark_run_id", captured[0])
+
+    def test_materialized_incident_alert_matching_prefers_explicit_alert_ids(self) -> None:
+        captured: list[str] = []
+
+        class Result:
+            def named_results(self):
+                return [{"alert_id": "raw-1"}]
+
+        class Client:
+            def query(self, sql):
+                captured.append(sql)
+                return Result()
+
+        original_client = self.deps.get_ch_client
+        try:
+            self.deps.get_ch_client = lambda: Client()
+            alert_ids = self.deps._match_alert_ids_for_materialized_incident(
+                {
+                    "entity_key": "endpoint-01",
+                    "rule_id": 2703,
+                    "alert_ids": ["raw-1", "raw-expired"],
+                },
+                limit=50,
+            )
+        finally:
+            self.deps.get_ch_client = original_client
+
+        self.assertEqual(["raw-1"], alert_ids)
+        self.assertIn("toString(alert_id) IN", captured[0])
+        self.assertIn("'raw-expired'", captured[0])
+        self.assertNotIn("toString(entity_key)", captured[0])
+
+    def test_materialized_incident_alert_matching_falls_back_when_explicit_ids_are_stale(self) -> None:
+        captured: list[str] = []
+
+        class Result:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def named_results(self):
+                return self.rows
+
+        class Client:
+            def query(self, sql):
+                captured.append(sql)
+                return Result([] if len(captured) == 1 else [{"alert_id": "raw-current"}])
+
+        original_client = self.deps.get_ch_client
+        try:
+            self.deps.get_ch_client = lambda: Client()
+            alert_ids = self.deps._match_alert_ids_for_materialized_incident(
+                {
+                    "entity_key": "rdegon",
+                    "rule_id": 2703,
+                    "alert_ids": ["raw-expired"],
+                    "ts_first": "2026-07-29 14:00:00",
+                    "ts_last": "2026-07-29 15:00:00",
+                },
+                limit=50,
+            )
+        finally:
+            self.deps.get_ch_client = original_client
+
+        self.assertEqual(["raw-current"], alert_ids)
+        self.assertEqual(2, len(captured))
+        self.assertIn("toString(alert_id) IN", captured[0])
+        self.assertIn("toString(entity_key) = 'rdegon'", captured[1])
+        self.assertIn("toInt64(rule_id) = 2703", captured[1])
 
     def test_incident_detail_resolves_id_from_raw_scan_fallback(self) -> None:
         original_fetch = self.deps.fetch_alerts_agg

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -32,6 +33,28 @@ class _FakeClient:
 
 
 class DeployRolloutRegressionTests(unittest.TestCase):
+    def test_vm4_deploy_rejects_wrong_ssh_target_hostname(self) -> None:
+        import deploy.vm4_enterprise_foundation_deploy as vm4_deploy
+
+        with patch.object(
+            vm4_deploy,
+            "_run_command",
+            return_value=(0, "lab-edge-01\n", ""),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Refusing VM4 deployment"):
+                vm4_deploy._assert_remote_identity(
+                    object(),
+                    expected_hostname="siem-web",
+                )
+
+    def test_vm4_deploy_uses_dedicated_ssh_target(self) -> None:
+        deploy_text = (
+            ROOT / "deploy" / "vm4_enterprise_foundation_deploy.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('os.getenv("SIEM_VM4_SSH_HOST") or public_host', deploy_text)
+        self.assertIn("_assert_remote_identity(client", deploy_text)
+
     def test_vm1_smoke_quotes_runtime_urls_with_query_strings(self) -> None:
         import deploy.vm1_ingest_fabric_smoke as vm1_smoke
 

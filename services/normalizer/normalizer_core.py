@@ -1077,7 +1077,32 @@ def _classify_execve_activity(result: Dict[str, Any]) -> None:
         else:
             _set_event_shape(result, category="defense_evasion", action="firewall_modify", event_type="linux_firewall_modified")
     elif executable in {"tar", "zip", "gzip", "bzip2", "xz", "7z"}:
-        _set_event_shape(result, category="exfiltration", action="archive", event_type="linux_data_compressed")
+        tar_extract = executable == "tar" and (
+            re.search(r"(?:^|\s)--(?:extract|get)(?:\s|$)", command_lower)
+            or re.search(r"(?:^|\s)-[a-z]*x[a-z]*(?:\s|$)", command_lower)
+        )
+        decompressor = executable in {"gzip", "bzip2", "xz"} and (
+            re.search(r"(?:^|\s)-(?:[a-z]*d[a-z]*|-decompress)(?:\s|$)", command_lower)
+            or " --decompress" in command_lower
+        )
+        seven_zip_extract = executable == "7z" and re.search(
+            r"(?:^|\s)(?:e|x)(?:\s|$)",
+            command_lower,
+        )
+        if tar_extract or decompressor or seven_zip_extract:
+            _set_event_shape(
+                result,
+                category="file",
+                action="archive_extract",
+                event_type="linux_archive_extracted",
+            )
+        else:
+            _set_event_shape(
+                result,
+                category="exfiltration",
+                action="archive",
+                event_type="linux_data_compressed",
+            )
     elif executable in {"curl", "wget"}:
         _set_event_shape(result, category="command_and_control", action="download", event_type="linux_download_utility")
     elif executable in {"nc", "ncat", "socat"}:

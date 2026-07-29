@@ -2191,6 +2191,31 @@ def _incident_materialized_alert_time_filter(selected: Dict[str, Any]) -> str:
 
 
 def _match_alert_ids_for_materialized_incident(selected: Dict[str, Any], *, limit: int = 5000) -> List[str]:
+    group_key = selected.get("group_key")
+    if not isinstance(group_key, dict):
+        group_key = _json_loads_safe(selected.get("group_key_json"))
+    if not isinstance(group_key, dict):
+        group_key = {}
+    explicit_alert_ids = _as_unique_text_list(selected.get("alert_ids"))
+    if not explicit_alert_ids:
+        explicit_alert_ids = _as_unique_text_list(group_key.get("alert_ids"))
+    if explicit_alert_ids:
+        query = f"""
+            SELECT alert_id
+            FROM siem.alerts_raw
+            WHERE toString(alert_id) IN (
+                {", ".join(_sql_quote(alert_id) for alert_id in explicit_alert_ids)}
+            )
+            LIMIT {max(1, min(int(limit or 5000), 5000))}
+        """
+        matched_alert_ids = [
+            str(row["alert_id"])
+            for row in get_ch_client().query(query).named_results()
+            if str(row.get("alert_id") or "").strip()
+        ]
+        if matched_alert_ids:
+            return matched_alert_ids
+
     entity_key = str(selected.get("entity_key") or "").strip()
     rule_id = _safe_int(selected.get("rule_id"), 0)
     rule_name = str(selected.get("rule_name") or selected.get("title") or "").strip()
@@ -2198,7 +2223,6 @@ def _match_alert_ids_for_materialized_incident(selected: Dict[str, Any], *, limi
         return []
     filters = [
         _incident_materialized_alert_time_filter(selected),
-        _alert_raw_operational_filter_sql(),
         f"toString(entity_key) = {_sql_quote(entity_key)}",
     ]
     if rule_id > 0:

@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcile SIEM guests and services after boot
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+AccuracySec=15s
+Persistent=true
+Unit=siem-cold-start-reconcile.service
+
+[Install]
+WantedBy=timers.target

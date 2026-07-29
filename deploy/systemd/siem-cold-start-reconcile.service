@@ -1,0 +1,13 @@
+[Unit]
+Description=SIEM dependency-aware cold-start reconciliation
+After=network-online.target pve-guests.service
+Wants=network-online.target
+Requires=pve-guests.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/siem-cold-start-reconcile
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

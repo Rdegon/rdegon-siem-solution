@@ -124,6 +124,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/runtime_humanization.py", "runtime_humanization.py"),
     FileMapping("services/web/app/proxmox_guest_ops.py", "proxmox_guest_ops.py"),
     FileMapping("services/web/app/incident_ai_runtime.py", "incident_ai_runtime.py"),
+    FileMapping("services/web/app/incident_delivery_runtime.py", "incident_delivery_runtime.py"),
     FileMapping("services/web/app/proxmox_fleet_runtime.py", "proxmox_fleet_runtime.py"),
     FileMapping("services/web/app/response_workflow_runtime.py", "response_workflow_runtime.py"),
     FileMapping("services/web/app/source_onboarding_runtime.py", "source_onboarding_runtime.py"),
@@ -166,6 +167,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/runtime_humanization.py", "services/web/app/runtime_humanization.py"),
     FileMapping("services/web/app/proxmox_guest_ops.py", "services/web/app/proxmox_guest_ops.py"),
     FileMapping("services/web/app/incident_ai_runtime.py", "services/web/app/incident_ai_runtime.py"),
+    FileMapping("services/web/app/incident_delivery_runtime.py", "services/web/app/incident_delivery_runtime.py"),
     FileMapping("services/web/app/proxmox_fleet_runtime.py", "services/web/app/proxmox_fleet_runtime.py"),
     FileMapping("services/web/app/response_workflow_runtime.py", "services/web/app/response_workflow_runtime.py"),
     FileMapping("services/web/app/source_onboarding_runtime.py", "services/web/app/source_onboarding_runtime.py"),
@@ -812,15 +814,36 @@ def _backup_file(
         raise RuntimeError(f"Failed to back up {remote_path}: {err.strip()}")
 
 
+def _assert_remote_identity(
+    client: paramiko.SSHClient,
+    *,
+    expected_hostname: str,
+) -> None:
+    code, out, err = _run_command(client, "hostname -s")
+    actual = str(out or "").strip().lower()
+    expected = str(expected_hostname or "").strip().lower()
+    if code != 0 or not expected or actual != expected:
+        raise RuntimeError(
+            "Refusing VM4 deployment because the SSH target identity does not match: "
+            f"expected={expected or '<empty>'} actual={actual or '<empty>'} "
+            f"error={str(err or '').strip()[:300]}"
+        )
+
+
 def main() -> int:
-    host = _required_env("SIEM_VM4_HOST")
+    public_host = _required_env("SIEM_VM4_HOST")
+    ssh_host = str(os.getenv("SIEM_VM4_SSH_HOST") or public_host).strip()
+    expected_hostname = str(
+        os.getenv("SIEM_VM4_EXPECTED_HOSTNAME") or "siem-web"
+    ).strip()
     user = _required_env("SIEM_VM4_USER")
     password = _required_env("SIEM_VM4_PASSWORD")
     remote_root = _required_env("SIEM_VM4_BASE_DIR", default=DEFAULT_REMOTE_ROOT)
     deploy_frontend = str(os.getenv("SIEM_VM4_DEPLOY_FRONTEND", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
     backup_root = f"/tmp/siem-web-backup-{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
 
-    client = _connect_client(host, user, password)
+    client = _connect_client(ssh_host, user, password)
+    _assert_remote_identity(client, expected_hostname=expected_hostname)
     sftp = client.open_sftp()
     try:
         print(f"remote_root={remote_root}")
@@ -854,6 +877,7 @@ def main() -> int:
             remote_source = _remote_path(remote_root, asset.remote_rel)
             _backup_file(client, asset.target_path, backup_root, sudo_password=password, use_sudo=True)
             install_cmd = (
+                f"install -d -m 0755 {shlex.quote(posixpath.dirname(asset.target_path))} && "
                 f"install -m {asset.mode} {shlex.quote(remote_source)} {shlex.quote(asset.target_path)}"
             )
             code, out, err = _run_command(client, install_cmd, sudo_password=password, use_sudo=True)
@@ -867,7 +891,7 @@ def main() -> int:
         identity_runtime = bootstrap_vm4_identity_governance(
             client,
             sftp,
-            host=host,
+            host=public_host,
             remote_root=remote_root,
             upload_root=upload_root,
             sudo_password=password,
@@ -1040,7 +1064,7 @@ def main() -> int:
 
         host_identity_cmd = (
             "set -eu && "
-            f"host_ip={shlex.quote(host)} && "
+            f"host_ip={shlex.quote(ssh_host)} && "
             "grep -Eq \"^${host_ip//./\\\\.}[[:space:]]+siem-web([[:space:]]|$)\" /etc/hosts || "
             "printf '%s siem-web siem-web.local\\n' \"$host_ip\" >> /etc/hosts"
         )

@@ -40,6 +40,41 @@ apply_rules = normalizer_module.apply_rules
 
 
 class NormalizerCoreTests(unittest.TestCase):
+    def test_tar_extract_is_not_classified_as_data_compression(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": (
+                    "<182>1 2026-07-29T15:05:13Z lab-edge-01 auditd - - - "
+                    'type=EXECVE msg=audit(1785337513.219:54082): argc=5 '
+                    'a0="tar" a1="-x" a2="-f" a3="-" a4="--warning=no-timestamp"'
+                ),
+                "source": "10.20.10.102",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("linux_archive_extracted", normalized.get("event.type"))
+        self.assertEqual("archive_extract", normalized.get("event.action"))
+
+    def test_tar_create_remains_data_compression_signal(self) -> None:
+        normalized = apply_rules(
+            [],
+            {
+                "source_type": "syslog",
+                "message": (
+                    "<182>1 2026-07-29T15:05:13Z app-01 auditd - - - "
+                    'type=EXECVE msg=audit(1785337513.219:54083): argc=4 '
+                    'a0="tar" a1="-czf" a2="/tmp/export.tgz" a3="/srv/data"'
+                ),
+                "source": "10.20.30.123",
+            },
+        )
+
+        assert normalized is not None
+        self.assertEqual("linux_data_compressed", normalized.get("event.type"))
+
     def test_copying_deployment_file_from_tmp_is_not_tmp_execution(self) -> None:
         normalized = apply_rules(
             [],

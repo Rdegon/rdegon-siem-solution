@@ -20,6 +20,16 @@ The SIEM core startup dependency order is managed by
 This order prevents storage from racing the router and prevents processing
 workers from starting before the production transport.
 
+The same deploy command installs `siem-cold-start-reconcile.timer` on Proxmox.
+It runs three minutes after boot and every two minutes afterwards. The job:
+
+- starts a stopped core guest in dependency order;
+- waits for OPNsense reachability and QEMU Guest Agent readiness;
+- checks the actual Kafka, ClickHouse, processing, ingest, Vault, Keycloak and
+  Web service contracts;
+- restarts only the failed guest service bundle and verifies it again;
+- reports a failed systemd unit when a dependency remains unavailable.
+
 Startup order:
 
 | Order | Guest | Purpose |
@@ -67,6 +77,8 @@ Run on Proxmox after power returns:
 systemctl --failed --no-pager --plain
 systemctl is-active pve-guests
 systemctl is-enabled pve-guests
+systemctl status siem-cold-start-reconcile.timer --no-pager
+systemctl status siem-cold-start-reconcile.service --no-pager
 qm list
 pct list
 pvesm status

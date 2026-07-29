@@ -50,7 +50,24 @@ function FirewallControl({
   const [draft, setDraft] = useState<FirewallDraft>(EMPTY_FIREWALL_DRAFT);
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState("");
-  const rules = data.firewall?.rules || [];
+  const [policyView, setPolicyView] = useState<"managed" | "native">("managed");
+  const [query, setQuery] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const rules = useMemo(() => data.firewall?.rules || [], [data.firewall?.rules]);
+  const visibleRules = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rules
+      .filter((rule) => (policyView === "managed" ? rule.managed : !rule.managed))
+      .filter((rule) => !needle || [
+        rule.description,
+        rule.interface,
+        rule.action,
+        rule.protocol,
+        rule.source,
+        rule.destination,
+        rule.destination_port,
+      ].some((value) => String(value || "").toLowerCase().includes(needle)));
+  }, [policyView, query, rules]);
 
   const runMutation = async (operation: string, body: Record<string, unknown>, label: string) => {
     setBusy(label);
@@ -64,6 +81,10 @@ function FirewallControl({
         }),
       );
       refresh();
+      if (operation === "create" || operation === "update") {
+        setDraft(EMPTY_FIREWALL_DRAFT);
+        setEditorOpen(false);
+      }
     } catch (error) {
       setResult(error instanceof Error ? error.message : String(error));
     } finally {
@@ -85,10 +106,15 @@ function FirewallControl({
       enabled: rule.enabled,
       log: Boolean(rule.log),
     });
+    setEditorOpen(true);
   };
 
   const saveRule = () => {
     const operation = draft.uuid ? "update" : "create";
+    if (!window.confirm(t(lang, {
+      en: `${draft.uuid ? "Apply changes to" : "Create"} firewall rule "${draft.description}" on OPNsense?`,
+      ru: `${draft.uuid ? "Применить изменения правила" : "Создать правило"} "${draft.description}" в OPNsense?`,
+    }))) return;
     void runMutation(operation, draft, draft.uuid ? "Update rule" : "Create rule");
   };
 
@@ -118,11 +144,42 @@ function FirewallControl({
           })}
           icon="control"
           actions={
-            <a className="react-link-button" href={data.device_url} target="_blank" rel="noreferrer">
-              OPNsense
-            </a>
+            <div className="react-actions">
+              <button
+                className="react-primary-button"
+                type="button"
+                onClick={() => {
+                  setDraft(EMPTY_FIREWALL_DRAFT);
+                  setEditorOpen(true);
+                }}
+              >
+                {t(lang, { en: "New managed rule", ru: "Новое управляемое правило" })}
+              </button>
+              <a className="react-link-button" href={data.device_url} target="_blank" rel="noreferrer">
+                OPNsense
+              </a>
+            </div>
           }
         />
+        <div className="react-actions react-wrap react-security-control-toolbar">
+          <div className="react-segmented react-segmented-compact">
+            <button type="button" className={policyView === "managed" ? "active" : ""} onClick={() => setPolicyView("managed")}>
+              {t(lang, { en: `SIEM managed (${data.firewall?.managed_rules || 0})`, ru: `Управляются SIEM (${data.firewall?.managed_rules || 0})` })}
+            </button>
+            <button type="button" className={policyView === "native" ? "active" : ""} onClick={() => setPolicyView("native")}>
+              {t(lang, {
+                en: `Native read-only (${Math.max(0, Number(data.firewall?.rules_total || 0) - Number(data.firewall?.managed_rules || 0))})`,
+                ru: `Системные, только чтение (${Math.max(0, Number(data.firewall?.rules_total || 0) - Number(data.firewall?.managed_rules || 0))})`,
+              })}
+            </button>
+          </div>
+          <input
+            className="react-input react-input-grow"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t(lang, { en: "Search policy, address, port...", ru: "Поиск правила, адреса, порта..." })}
+          />
+        </div>
         <div className="react-table-wrap">
           <table className="react-table">
             <thead>
@@ -137,23 +194,29 @@ function FirewallControl({
               </tr>
             </thead>
             <tbody>
-              {rules.map((rule) => (
+              {visibleRules.map((rule) => {
+                const mutable = rule.managed && !rule.legacy && !rule.automatic;
+                return (
                 <tr key={rule.uuid}>
                   <td><StatusBadge value={rule.enabled ? "enabled" : "disabled"} /></td>
                   <td>
                     <strong>{rule.description}</strong>
-                    {!rule.managed ? <div className="react-muted">read-only</div> : null}
+                    {!mutable ? (
+                      <div className="react-muted">
+                        {t(lang, { en: "Owned by native OPNsense policy", ru: "Управляется штатной политикой OPNsense" })}
+                      </div>
+                    ) : null}
                   </td>
                   <td>{rule.interface || "n/a"}</td>
                   <td>{rule.action || "n/a"} / {rule.protocol || "any"}</td>
                   <td>{rule.source || "any"}</td>
                   <td>{rule.destination || "any"}{rule.destination_port ? `:${rule.destination_port}` : ""}</td>
                   <td>
-                    <div className="react-actions">
+                    {mutable ? <div className="react-actions">
                       <button
                         className="react-link-button"
                         type="button"
-                        disabled={!rule.managed || Boolean(busy)}
+                        disabled={Boolean(busy)}
                         onClick={() => void runMutation(
                           "toggle",
                           { uuid: rule.uuid, enabled: !rule.enabled },
@@ -167,7 +230,7 @@ function FirewallControl({
                       <button
                         className="react-link-button"
                         type="button"
-                        disabled={!rule.managed || Boolean(busy)}
+                        disabled={Boolean(busy)}
                         onClick={() => editRule(rule)}
                       >
                         {t(lang, { en: "Edit", ru: "Изменить" })}
@@ -175,28 +238,33 @@ function FirewallControl({
                       <button
                         className="react-link-button"
                         type="button"
-                        disabled={!rule.managed || Boolean(busy)}
+                        disabled={Boolean(busy)}
                         onClick={() => deleteRule(rule)}
                       >
                         {t(lang, { en: "Delete", ru: "Удалить" })}
                       </button>
-                    </div>
+                    </div> : (
+                      <span className="react-muted">{t(lang, { en: "View in OPNsense", ru: "Просмотр в OPNsense" })}</span>
+                    )}
                   </td>
                 </tr>
-              ))}
+              )})}
+              {!visibleRules.length ? (
+                <tr><td colSpan={7}>{t(lang, { en: "No policy rows match the current filter.", ru: "Нет правил, соответствующих фильтру." })}</td></tr>
+              ) : null}
             </tbody>
           </table>
         </div>
       </section>
 
-      <section className="react-card">
+      {editorOpen ? <section className="react-card">
         <PanelHeader
           title={draft.uuid
             ? t(lang, { en: "Edit managed rule", ru: "Изменить управляемое правило" })
             : t(lang, { en: "New managed rule", ru: "Новое управляемое правило" })}
           subtitle={t(lang, {
-            en: "Every change is verified against the device and protected by an OPNsense configuration backup.",
-            ru: "Каждое изменение проверяется на устройстве и защищено резервной копией конфигурации OPNsense.",
+            en: "Every change is verified on-device. OPNsense automatically rolls it back unless SIEM confirms the verified policy.",
+            ru: "Каждое изменение проверяется на устройстве. OPNsense автоматически откатит его, пока SIEM не подтвердит проверенную политику.",
           })}
           icon="rules"
         />
@@ -265,14 +333,15 @@ function FirewallControl({
               ? t(lang, { en: "Save rule", ru: "Сохранить правило" })
               : t(lang, { en: "Create rule", ru: "Создать правило" }))}
           </button>
-          {draft.uuid ? (
-            <button className="react-link-button" type="button" disabled={Boolean(busy)} onClick={() => setDraft(EMPTY_FIREWALL_DRAFT)}>
-              {t(lang, { en: "Cancel", ru: "Отмена" })}
-            </button>
-          ) : null}
+          <button className="react-link-button" type="button" disabled={Boolean(busy)} onClick={() => {
+            setDraft(EMPTY_FIREWALL_DRAFT);
+            setEditorOpen(false);
+          }}>
+            {t(lang, { en: "Cancel", ru: "Отмена" })}
+          </button>
           {result ? <span className="react-muted">{result}</span> : null}
         </div>
-      </section>
+      </section> : result ? <div className="react-callout">{result}</div> : null}
     </>
   );
 }
@@ -287,8 +356,17 @@ function IdsControl({
   const { lang, formatTimestamp } = useShellContext();
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState("");
-  const rulesets = data.ids?.rulesets || [];
+  const [rulesetView, setRulesetView] = useState<"enabled" | "disabled" | "all">("enabled");
+  const [query, setQuery] = useState("");
+  const rulesets = useMemo(() => data.ids?.rulesets || [], [data.ids?.rulesets]);
   const alerts = data.ids?.alerts || [];
+  const visibleRulesets = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rulesets
+      .filter((ruleset) => rulesetView === "all" || ruleset.enabled === (rulesetView === "enabled"))
+      .filter((ruleset) => !needle || `${ruleset.filename} ${ruleset.description}`.toLowerCase().includes(needle))
+      .slice(0, 30);
+  }, [query, rulesetView, rulesets]);
 
   const run = async (operation: string, body: Record<string, unknown>, label: string) => {
     setBusy(label);
@@ -304,6 +382,19 @@ function IdsControl({
     }
   };
 
+  const toggleRuleset = (ruleset: IdsRulesetRecord) => {
+    const enabled = !ruleset.enabled;
+    if (!window.confirm(t(lang, {
+      en: `${enabled ? "Enable" : "Disable"} Suricata ruleset "${ruleset.filename}" and reload the active IPS policy?`,
+      ru: `${enabled ? "Включить" : "Выключить"} набор "${ruleset.filename}" и перезагрузить действующую политику IPS?`,
+    }))) return;
+    void run(
+      "toggle_ruleset",
+      { filename: ruleset.filename, enabled },
+      enabled ? "Enable ruleset" : "Disable ruleset",
+    );
+  };
+
   return (
     <>
       <section className="react-card">
@@ -316,18 +407,48 @@ function IdsControl({
               <button className="react-link-button" type="button" disabled={Boolean(busy)} onClick={() => void run("reload", {}, "Reload rules")}>
                 {t(lang, { en: "Reload", ru: "Перезагрузить" })}
               </button>
-              <button className="react-primary-button" type="button" disabled={Boolean(busy)} onClick={() => void run("update", {}, "Update signatures")}>
+              <button className="react-primary-button" type="button" disabled={Boolean(busy)} onClick={() => {
+                if (window.confirm(t(lang, {
+                  en: "Download signature updates and reload the active IPS policy?",
+                  ru: "Скачать обновления сигнатур и перезагрузить действующую политику IPS?",
+                }))) void run("update", {}, "Update signatures");
+              }}>
                 {t(lang, { en: "Update signatures", ru: "Обновить сигнатуры" })}
               </button>
             </div>
           }
         />
         {result ? <div className="react-callout">{result}</div> : null}
+        <div className="react-actions react-wrap react-security-control-toolbar">
+          <div className="react-segmented react-segmented-compact">
+            <button type="button" className={rulesetView === "enabled" ? "active" : ""} onClick={() => setRulesetView("enabled")}>
+              {t(lang, { en: "Enabled", ru: "Включенные" })}
+            </button>
+            <button type="button" className={rulesetView === "disabled" ? "active" : ""} onClick={() => setRulesetView("disabled")}>
+              {t(lang, { en: "Disabled", ru: "Выключенные" })}
+            </button>
+            <button type="button" className={rulesetView === "all" ? "active" : ""} onClick={() => setRulesetView("all")}>
+              {t(lang, { en: "All", ru: "Все" })}
+            </button>
+          </div>
+          <input
+            className="react-input react-input-grow"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t(lang, { en: "Search ruleset...", ru: "Поиск набора правил..." })}
+          />
+          <span className="react-muted">
+            {t(lang, {
+              en: `Showing ${visibleRulesets.length} of ${rulesets.length}`,
+              ru: `Показано ${visibleRulesets.length} из ${rulesets.length}`,
+            })}
+          </span>
+        </div>
         <div className="react-table-wrap">
           <table className="react-table">
             <thead><tr><th>{t(lang, { en: "State", ru: "Состояние" })}</th><th>Ruleset</th><th>{t(lang, { en: "Description", ru: "Описание" })}</th><th>{t(lang, { en: "Action", ru: "Действие" })}</th></tr></thead>
             <tbody>
-              {rulesets.map((ruleset: IdsRulesetRecord) => (
+              {visibleRulesets.map((ruleset: IdsRulesetRecord) => (
                 <tr key={ruleset.filename}>
                   <td><StatusBadge value={ruleset.enabled ? "enabled" : "disabled"} /></td>
                   <td>{ruleset.filename}</td>
@@ -337,7 +458,7 @@ function IdsControl({
                       className="react-link-button"
                       type="button"
                       disabled={Boolean(busy)}
-                      onClick={() => void run("toggle_ruleset", { filename: ruleset.filename }, "Toggle ruleset")}
+                      onClick={() => toggleRuleset(ruleset)}
                     >
                       {ruleset.enabled
                         ? t(lang, { en: "Disable", ru: "Выключить" })
@@ -346,6 +467,9 @@ function IdsControl({
                   </td>
                 </tr>
               ))}
+              {!visibleRulesets.length ? (
+                <tr><td colSpan={4}>{t(lang, { en: "No rulesets match the current filter.", ru: "Нет наборов, соответствующих фильтру." })}</td></tr>
+              ) : null}
             </tbody>
           </table>
         </div>

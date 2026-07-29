@@ -116,6 +116,11 @@ def _install_alert_stubs() -> None:
     incident_ai_module.run_incident_host_action = lambda *args, **kwargs: {}  # noqa: E731
     sys.modules[f"{APP_PACKAGE}.incident_ai_runtime"] = incident_ai_module
 
+    incident_delivery_module = types.ModuleType(f"{APP_PACKAGE}.incident_delivery_runtime")
+    incident_delivery_module.enrich_incidents_with_delivery = lambda rows, **kwargs: (rows, {})  # noqa: E731
+    incident_delivery_module.record_incident_delivery = lambda *args, **kwargs: {}  # noqa: E731
+    sys.modules[f"{APP_PACKAGE}.incident_delivery_runtime"] = incident_delivery_module
+
     from services.web.app.operational_filters import contains_non_operational_marker, is_non_operational_record
 
     operational_filters_module = types.ModuleType(f"{APP_PACKAGE}.operational_filters")
@@ -204,6 +209,23 @@ class IncidentNoiseFilterTests(unittest.TestCase):
         row = {"rule_id": 8355, "rule_name": "MC-001 Minecraft server stopped"}
         self.assertEqual([], self.alerts_module._filter_rows([row], "main", ""))
         self.assertEqual([row], self.alerts_module._filter_rows([row], "health", ""))
+
+    def test_all_hb_rules_are_routed_to_health_scope(self) -> None:
+        row = {
+            "rule_id": 8011,
+            "rule_name": "HB-011 Host event volume spike",
+        }
+        self.assertEqual([], self.alerts_module._filter_rows([row], "main", ""))
+        self.assertEqual([row], self.alerts_module._filter_rows([row], "health", ""))
+
+    def test_informational_sudo_telemetry_is_not_an_incident(self) -> None:
+        row = {
+            "rule_id": 8067,
+            "rule_name": "AUTH-007 sudo command",
+            "severity_agg": "info",
+        }
+        self.assertEqual([], self.alerts_module._filter_rows([row], "main", ""))
+        self.assertEqual([], self.alerts_module._filter_rows([row], "health", ""))
 
 
 if __name__ == "__main__":

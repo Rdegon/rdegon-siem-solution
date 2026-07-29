@@ -22,6 +22,10 @@ from ..deps import (
     update_alert_assignment,
 )
 from ..incident_ai_runtime import run_incident_host_action
+from ..incident_delivery_runtime import (
+    enrich_incidents_with_delivery,
+    record_incident_delivery,
+)
 try:
     from ..operational_filters import is_non_operational_record
 except ImportError:  # pragma: no cover - local test fallback
@@ -186,10 +190,11 @@ HEALTH_SIGNAL_RULE_IDS = {
 }
 HEALTH_SIGNAL_PATTERN = re.compile(
     r"\b(?:host cpu pressure|source_silence|host_cpu_pressure|sustained_(?:cpu|memory|iowait|load)_pressure)\b"
-    r"|^hb-00[1-4]\b"
+    r"|\bhb-\d+\b"
     r"|^met-\d+\b",
     re.IGNORECASE,
 )
+INFORMATIONAL_ALERT_RULE_IDS = {8067}
 
 
 def _is_health_signal_alert(row: dict) -> bool:
@@ -211,6 +216,17 @@ def _is_health_signal_alert(row: dict) -> bool:
         "host_cpu_pressure",
         "sustained_iowait_pressure",
     }
+
+
+def _is_informational_alert(row: dict) -> bool:
+    try:
+        rule_id = int(row.get("rule_id") or 0)
+    except (TypeError, ValueError):
+        rule_id = 0
+    severity = str(
+        row.get("severity_agg") or row.get("severity") or ""
+    ).strip().lower()
+    return rule_id in INFORMATIONAL_ALERT_RULE_IDS or severity in {"info", "informational"}
 
 
 def _matches_alert_query(row: dict, query: str) -> bool:
@@ -241,7 +257,11 @@ def _matches_alert_query(row: dict, query: str) -> bool:
 
 
 def _filter_rows(rows: list[dict], scope: str, query: str) -> list[dict]:
-    filtered = [row for row in rows if _matches_alert_query(row, query)]
+    filtered = [
+        row
+        for row in rows
+        if _matches_alert_query(row, query) and not _is_informational_alert(row)
+    ]
     if scope == "vpn-noise":
         return [row for row in filtered if _is_vpn_noise_alert(row)]
     operational = [row for row in filtered if not _is_internal_maintenance_alert(row)]
@@ -318,7 +338,24 @@ async def incidents_api(
             to_ts=to_ts,
         )
         filtered_rows = _filter_rows(rows, safe_scope, q)
-        items = filtered_rows[:safe_limit]
+        if safe_scope == "main":
+            items, notification_delivery = await run_in_threadpool(
+                enrich_incidents_with_delivery,
+                filtered_rows[:safe_limit],
+                view=safe_view,
+            )
+            notification_delivery["applicable"] = True
+        else:
+            items = filtered_rows[:safe_limit]
+            notification_delivery = {
+                "channel": "telegram",
+                "queue_count": 0,
+                "delivered": 0,
+                "pending": 0,
+                "failed": 0,
+                "synchronized": True,
+                "applicable": False,
+            }
         payload = {
             'view': safe_view,
             'scope': safe_scope,
@@ -332,6 +369,7 @@ async def incidents_api(
             'returned_count': len(items),
             'items': items,
             'metrics': _fast_list_metrics(filtered_rows),
+            'notification_delivery': notification_delivery,
             'status_transitions': {key: sorted(values) for key, values in INCIDENT_STATUS_TRANSITIONS.items()},
         }
         _INCIDENT_LIST_CACHE[cache_key] = (now_ts, payload)
@@ -341,6 +379,25 @@ async def incidents_api(
         return JSONResponse(payload)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({'error': str(exc)}, status_code=400)
+
+
+@router.post('/api/notification-delivery/incidents', response_class=JSONResponse)
+async def incident_notification_delivery_api(
+    payload: dict = Body(default={}),
+    user=Depends(require_permissions('incidents:update')),
+) -> JSONResponse:
+    try:
+        item = await run_in_threadpool(
+            record_incident_delivery,
+            payload,
+            actor=str(getattr(user, 'username', 'service') or 'service'),
+        )
+        _INCIDENT_LIST_CACHE.clear()
+        return JSONResponse({'status': 'recorded', 'item': item})
+    except ValueError as exc:
+        return JSONResponse({'error': str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(_safe_error("Incident notification delivery", exc), status_code=503)
 
 
 @router.get('/api/incidents/{view}/{record_id:path}', response_class=JSONResponse)
