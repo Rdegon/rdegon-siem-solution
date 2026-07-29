@@ -599,6 +599,16 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         self.assertIn('--userid "$user_id"', script)
         self.assertIn('--uid "$user_id"', script)
 
+    def test_edge_publishes_gitea_ssh_transport(self) -> None:
+        source = (
+            ROOT / "deploy" / "network" / "lab_edge_opnsense_transit.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'tcp dport 2222 dnat to 10.20.30.123:2222',
+            source,
+        )
+        self.assertIn("10.20.30.123:2222", source)
+
 
 if __name__ == "__main__":
     unittest.main()
