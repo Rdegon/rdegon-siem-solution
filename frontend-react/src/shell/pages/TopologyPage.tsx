@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape from "cytoscape";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { Icon } from "../chrome";
 import { useShellContext } from "../context";
 import { useAsyncData } from "../hooks";
-import { DrawerFieldGrid, EmptyState, KeyValue, MetricStrip, PanelHeader, StatusBadge } from "../ui";
+import { EmptyState, MetricStrip, PanelHeader, StatusBadge } from "../ui";
 import type { HostAccessProfileRecord, NetworkPacketFlowRecord, NetworkTopologyResponse, TopologyEdgeRecord, TopologyNodeRecord } from "../types";
 
 const TOPOLOGY_LANES: Record<string, { label: string; order: number }> = {
@@ -43,6 +44,17 @@ type TopologyGraphCommand = {
 
 type TopologyMapMode = "network" | "telemetry" | "posture" | "force";
 type NetworkSegment = "external" | "mgmt" | "sec" | "servers-games" | "lab" | "users" | "legacy" | "unassigned";
+
+const NETWORK_SEGMENTS: Array<{ id: NetworkSegment; label: string; cidr: string }> = [
+  { id: "external", label: "External", cidr: "Observed WAN" },
+  { id: "mgmt", label: "Management", cidr: "192.168.3.0/24" },
+  { id: "sec", label: "Security", cidr: "10.20.10.0/24" },
+  { id: "servers-games", label: "Servers / games", cidr: "10.20.20.0/24" },
+  { id: "lab", label: "Lab", cidr: "10.20.30.0/24" },
+  { id: "users", label: "Users", cidr: "10.20.40.0/24" },
+  { id: "legacy", label: "Legacy", cidr: "192.168.1.0/24" },
+  { id: "unassigned", label: "Unassigned", cidr: "No segment" },
+];
 
 type HostAccessForm = {
   profile_id: string;
@@ -527,6 +539,7 @@ function buildCytoscapeElements(nodes: TopologyGraphNode[], edges: TopologyEdgeR
           source: edge.source,
           target: edge.target,
           label: safeText(edge.label || edge.type, ""),
+          type: edge.type,
           width: edgeWidth(edge),
           events: Number(edge.events || 0),
         },
@@ -602,7 +615,7 @@ const CYTOSCAPE_STYLES: cytoscape.StylesheetJson = [
       "border-style": "solid",
       "border-width": 1,
       color: "rgba(190, 205, 226, 0.82)",
-      "font-family": "var(--font-mono)",
+      "font-family": "IBM Plex Mono, Consolas, monospace",
       "font-size": 14,
       "font-weight": 900,
       "min-zoomed-font-size": 1,
@@ -640,7 +653,7 @@ const CYTOSCAPE_STYLES: cytoscape.StylesheetJson = [
     },
   },
   {
-    selector: "node",
+    selector: "node[size]",
     style: {
       width: "data(size)",
       height: "data(size)",
@@ -649,7 +662,7 @@ const CYTOSCAPE_STYLES: cytoscape.StylesheetJson = [
       "border-color": "rgba(141, 167, 198, 0.48)",
       "border-width": 2,
       color: "#eef7ff",
-      "font-family": "var(--font-mono)",
+      "font-family": "IBM Plex Mono, Consolas, monospace",
       "font-size": 12,
       "font-weight": 800,
       "min-zoomed-font-size": 1,
@@ -824,6 +837,15 @@ const CYTOSCAPE_STYLES: cytoscape.StylesheetJson = [
   {
     selector: "edge.selected-edge",
     style: {
+      label: "data(label)",
+      color: "#dcecff",
+      "font-family": "IBM Plex Mono, Consolas, monospace",
+      "font-size": 10,
+      "font-weight": 800,
+      "text-background-color": "#06111c",
+      "text-background-opacity": 0.9,
+      "text-background-padding": 3,
+      "text-rotation": "autorotate",
       opacity: 1,
       width: 4,
       "z-index": 12,
@@ -917,7 +939,6 @@ function CytoscapeTopologyCanvas({
       style: CYTOSCAPE_STYLES,
       minZoom: 0.3,
       maxZoom: 2.6,
-      wheelSensitivity: 0.18,
       boxSelectionEnabled: false,
     });
     cyRef.current = cy;
@@ -958,6 +979,18 @@ function CytoscapeTopologyCanvas({
 
   useEffect(() => {
     const cy = cyRef.current;
+    if (!cy || !selectedNodeId) return;
+    const selected = cy.$id(selectedNodeId);
+    if (!selected.length) return;
+    const neighborhood = selected.closedNeighborhood();
+    cy.animate({
+      fit: { eles: neighborhood, padding: 110 },
+      duration: 360,
+    });
+  }, [selectedNodeId]);
+
+  useEffect(() => {
+    const cy = cyRef.current;
     if (!cy || command.nonce === 0) return;
     const center = { x: cy.width() / 2, y: cy.height() / 2 };
     if (command.kind === "zoom-in") {
@@ -977,9 +1010,6 @@ function CytoscapeTopologyCanvas({
   return (
     <div className="react-topology-widget">
       <div className="react-topology-cytoscape" ref={containerRef} aria-label="Interactive Cytoscape network topology widget" />
-      <div className="react-topology-widget-hint">
-        Cytoscape.js widget: drag nodes, pan canvas, wheel to zoom, click a node for host details and SOAR access card.
-      </div>
     </div>
   );
 }
@@ -2736,7 +2766,9 @@ export function TopologyPage() {
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [hoveredNodeId, setHoveredNodeId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [mapMode, setMapMode] = useState<TopologyMapMode>("network");
+  const [mapMode, setMapMode] = useState<TopologyMapMode>("force");
+  const [segmentScope, setSegmentScope] = useState<"all" | NetworkSegment>("all");
+  const [layerScope, setLayerScope] = useState("all");
   const [graphZoom, setGraphZoom] = useState(100);
   const [graphCommand, setGraphCommand] = useState<TopologyGraphCommand>({ kind: "fit", nonce: 0 });
   const [hostForm, setHostForm] = useState<HostAccessForm>(() => formFromNode(null));
@@ -2763,6 +2795,28 @@ export function TopologyPage() {
     () => normalizedTopology.edges.filter((edge: TopologyEdgeRecord) => graphIndex.has(edge.source) && graphIndex.has(edge.target)),
     [graphIndex, normalizedTopology.edges],
   );
+  const segmentCounts = useMemo(() => {
+    const counts = new Map<NetworkSegment, number>();
+    for (const node of graphNodes) {
+      const segment = nodeNetworkSegment(node);
+      counts.set(segment, (counts.get(segment) || 0) + 1);
+    }
+    return counts;
+  }, [graphNodes]);
+  const scopedNodes = useMemo(
+    () =>
+      graphNodes.filter((node) => {
+        if (segmentScope !== "all" && nodeNetworkSegment(node) !== segmentScope) return false;
+        if (layerScope !== "all" && node.lane !== layerScope) return false;
+        return true;
+      }),
+    [graphNodes, layerScope, segmentScope],
+  );
+  const scopedNodeIds = useMemo(() => new Set(scopedNodes.map((node) => node.id)), [scopedNodes]);
+  const scopedEdges = useMemo(
+    () => visibleEdges.filter((edge) => scopedNodeIds.has(edge.source) && scopedNodeIds.has(edge.target)),
+    [scopedNodeIds, visibleEdges],
+  );
   const selectedProfiles = useMemo(
     () => (selectedNode ? (state.data?.host_access_profiles || []).filter((profile) => profileMatchesNode(profile, selectedNode)) : []),
     [selectedNode, state.data?.host_access_profiles],
@@ -2773,10 +2827,36 @@ export function TopologyPage() {
     setFormMessage("");
   }, [selectedNode]);
 
+  useEffect(() => {
+    if (selectedNodeId && !scopedNodeIds.has(selectedNodeId)) setSelectedNodeId("");
+  }, [scopedNodeIds, selectedNodeId]);
+
   const data = state.data;
-  const selectedEdges = selectedNode
-    ? visibleEdges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id)
-    : [];
+  const selectedEdges = useMemo(
+    () => (selectedNode ? visibleEdges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id) : []),
+    [selectedNode, visibleEdges],
+  );
+  const selectedRelations = useMemo(
+    () =>
+      selectedEdges
+        .map((edge) => {
+          const otherId = edge.source === selectedNodeId ? edge.target : edge.source;
+          return { edge, node: graphIndex.get(otherId) || null };
+        })
+        .filter((item) => item.node)
+        .sort((left, right) => Number(right.edge.events || 0) - Number(left.edge.events || 0)),
+    [graphIndex, selectedEdges, selectedNodeId],
+  );
+  const focusCandidates = useMemo(
+    () =>
+      [...scopedNodes]
+        .sort((left, right) => right.degree - left.degree || Number(right.events || 0) - Number(left.events || 0))
+        .slice(0, 7),
+    [scopedNodes],
+  );
+  const evidencePivot = selectedNode
+    ? safeText(selectedNode.source_name || selectedNode.ip || nodeHostname(selectedNode) || selectedNode.label, "")
+    : "";
   const packetFlows = useMemo(
     () => [...(data?.packet_flows || [])].sort((left, right) => Number(left.order || 0) - Number(right.order || 0)),
     [data?.packet_flows],
@@ -2863,17 +2943,21 @@ export function TopologyPage() {
       <section className="react-topology-shell">
         <div className="react-topology-toolbar">
           <div className="react-topology-mode-switch" aria-label="Topology view">
-            <button type="button" className={mapMode === "network" ? "active" : ""} onClick={() => setMapMode("network")}>
-              Segments
+            <button type="button" className={mapMode === "force" ? "active" : ""} onClick={() => setMapMode("force")}>
+              <Icon name="map" size={14} />
+              Investigate
             </button>
             <button type="button" className={mapMode === "telemetry" ? "active" : ""} onClick={() => setMapMode("telemetry")}>
+              <Icon name="ingest" size={14} />
               Telemetry
             </button>
             <button type="button" className={mapMode === "posture" ? "active" : ""} onClick={() => setMapMode("posture")}>
-              Coverage
+              <Icon name="vuln" size={14} />
+              Exposure
             </button>
-            <button type="button" className={mapMode === "force" ? "active" : ""} onClick={() => setMapMode("force")}>
-              Graph
+            <button type="button" className={mapMode === "network" ? "active" : ""} onClick={() => setMapMode("network")}>
+              <Icon name="assets" size={14} />
+              Blueprint
             </button>
           </div>
           <div className="react-topology-controls">
@@ -2896,7 +2980,7 @@ export function TopologyPage() {
                   Fit
                 </button>
                 <button type="button" className="react-link-button" onClick={() => issueGraphCommand("layout")}>
-                  Layout
+                  Arrange
                 </button>
               </>
             ) : null}
@@ -2907,26 +2991,87 @@ export function TopologyPage() {
         </div>
         <div className="react-topology-runtime-line">
           <span>Generated {formatTimestamp(data.generated_ts, "full")}</span>
-          <span>{visibleEdges.length.toLocaleString()} runtime links</span>
+          <span>{scopedNodes.length.toLocaleString()} / {graphNodes.length.toLocaleString()} nodes</span>
+          <span>{scopedEdges.length.toLocaleString()} runtime links</span>
           {(data.layers || []).map((layer) => (
             <span key={safeText(layer.id)}>{safeText(layer.title)} {Number(layer.count || 0).toLocaleString()}</span>
           ))}
         </div>
-        <div className="react-topology-canvas-stage">
-          {mapMode !== "force" ? (
-            <OlympusNetworkTopology
-              nodes={graphNodes}
-              edges={visibleEdges}
-              mode={mapMode}
-              selectedNodeId={selectedNodeId}
-              searchTerm={searchTerm}
-              onSelectNode={setSelectedNodeId}
-            />
-          ) : (
-            <>
+        <div className="react-topology-workspace">
+          <aside className="react-topology-scope" aria-label="Topology scope">
+            <div className="react-topology-pane-head">
+              <div>
+                <span>Scope</span>
+                <strong>Network segments</strong>
+              </div>
+              {(segmentScope !== "all" || layerScope !== "all") ? (
+                <button
+                  type="button"
+                  className="react-topology-text-action"
+                  onClick={() => {
+                    setSegmentScope("all");
+                    setLayerScope("all");
+                  }}
+                >
+                  Reset
+                </button>
+              ) : null}
+            </div>
+            <div className="react-topology-filter-list">
+              <button
+                type="button"
+                className={segmentScope === "all" ? "active" : ""}
+                onClick={() => setSegmentScope("all")}
+              >
+                <i className="segment-all" />
+                <span>All segments<small>Complete runtime</small></span>
+                <b>{graphNodes.length}</b>
+              </button>
+              {NETWORK_SEGMENTS.filter((segment) => Number(segmentCounts.get(segment.id) || 0) > 0).map((segment) => (
+                <button
+                  type="button"
+                  key={segment.id}
+                  className={segmentScope === segment.id ? "active" : ""}
+                  onClick={() => setSegmentScope(segment.id)}
+                >
+                  <i className={`segment-${segment.id}`} />
+                  <span>{segment.label}<small>{segment.cidr}</small></span>
+                  <b>{segmentCounts.get(segment.id) || 0}</b>
+                </button>
+              ))}
+            </div>
+            <div className="react-topology-pane-section">
+              <span>Layer</span>
+              <select className="react-select" value={layerScope} onChange={(event) => setLayerScope(event.target.value)}>
+                <option value="all">All runtime layers</option>
+                {Object.entries(TOPOLOGY_LANES).map(([laneId, lane]) => (
+                  <option key={laneId} value={laneId}>{lane.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="react-topology-signal-legend" aria-label="Signal legend">
+              <span>Signals</span>
+              <div><i className="tone-pipeline" />Telemetry path</div>
+              <div><i className="tone-attack" />Attack observation</div>
+              <div><i className="tone-attention" />Coverage gap</div>
+              <div><i className="tone-neutral" />Runtime relation</div>
+            </div>
+          </aside>
+
+          <div className="react-topology-canvas-stage">
+            {mapMode !== "force" ? (
+              <OlympusNetworkTopology
+                nodes={scopedNodes}
+                edges={scopedEdges}
+                mode={mapMode}
+                selectedNodeId={selectedNodeId}
+                searchTerm={searchTerm}
+                onSelectNode={setSelectedNodeId}
+              />
+            ) : (
               <CytoscapeTopologyCanvas
-                nodes={graphNodes}
-                edges={visibleEdges}
+                nodes={scopedNodes}
+                edges={scopedEdges}
                 selectedNodeId={selectedNodeId}
                 hoveredNodeId={hoveredNodeId}
                 searchTerm={searchTerm}
@@ -2935,59 +3080,115 @@ export function TopologyPage() {
                 onHoverNode={setHoveredNodeId}
                 onZoomChange={setGraphZoom}
               />
-              <div className="react-topology-contour-legend" aria-label="Topology contour legend">
-                {Object.entries(TOPOLOGY_LANES).map(([laneId, lane]) => (
-                  <span key={laneId} className={`contour-${laneId}`}>
-                    {lane.label}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-          {selectedNode ? (
-            <div className={`react-topology-floating-card type-${cytoscapeClassName(selectedNode.type)} kind-${cytoscapeClassName(nodeSourceKind(selectedNode))}`}>
-              <div className="react-top-kicker">{nodeCardTitle(selectedNode)}</div>
-              <strong>{nodeDisplayLabel(selectedNode)}</strong>
-              <span>{nodeDisplayMeta(selectedNode)}</span>
-              <div className="react-topology-floating-grid">
-                <span>
-                  Kind <b>{nodeSourceKindLabel(selectedNode)}</b>
-                </span>
-                <span>
-                  Hostname <b>{nodeHostname(selectedNode) || "n/a"}</b>
-                </span>
-                <span>
-                  IP <b>{safeText(selectedNode.ip)}</b>
-                </span>
-                <span>
-                  Events <b>{Number(selectedNode.events || 0).toLocaleString()}</b>
-                </span>
-                <span>
-                  Edges <b>{selectedEdges.length}</b>
-                </span>
-                <span>
-                  Status <b>{safeText(selectedNode.status, "observed")}</b>
-                </span>
-              </div>
-              <div className="react-actions react-wrap">
-                {selectedNode.href ? (
-                  <Link className="react-link-button" to={String(selectedNode.href).replace(/^\/app/, "")}>
-                    {nodeOpenLabel(selectedNode)}
-                  </Link>
-                ) : null}
-                <button type="button" className="react-link-button" onClick={() => setSelectedNodeId("")}>
-                  Close
-                </button>
-              </div>
+            )}
+            <div className="react-topology-canvas-status">
+              <span>{mapMode === "force" ? "LIVE RELATION GRAPH" : "REFERENCE VIEW"}</span>
+              <b>{scopedNodes.length} nodes</b>
+              <b>{scopedEdges.length} links</b>
+              {selectedNode ? <b>Focus: {nodeDisplayLabel(selectedNode)}</b> : null}
             </div>
-          ) : null}
+          </div>
+
+          <aside className="react-topology-inspector" aria-label="Topology inspector">
+            {selectedNode ? (
+              <>
+                <div className="react-topology-inspector-identity">
+                  <div className={`react-topology-node-mark tone-${nodeTone(selectedNode)}`}>{nodeGlyph(selectedNode)}</div>
+                  <div>
+                    <span>{nodeCardTitle(selectedNode)}</span>
+                    <strong>{nodeDisplayLabel(selectedNode)}</strong>
+                    <small>{nodeDisplayMeta(selectedNode)}</small>
+                  </div>
+                  <button type="button" className="react-icon-button" title="Clear focus" aria-label="Clear focus" onClick={() => setSelectedNodeId("")}>
+                    x
+                  </button>
+                </div>
+                <div className="react-topology-inspector-grid">
+                  <span>Status<b><StatusBadge value={safeText(selectedNode.status, "observed")} /></b></span>
+                  <span>Segment<b>{NETWORK_SEGMENTS.find((item) => item.id === nodeNetworkSegment(selectedNode))?.label || "Unassigned"}</b></span>
+                  <span>Events / 24h<b>{Number(selectedNode.events || 0).toLocaleString()}</b></span>
+                  <span>Relations<b>{selectedEdges.length.toLocaleString()}</b></span>
+                  <span>Address<b>{safeText(selectedNode.ip)}</b></span>
+                  <span>Access<b>{safeText(selectedNode.access_status, "Not configured")}</b></span>
+                </div>
+                <div className="react-topology-inspector-actions">
+                  {selectedNode.href ? (
+                    <Link className="react-primary-button" to={String(selectedNode.href).replace(/^\/app/, "")}>
+                      {nodeOpenLabel(selectedNode)}
+                    </Link>
+                  ) : null}
+                  {evidencePivot ? (
+                    <>
+                      <Link className="react-link-button" to={`/events?q=${encodeURIComponent(evidencePivot)}`}>Events</Link>
+                      <Link className="react-link-button" to={`/incidents?q=${encodeURIComponent(evidencePivot)}`}>Incidents</Link>
+                    </>
+                  ) : null}
+                </div>
+                <div className="react-topology-relations">
+                  <div className="react-topology-pane-head">
+                    <div>
+                      <span>Connected</span>
+                      <strong>Observed relations</strong>
+                    </div>
+                    <b>{selectedRelations.length}</b>
+                  </div>
+                  <div className="react-topology-relation-list">
+                    {selectedRelations.slice(0, 8).map(({ edge, node }) => (
+                      <button type="button" key={edge.id} onClick={() => node && setSelectedNodeId(node.id)}>
+                        <i className={`tone-${edgeTone(edge)}`} />
+                        <span>
+                          <strong>{node ? nodeDisplayLabel(node) : "Unknown node"}</strong>
+                          <small>{safeText(edge.label || edge.type)} / {Number(edge.events || 0).toLocaleString()} ev</small>
+                        </span>
+                      </button>
+                    ))}
+                    {!selectedRelations.length ? <div className="react-topology-empty-compact">No visible relations in this scope.</div> : null}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="react-topology-access-jump"
+                  onClick={() => document.getElementById("topology-access-editor")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                >
+                  <Icon name="access" size={15} />
+                  Configure response access
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="react-topology-pane-head">
+                  <div>
+                    <span>Investigation</span>
+                    <strong>High-connectivity nodes</strong>
+                  </div>
+                </div>
+                <div className="react-topology-focus-list">
+                  {focusCandidates.map((node) => (
+                    <button type="button" key={node.id} onClick={() => setSelectedNodeId(node.id)}>
+                      <div className={`react-topology-node-mark tone-${nodeTone(node)}`}>{nodeGlyph(node)}</div>
+                      <span>
+                        <strong>{nodeDisplayLabel(node)}</strong>
+                        <small>{nodeDisplayMeta(node)}</small>
+                      </span>
+                      <b>{node.degree}</b>
+                    </button>
+                  ))}
+                </div>
+                <div className="react-topology-inspector-summary">
+                  <span>Coverage queue<b>{(data.attention || []).length.toLocaleString()}</b></span>
+                  <span>Access profiles<b>{metricValue(data, "host_access_profiles")}</b></span>
+                  <Link to="/assets?view=unconnected">Review gaps</Link>
+                </div>
+              </>
+            )}
+          </aside>
         </div>
       </section>
 
       <section className="react-card react-packet-flow-panel">
         <PanelHeader
           title="Actual packet / telemetry flow records"
-          subtitle="API-supplied packet_flows only. This section does not invent switches, routers, VLANs or hosts that are absent from topology data."
+          subtitle="Observed routes, protocols, ports and volumes returned by the production topology API."
           icon="map"
         />
         {packetFlows.length ? (
@@ -3029,7 +3230,7 @@ export function TopologyPage() {
         )}
       </section>
 
-      <div className="react-split react-split-xl">
+      <div className={selectedNode || data.issues?.length ? "react-split react-split-xl" : ""}>
         <section className="react-card">
           <PanelHeader
             title="Onboarding queue"
@@ -3068,46 +3269,10 @@ export function TopologyPage() {
             </table>
           </div>
         </section>
-        <aside className="react-detail-column">
-          <section className="react-card">
-            <PanelHeader
-              title={selectedNode ? nodeCardTitle(selectedNode) : "Selected node"}
-              subtitle={selectedNode ? nodeDisplayLabel(selectedNode) : "Pick a host, source, collector or service in the topology map."}
-              icon="map"
-            />
+        {selectedNode || data.issues?.length ? (
+          <aside className="react-detail-column">
             {selectedNode ? (
-              <>
-                <DrawerFieldGrid>
-                  <KeyValue label="Type" value={safeText(selectedNode.type)} />
-                  <KeyValue label="Kind" value={nodeSourceKindLabel(selectedNode)} />
-                  <KeyValue label="Hostname" value={nodeHostname(selectedNode) || "n/a"} />
-                  <KeyValue label="Source name" value={safeText(selectedNode.source_name, "n/a")} />
-                  <KeyValue label="Status" value={<StatusBadge value={safeText(selectedNode.status, "observed")} />} />
-                  <KeyValue label="Role" value={safeText(selectedNode.role)} />
-                  <KeyValue label="IP" value={safeText(selectedNode.ip)} />
-                  <KeyValue label="Events" value={Number(selectedNode.events || 0).toLocaleString()} />
-                  <KeyValue label="Edges" value={selectedEdges.length} />
-                  <KeyValue label="Access profiles" value={Number(selectedNode.access_profile_count || 0).toLocaleString()} />
-                  <KeyValue label="Access status" value={safeText(selectedNode.access_status, "not configured")} />
-                </DrawerFieldGrid>
-                <div className="react-actions react-wrap">
-                  {selectedNode.href ? (
-                    <Link className="react-link-button" to={String(selectedNode.href).replace(/^\/app/, "")}>
-                      {nodeOpenLabel(selectedNode)}
-                    </Link>
-                  ) : null}
-                  <button type="button" className="react-link-button" onClick={() => setHostForm(formFromNode(selectedNode))}>
-                    New access profile
-                  </button>
-                </div>
-              </>
-            ) : (
-              <EmptyState message="Select a node to inspect it and create a SOAR-ready host card." />
-            )}
-          </section>
-
-          {selectedNode ? (
-            <section className="react-card react-card-nested">
+            <section id="topology-access-editor" className="react-card react-card-nested">
               <PanelHeader
                 title="Host access card"
                 subtitle="Write-only secret material goes to Vault; UI stores and returns only references for future SOAR/IRP actions."
@@ -3187,21 +3352,22 @@ export function TopologyPage() {
                 {!selectedProfiles.length ? <div className="react-list-item">No access profile for this host yet.</div> : null}
               </div>
             </section>
-          ) : null}
+            ) : null}
 
-          {data.issues?.length ? (
-            <section className="react-card react-card-nested">
-              <PanelHeader title="Partial data issues" subtitle="Subsystems that did not return complete topology data." icon="control" />
-              <div className="react-list react-list-compact">
-                {data.issues.map((issue) => (
-                  <div key={issue} className="react-list-item">
-                    <span>{issue}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </aside>
+            {data.issues?.length ? (
+              <section className="react-card react-card-nested">
+                <PanelHeader title="Partial data issues" subtitle="Subsystems that did not return complete topology data." icon="control" />
+                <div className="react-list react-list-compact">
+                  {data.issues.map((issue) => (
+                    <div key={issue} className="react-list-item">
+                      <span>{issue}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
     </div>
   );

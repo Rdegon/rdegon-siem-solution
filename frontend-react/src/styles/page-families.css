@@ -471,6 +471,10 @@
 }
 
 .react-topology-mode-switch button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
   min-height: 32px;
   padding: 0 11px;
   border: 0;
@@ -502,6 +506,217 @@
   font-family: var(--font-mono);
   font-size: 10px;
   white-space: nowrap;
+}
+
+.react-topology-workspace {
+  display: grid;
+  grid-template-columns: 224px minmax(420px, 1fr) 316px;
+  min-height: 720px;
+}
+
+.react-topology-scope,
+.react-topology-inspector {
+  min-width: 0;
+  overflow-y: auto;
+  max-height: 720px;
+  background: #071019;
+  scrollbar-width: thin;
+}
+
+.react-topology-scope {
+  border-right: 1px solid rgba(141, 167, 198, 0.12);
+}
+
+.react-topology-inspector {
+  border-left: 1px solid rgba(141, 167, 198, 0.12);
+}
+
+.react-topology-pane-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+}
+
+.react-topology-pane-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.react-topology-pane-head span,
+.react-topology-pane-section > span,
+.react-topology-signal-legend > span,
+.react-topology-inspector-identity span {
+  color: rgba(166, 185, 207, 0.64);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.react-topology-pane-head strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-topology-pane-head > b {
+  color: rgba(197, 215, 236, 0.72);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.react-topology-text-action {
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: #81ffda;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.react-topology-filter-list {
+  display: grid;
+  padding: 0 8px 12px;
+}
+
+.react-topology-filter-list button {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 47px;
+  padding: 7px 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.react-topology-filter-list button:hover,
+.react-topology-filter-list button:focus-visible {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.react-topology-filter-list button.active {
+  border-left-color: #81ffda;
+  background: rgba(129, 255, 218, 0.07);
+}
+
+.react-topology-filter-list button > i,
+.react-topology-signal-legend i,
+.react-topology-relation-list button > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8da7c6;
+}
+
+.react-topology-filter-list button > i.segment-external {
+  background: #ff6c82;
+}
+
+.react-topology-filter-list button > i.segment-mgmt {
+  background: #c58cff;
+}
+
+.react-topology-filter-list button > i.segment-sec {
+  background: #69d8ff;
+}
+
+.react-topology-filter-list button > i.segment-servers-games {
+  background: #f4bb62;
+}
+
+.react-topology-filter-list button > i.segment-lab {
+  background: #81ffda;
+}
+
+.react-topology-filter-list button > i.segment-users {
+  background: #81b3ff;
+}
+
+.react-topology-filter-list button > i.segment-legacy,
+.react-topology-filter-list button > i.segment-unassigned {
+  background: #94a3b8;
+}
+
+.react-topology-filter-list button span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  color: rgba(222, 234, 248, 0.9);
+  font-size: 11px;
+}
+
+.react-topology-filter-list button small {
+  overflow: hidden;
+  color: rgba(166, 185, 207, 0.58);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-topology-filter-list button b {
+  color: rgba(207, 222, 240, 0.72);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.react-topology-pane-section,
+.react-topology-signal-legend {
+  display: grid;
+  gap: 9px;
+  padding: 13px 14px;
+  border-top: 1px solid rgba(141, 167, 198, 0.1);
+}
+
+.react-topology-pane-section .react-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.react-topology-signal-legend div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: rgba(190, 206, 225, 0.72);
+  font-size: 10px;
+}
+
+.react-topology-signal-legend i {
+  width: 18px;
+  height: 2px;
+  border-radius: 0;
+}
+
+.react-topology-signal-legend .tone-pipeline,
+.react-topology-relation-list .tone-pipeline {
+  background: #69d8ff;
+}
+
+.react-topology-signal-legend .tone-attack,
+.react-topology-relation-list .tone-attack {
+  background: #ff6c82;
+}
+
+.react-topology-signal-legend .tone-attention,
+.react-topology-relation-list .tone-attention {
+  background: #f4bb62;
+}
+
+.react-topology-signal-legend .tone-neutral,
+.react-topology-relation-list .tone-neutral {
+  background: #8da7c6;
 }
 
 .react-topology-layer-strip {
@@ -615,6 +830,7 @@
 
 .react-topology-canvas-stage {
   position: relative;
+  min-width: 0;
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -624,20 +840,284 @@
 
 .react-topology-widget {
   position: relative;
-  min-height: 680px;
+  min-height: 720px;
   background:
     linear-gradient(rgba(141, 167, 198, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(141, 167, 198, 0.045) 1px, transparent 1px),
-    radial-gradient(circle at 72% 22%, rgba(105, 216, 255, 0.12), transparent 32%),
-    radial-gradient(circle at 22% 42%, rgba(255, 108, 130, 0.09), transparent 36%);
-  background-size: 52px 52px, 52px 52px, auto, auto;
+    #030910;
+  background-size: 52px 52px, 52px 52px, auto;
 }
 
 .react-topology-cytoscape {
   position: absolute;
   inset: 0;
-  min-height: 680px;
+  min-height: 720px;
 }
+
+.react-topology-canvas-status {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+  padding: 6px 8px;
+  border: 1px solid rgba(141, 167, 198, 0.16);
+  border-radius: 4px;
+  background: rgba(3, 9, 16, 0.88);
+  color: rgba(183, 201, 222, 0.66);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.react-topology-canvas-status span {
+  color: #81ffda;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.react-topology-canvas-status b {
+  font-weight: 700;
+}
+
+.react-topology-inspector-identity {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 32px;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
+}
+
+.react-topology-inspector-identity > div:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.react-topology-inspector-identity strong,
+.react-topology-inspector-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-topology-inspector-identity strong {
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.react-topology-inspector-identity small {
+  color: rgba(183, 201, 222, 0.68);
+  font-size: 10px;
+}
+
+.react-topology-node-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(141, 167, 198, 0.45);
+  border-radius: 6px;
+  background: rgba(141, 167, 198, 0.08);
+  color: #dcecff;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.react-topology-node-mark.tone-ok {
+  border-color: rgba(129, 255, 218, 0.58);
+  color: #bffff0;
+}
+
+.react-topology-node-mark.tone-warn,
+.react-topology-node-mark.tone-attention {
+  border-color: rgba(244, 187, 98, 0.62);
+  color: #ffe2ad;
+}
+
+.react-topology-inspector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
+}
+
+.react-topology-inspector-grid > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 10px 12px;
+  border-right: 1px solid rgba(141, 167, 198, 0.08);
+  border-bottom: 1px solid rgba(141, 167, 198, 0.08);
+  color: rgba(166, 185, 207, 0.58);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.react-topology-inspector-grid b {
+  overflow: hidden;
+  color: rgba(225, 237, 251, 0.9);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.react-topology-inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
+}
+
+.react-topology-inspector-actions .react-primary-button,
+.react-topology-inspector-actions .react-link-button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 10px;
+}
+
+.react-topology-relations {
+  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
+}
+
+.react-topology-relation-list,
+.react-topology-focus-list {
+  display: grid;
+  padding: 0 8px 10px;
+}
+
+.react-topology-relation-list button,
+.react-topology-focus-list button {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 45px;
+  padding: 7px 6px;
+  border: 0;
+  border-bottom: 1px solid rgba(141, 167, 198, 0.07);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.react-topology-relation-list button:hover,
+.react-topology-relation-list button:focus-visible,
+.react-topology-focus-list button:hover,
+.react-topology-focus-list button:focus-visible {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.react-topology-relation-list button > span,
+.react-topology-focus-list button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.react-topology-relation-list strong,
+.react-topology-relation-list small,
+.react-topology-focus-list strong,
+.react-topology-focus-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-topology-relation-list strong,
+.react-topology-focus-list strong {
+  color: rgba(225, 237, 251, 0.9);
+  font-size: 11px;
+}
+
+.react-topology-relation-list small,
+.react-topology-focus-list small {
+  color: rgba(166, 185, 207, 0.58);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.react-topology-focus-list button {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+
+.react-topology-focus-list button > b {
+  color: rgba(183, 201, 222, 0.64);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.react-topology-inspector-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin-top: 8px;
+  background: rgba(141, 167, 198, 0.08);
+}
+
+.react-topology-inspector-summary span {
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  background: #071019;
+  color: rgba(166, 185, 207, 0.58);
+  font-size: 9px;
+}
+
+.react-topology-inspector-summary b {
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.react-topology-inspector-summary a {
+  grid-column: 1 / -1;
+  padding: 10px 11px;
+  background: #071019;
+  color: #81ffda;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.react-topology-access-jump {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: calc(100% - 24px);
+  min-height: 36px;
+  margin: 12px;
+  padding: 0 10px;
+  border: 1px solid rgba(129, 255, 218, 0.22);
+  border-radius: 4px;
+  background: rgba(129, 255, 218, 0.05);
+  color: #bffff0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.react-topology-access-jump:hover,
+.react-topology-access-jump:focus-visible {
+  border-color: rgba(129, 255, 218, 0.5);
+  background: rgba(129, 255, 218, 0.09);
+}
+
+.react-topology-empty-compact {
+  padding: 12px 6px;
+  color: rgba(166, 185, 207, 0.58);
+  font-size: 10px;
+}
+
 
 .react-topology-widget-hint {
   position: absolute;
@@ -2155,6 +2635,10 @@
   .react-page-access .react-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .react-topology-workspace {
+    grid-template-columns: 196px minmax(380px, 1fr) 280px;
+  }
 }
 
 @media (max-width: 960px) {
@@ -2193,6 +2677,40 @@
     width: 100%;
   }
 
+  .react-topology-workspace {
+    grid-template-columns: 184px minmax(0, 1fr);
+  }
+
+  .react-topology-scope {
+    max-height: 500px;
+  }
+
+  .react-topology-inspector {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+    max-height: none;
+    border-top: 1px solid rgba(141, 167, 198, 0.12);
+    border-left: 0;
+  }
+
+  .react-topology-inspector-identity,
+  .react-topology-pane-head {
+    align-self: start;
+  }
+
+  .react-topology-relations,
+  .react-topology-focus-list {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    border-left: 1px solid rgba(141, 167, 198, 0.1);
+  }
+
+  .react-topology-access-jump,
+  .react-topology-inspector-summary {
+    align-self: start;
+  }
+
   .react-topology-layer-strip {
     justify-content: flex-start;
   }
@@ -2208,7 +2726,7 @@
 
   .react-topology-widget,
   .react-topology-cytoscape {
-    min-height: 460px;
+    min-height: 500px;
   }
 
   .react-topology-widget-hint {
@@ -2234,5 +2752,58 @@
 
   .react-page-events .react-events-console-head {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 680px) {
+  .react-topology-mode-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .react-topology-mode-switch button {
+    min-width: 0;
+    width: 100%;
+    padding: 0 8px;
+  }
+
+  .react-topology-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .react-topology-scope,
+  .react-topology-inspector {
+    grid-column: 1;
+    display: block;
+    max-height: none;
+    border-right: 0;
+    border-left: 0;
+  }
+
+  .react-topology-scope {
+    border-bottom: 1px solid rgba(141, 167, 198, 0.12);
+  }
+
+  .react-topology-filter-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .react-topology-canvas-stage {
+    grid-column: 1;
+  }
+
+  .react-topology-widget,
+  .react-topology-cytoscape {
+    min-height: 430px;
+  }
+
+  .react-topology-inspector {
+    border-top: 1px solid rgba(141, 167, 198, 0.12);
+  }
+
+  .react-topology-relations,
+  .react-topology-focus-list {
+    border-left: 0;
   }
 }
