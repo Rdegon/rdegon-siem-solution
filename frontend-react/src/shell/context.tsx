@@ -12,6 +12,14 @@ export const TIMEZONE_OPTIONS = [
 
 type TimestampStyle = "full" | "compact" | "date" | "time";
 
+export type TenantScopeRecord = {
+  id: string;
+  name: string;
+  description?: string;
+  source_count: number;
+  incident_count: number;
+};
+
 export function timeZoneDisplayLabel(timeZone: string, lang: "en" | "ru" = "en") {
   if (timeZone === "Europe/Moscow") {
     return lang === "ru" ? "МСК (UTC+3)" : "MSK (UTC+3)";
@@ -161,6 +169,9 @@ type ShellContextValue = {
   setTimezone: (timezone: string) => void;
   permissions: string[];
   sectionAccess: string[];
+  tenants: TenantScopeRecord[];
+  selectedTenantIds: string[];
+  setSelectedTenantIds: (tenantIds: string[]) => void;
   formatTimestamp: (value: unknown, style?: TimestampStyle) => string;
   toInputDateTime: (value: unknown) => string;
   toUtcQueryValue: (value: string) => string;
@@ -174,6 +185,9 @@ export const ShellContext = createContext<ShellContextValue>({
   setTimezone: () => undefined,
   permissions: [],
   sectionAccess: [],
+  tenants: [],
+  selectedTenantIds: [],
+  setSelectedTenantIds: () => undefined,
   formatTimestamp: () => "n/a",
   toInputDateTime: () => "",
   toUtcQueryValue: () => "",

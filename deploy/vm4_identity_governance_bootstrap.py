@@ -695,6 +695,7 @@ def bootstrap_vm4_identity_governance(
     remote_root: str,
     upload_root: str,
     sudo_password: str,
+    runtime_overrides: dict[str, str] | None = None,
 ) -> dict[str, str]:
     if paramiko is None:
         raise RuntimeError("paramiko is required for VM4 identity bootstrap")
@@ -704,6 +705,13 @@ def bootstrap_vm4_identity_governance(
     _ensure_keycloak_java_runtime(client, sudo_password=sudo_password)
 
     web_env = _parse_env_text(_read_remote_file(client, "/etc/siem/web.env", sudo_password=sudo_password))
+    web_env.update(
+        {
+            str(key).strip(): str(value).strip()
+            for key, value in dict(runtime_overrides or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+    )
     keycloak_env = _parse_env_text(_read_remote_file(client, "/etc/siem/keycloak.env", sudo_password=sudo_password))
     base_url = str(web_env.get("SIEM_WEB_BASE_URL") or os.getenv("SIEM_WEB_BASE_URL") or f"https://{host}").strip().rstrip("/")
     realm_name = "siem"
@@ -795,6 +803,7 @@ def bootstrap_vm4_identity_governance(
         ("SIEM_CH_PASSWORD", "kv/siem/clickhouse", "SIEM_CH_PASSWORD_REF", {"value": str(web_env.get("SIEM_CH_PASSWORD") or "")}),
         ("SIEM_GREENBONE_PASSWORD", "kv/siem/greenbone", "SIEM_GREENBONE_PASSWORD_REF", {"value": str(web_env.get("SIEM_GREENBONE_PASSWORD") or "")}),
         ("SIEM_MONGO_URI", "kv/siem/mongo", "SIEM_MONGO_URI_REF", {"value": str(web_env.get("SIEM_MONGO_URI") or "")}),
+        ("SIEM_KUMA_API_TOKEN", "kv/siem/kuma-api", "SIEM_KUMA_API_TOKEN_REF", {"token": str(web_env.get("SIEM_KUMA_API_TOKEN") or "")}),
         ("SIEM_OIDC_CLIENT_SECRET", "kv/siem/oidc", "SIEM_OIDC_CLIENT_SECRET_REF", {"client_secret": oidc_client_secret}),
         (
             "SIEM_KEYCLOAK_ADMIN_CLIENT_SECRET",

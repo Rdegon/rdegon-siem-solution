@@ -61,6 +61,7 @@ secret.*
 !secret_runtime.py
 id_rsa*
 *.pem
+!deploy/certs/kuma-rest-api-ca.pem
 *.key
 *.pfx
 *.p12

@@ -24,6 +24,7 @@ from ..query.dashboard import (
 from ..security import require_permissions
 from ..stale_runtime_cache import StaleRuntimeCache
 from ..templates import templates
+from ..tenant_scope_runtime import build_tenant_scope
 from ..ui_text import ui_context
 
 router = APIRouter()
@@ -292,3 +293,8 @@ async def ui_bootstrap_api(request: Request, user=Depends(get_current_user)) -> 
             },
         }
     )
+
+
+@router.get("/api/ui/tenants", response_class=JSONResponse)
+async def ui_tenant_scope_api(user=Depends(get_current_user)) -> JSONResponse:
+    return JSONResponse(build_tenant_scope())

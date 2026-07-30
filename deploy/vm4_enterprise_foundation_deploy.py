@@ -109,6 +109,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("frontend-react/tsconfig.json", "services/web/frontend-react/tsconfig.json"),
     FileMapping("frontend-react/tsconfig.quality.json", "services/web/frontend-react/tsconfig.quality.json"),
     FileMapping("frontend-react/vitest.config.ts", "services/web/frontend-react/vitest.config.ts"),
+    FileMapping("deploy/certs/kuma-rest-api-ca.pem", "services/web/certs/kuma-rest-api-ca.pem"),
     FileMapping("services/web/app/backup_runtime.py", "backup_runtime.py"),
     FileMapping("services/web/app/asset_catalog_runtime.py", "asset_catalog_runtime.py"),
     FileMapping("services/web/app/clickhouse_runtime.py", "clickhouse_runtime.py"),
@@ -195,6 +196,9 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/deps.py", "services/web/app/deps.py"),
     FileMapping("services/web/app/operational_filters.py", "services/web/app/operational_filters.py"),
     FileMapping("services/web/app/content_store.py", "services/web/app/content_store.py"),
+    FileMapping("services/web/app/kuma_integration_runtime.py", "services/web/app/kuma_integration_runtime.py"),
+    FileMapping("services/web/app/resource_catalog_runtime.py", "services/web/app/resource_catalog_runtime.py"),
+    FileMapping("services/web/app/tenant_scope_runtime.py", "services/web/app/tenant_scope_runtime.py"),
     FileMapping("services/web/app/routes/console.py", "services/web/app/routes/console.py"),
     FileMapping("services/web/app/routes/console_assets_routes.py", "services/web/app/routes/console_assets_routes.py"),
     FileMapping("services/web/app/routes/console_auth_routes.py", "services/web/app/routes/console_auth_routes.py"),
@@ -202,6 +206,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/routes/console_docs_routes.py", "services/web/app/routes/console_docs_routes.py"),
     FileMapping("services/web/app/routes/console_health_routes.py", "services/web/app/routes/console_health_routes.py"),
     FileMapping("services/web/app/routes/console_operations_routes.py", "services/web/app/routes/console_operations_routes.py"),
+    FileMapping("services/web/app/routes/console_resources_routes.py", "services/web/app/routes/console_resources_routes.py"),
     FileMapping("services/web/app/routes/console_router_registry.py", "services/web/app/routes/console_router_registry.py"),
     FileMapping("services/web/app/routes/console_security_services_routes.py", "services/web/app/routes/console_security_services_routes.py"),
     FileMapping("services/web/app/routes/console_response_routes.py", "services/web/app/routes/console_response_routes.py"),
@@ -225,10 +230,12 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("frontend-react/src/shell/incidents.ts", "services/web/frontend-react/src/shell/incidents.ts"),
     FileMapping("frontend-react/src/shell/investigation.tsx", "services/web/frontend-react/src/shell/investigation.tsx"),
     FileMapping("frontend-react/src/shell/runtimeLocalization.ts", "services/web/frontend-react/src/shell/runtimeLocalization.ts"),
+    FileMapping("frontend-react/src/shell/ShellSidebar.tsx", "services/web/frontend-react/src/shell/ShellSidebar.tsx"),
     FileMapping("frontend-react/src/shell/surfaces.tsx", "services/web/frontend-react/src/shell/surfaces.tsx"),
     FileMapping("frontend-react/src/shell/timeControls.ts", "services/web/frontend-react/src/shell/timeControls.ts"),
     FileMapping("frontend-react/src/shell/types.ts", "services/web/frontend-react/src/shell/types.ts"),
     FileMapping("frontend-react/src/shell/ui.tsx", "services/web/frontend-react/src/shell/ui.tsx"),
+    FileMapping("frontend-react/src/shell/navigation.ts", "services/web/frontend-react/src/shell/navigation.ts"),
     FileMapping("frontend-react/src/shell/__tests__/async.test.tsx", "services/web/frontend-react/src/shell/__tests__/async.test.tsx"),
     FileMapping("frontend-react/src/shell/__tests__/context.test.ts", "services/web/frontend-react/src/shell/__tests__/context.test.ts"),
     FileMapping("frontend-react/src/shell/__tests__/feedback.test.tsx", "services/web/frontend-react/src/shell/__tests__/feedback.test.tsx"),
@@ -252,6 +259,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("frontend-react/src/shell/pages/DocumentationPage.tsx", "services/web/frontend-react/src/shell/pages/DocumentationPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/InventoryPage.tsx", "services/web/frontend-react/src/shell/pages/InventoryPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/ResponsePage.tsx", "services/web/frontend-react/src/shell/pages/ResponsePage.tsx"),
+    FileMapping("frontend-react/src/shell/pages/ResourceCatalogPage.tsx", "services/web/frontend-react/src/shell/pages/ResourceCatalogPage.tsx"),
     FileMapping("frontend-react/src/shell/pages/SecurityServicePage.tsx", "services/web/frontend-react/src/shell/pages/SecurityServicePage.tsx"),
     FileMapping("frontend-react/src/shell/pages/SecurityControlPanel.tsx", "services/web/frontend-react/src/shell/pages/SecurityControlPanel.tsx"),
     FileMapping("frontend-react/src/shell/pages/SourcesPage.tsx", "services/web/frontend-react/src/shell/pages/SourcesPage.tsx"),
@@ -844,6 +852,17 @@ def main() -> int:
     password = _required_env("SIEM_VM4_PASSWORD")
     remote_root = _required_env("SIEM_VM4_BASE_DIR", default=DEFAULT_REMOTE_ROOT)
     deploy_frontend = str(os.getenv("SIEM_VM4_DEPLOY_FRONTEND", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+    kuma_token_file = str(os.getenv("SIEM_KUMA_API_TOKEN_FILE") or "").strip()
+    kuma_api_url = str(os.getenv("SIEM_KUMA_API_URL") or "https://kuma-ref.lab.home.arpa:7223").strip()
+    kuma_api_host_ip = str(os.getenv("SIEM_KUMA_API_HOST_IP") or "192.168.3.109").strip()
+    kuma_token = ""
+    if kuma_token_file:
+        token_path = Path(kuma_token_file).expanduser().resolve()
+        if not token_path.is_file():
+            raise SystemExit(f"SIEM_KUMA_API_TOKEN_FILE does not exist: {token_path}")
+        kuma_token = token_path.read_text(encoding="utf-8").strip()
+        if len(kuma_token) < 20:
+            raise SystemExit("SIEM_KUMA_API_TOKEN_FILE does not contain a valid token")
     backup_root = f"/tmp/siem-web-backup-{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
 
     client = _connect_client(ssh_host, user, password)
@@ -899,6 +918,20 @@ def main() -> int:
             remote_root=remote_root,
             upload_root=upload_root,
             sudo_password=password,
+            runtime_overrides={
+                "SIEM_KUMA_API_TOKEN": kuma_token,
+                "SIEM_KUMA_API_URL": str(
+                    kuma_api_url
+                ),
+                "SIEM_KUMA_TENANT_ID": str(
+                    os.getenv("SIEM_KUMA_TENANT_ID") or "d7a1db02-9fa8-45bb-9589-49419394d055"
+                ),
+                "SIEM_KUMA_VERIFY_TLS": "1",
+                "SIEM_KUMA_CA_FILE": _remote_path(
+                    remote_root,
+                    "services/web/certs/kuma-rest-api-ca.pem",
+                ),
+            },
         )
         print(f"oidc_issuer={identity_runtime.get('oidc_issuer', '')}")
         print(f"vault_addr={identity_runtime.get('vault_addr', '')}")
@@ -995,6 +1028,9 @@ def main() -> int:
             "app/deps.py "
             "app/operational_filters.py "
             "app/content_store.py "
+            "app/kuma_integration_runtime.py "
+            "app/resource_catalog_runtime.py "
+            "app/tenant_scope_runtime.py "
             "app/source_discovery.py "
             "app/topology_runtime.py "
             "app/host_access_runtime.py "
@@ -1005,6 +1041,11 @@ def main() -> int:
             "app/routes/console.py "
             "app/routes/console_assets_routes.py "
             "app/routes/console_auth_routes.py "
+            "app/routes/console_dashboard_routes.py "
+            "app/routes/console_docs_routes.py "
+            "app/routes/console_health_routes.py "
+            "app/routes/console_operations_routes.py "
+            "app/routes/console_resources_routes.py "
             "app/routes/console_router_registry.py "
             "app/routes/console_security_services_routes.py "
             "app/routes/alerts.py "
@@ -1078,6 +1119,24 @@ def main() -> int:
             print(host_identity_out, end="")
         if code != 0:
             raise RuntimeError(f"Failed to align VM4 host identity mapping: {err.strip()}")
+
+        kuma_host_mapping_cmd = (
+            f"if ! getent ahostsv4 kuma-ref.lab.home.arpa | awk '{{print $1}}' | grep -qx {shlex.quote(kuma_api_host_ip)}; then "
+            "sed -i '/[[:space:]]kuma-ref\\.lab\\.home\\.arpa\\([[:space:]]\\|$\\)/d' /etc/hosts && "
+            f"printf '%s kuma-ref.lab.home.arpa\\n' {shlex.quote(kuma_api_host_ip)} >> /etc/hosts; "
+            "fi"
+        )
+        code, out, err = _run_command(
+            client,
+            kuma_host_mapping_cmd,
+            sudo_password=password,
+            use_sudo=True,
+        )
+        kuma_mapping_out = _strip_sudo_echo(out, password)
+        if kuma_mapping_out.strip():
+            print(kuma_mapping_out, end="")
+        if code != 0:
+            raise RuntimeError(f"Failed to configure KUMA host mapping: {err.strip()}")
 
         if deploy_frontend:
             frontend_root = _remote_path(remote_root, "services/web/frontend-react")

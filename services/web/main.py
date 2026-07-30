@@ -19,6 +19,7 @@ from app.config import CONFIG
 from app.routes import alerts, auth, console, events, health
 from app.routes.console_health_routes import schedule_health_warmup
 from app.security import decode_access_token, get_token_from_request, validate_csrf_request
+from app.tenant_scope_runtime import validate_tenant_scope_header
 
 logger = logging.getLogger('siem_web')
 
@@ -88,7 +89,7 @@ def create_app() -> FastAPI:
         allow_origins=[CONFIG.base_url],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Accept", "Authorization", "Content-Type", "X-API-Token", "X-CSRF-Token"],
+        allow_headers=["Accept", "Authorization", "Content-Type", "X-API-Token", "X-CSRF-Token", "X-SIEM-Tenant-Scope"],
     )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
 
@@ -99,7 +100,10 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def csrf_guard(request: Request, call_next):
         try:
+            validate_tenant_scope_header(request.headers.get("X-SIEM-Tenant-Scope", ""))
             validate_csrf_request(request)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=403)
         except HTTPException as exc:
             return JSONResponse({"error": str(exc.detail or "Forbidden")}, status_code=exc.status_code)
         return await call_next(request)

@@ -99,16 +99,22 @@ def _cleanup_lookback_days() -> int:
 
 def _has_pending_mutation(client, table_name: str) -> bool:
     database, table = table_name.split(".", 1)
-    result = client.query(
-        """
-        SELECT count()
-        FROM system.mutations
-        WHERE database = %(database)s
-          AND table = %(table)s
-          AND is_done = 0
-        """,
-        parameters={"database": database, "table": table},
-    ).result_rows
+    try:
+        result = client.query(
+            """
+            SELECT count()
+            FROM system.mutations
+            WHERE database = %(database)s
+              AND table = %(table)s
+              AND is_done = 0
+            """,
+            parameters={"database": database, "table": table},
+        ).result_rows
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc)
+        if "ACCESS_DENIED" in message or "Not enough privileges" in message:
+            return False
+        raise
     return bool(result and int(result[0][0] or 0) > 0)
 
 

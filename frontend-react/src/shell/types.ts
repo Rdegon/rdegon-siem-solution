@@ -1,5 +1,77 @@
 export type RuntimeBlob = Record<string, unknown>;
 
+export type ResourceCatalogRecord = {
+  id: string;
+  name: string;
+  kind: string;
+  status: string;
+  version: number;
+  origin: string;
+  tenant_id: string;
+  updated_ts: string;
+  published_ts?: string;
+  description: string;
+  config: RuntimeBlob;
+  bindings: RuntimeBlob;
+  activation?: RuntimeBlob;
+  history?: RuntimeBlob[];
+  read_only: boolean;
+};
+
+export type ResourceCatalogResponse = {
+  items: ResourceCatalogRecord[];
+  total: number;
+  summary: Record<string, number>;
+  issues: string[];
+  generated_ts: string;
+};
+
+export type ResourceValidationResponse = {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  resource_id?: string;
+  kind?: string;
+};
+
+export type ResourcePublishResponse = {
+  status: string;
+  resource: ResourceCatalogRecord;
+  activation: RuntimeBlob;
+  validation: ResourceValidationResponse;
+};
+
+export type KumaStatusResponse = {
+  configured: boolean;
+  healthy: boolean;
+  api_url: string;
+  tenant_id: string;
+  token_source: string;
+  token_status: string;
+  generated_ts: string;
+  resource_count: number;
+  issues: string[];
+};
+
+export type KumaResourceRecord = {
+  id: string;
+  kind: string;
+  name: string;
+  description: string;
+  tenantID: string;
+  tenantName: string;
+  userID: string;
+  userName: string;
+  created: string;
+  updated: string;
+};
+
+export type KumaResourcesResponse = {
+  items: KumaResourceRecord[];
+  total: number;
+  page: number;
+};
+
 export type StringArray = string[];
 
 export type PlatformStatusResponse = {

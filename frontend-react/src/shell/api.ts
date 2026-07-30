@@ -78,6 +78,10 @@ import type {
   ProxmoxFleetResponse,
   RecordRiskSignalResponse,
   ReplayDlqResponse,
+  ResourceCatalogRecord,
+  ResourceCatalogResponse,
+  ResourcePublishResponse,
+  ResourceValidationResponse,
   ResponseAnalyticsResponse,
   ResponseActionsResponse,
   ResponseActionRecord,
@@ -124,6 +128,8 @@ import type {
   VulnSoftwareRow,
   VulnSyncResponse,
   RuntimeBlob,
+  KumaResourcesResponse,
+  KumaStatusResponse,
   BreakGlassResponse,
 } from "./types";
 
@@ -147,7 +153,34 @@ export type BootstrapResponse = {
   labels: Record<string, string>;
 };
 
+export type TenantScopeResponse = {
+  available: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    source_count: number;
+    incident_count: number;
+  }>;
+  default: string[];
+  generated_ts: string;
+  issues?: string[];
+};
+
 type QueryValue = string | number | boolean | undefined | null;
+
+let activeTenantScope: string[] = [];
+
+export function setApiTenantScope(tenantIds: string[]) {
+  activeTenantScope = [...new Set(tenantIds.map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function scopedHeaders(headers: Record<string, string>) {
+  if (!activeTenantScope.length) return headers;
+  return {
+    ...headers,
+    "X-SIEM-Tenant-Scope": activeTenantScope.join(","),
+  };
+}
 
 function toQuery(params: Record<string, QueryValue>) {
   const search = new URLSearchParams();
@@ -218,9 +251,9 @@ async function getJson<T>(url: string): Promise<T> {
   try {
     const response = await fetch(url, {
       credentials: "include",
-      headers: {
+      headers: scopedHeaders({
         Accept: "application/json",
-      },
+      }),
       signal: controller.signal,
     });
     return await parseResponse<T>(response);
@@ -238,7 +271,7 @@ async function postJson<T>(url: string, body: Record<string, unknown>): Promise<
   const response = await fetch(url, {
     method: "POST",
     credentials: "include",
-    headers: buildMutationHeaders(),
+    headers: scopedHeaders(buildMutationHeaders()),
     body: JSON.stringify(body),
   });
   return parseResponse<T>(response);
@@ -248,7 +281,7 @@ async function putJson<T>(url: string, body: Record<string, unknown>): Promise<T
   const response = await fetch(url, {
     method: "PUT",
     credentials: "include",
-    headers: buildMutationHeaders(),
+    headers: scopedHeaders(buildMutationHeaders()),
     body: JSON.stringify(body),
   });
   return parseResponse<T>(response);
@@ -256,6 +289,56 @@ async function putJson<T>(url: string, body: Record<string, unknown>): Promise<T
 
 export const api = {
   bootstrap: () => getJson<BootstrapResponse>("/api/ui/bootstrap"),
+  tenantScope: () => getJson<TenantScopeResponse>("/api/ui/tenants"),
+  resourceCatalog: (params: { kind?: string; include_runtime?: boolean } = {}) =>
+    getJson<ResourceCatalogResponse>(`/api/resources/catalog${toQuery(params)}`),
+  resourceDetail: (resourceId: string) =>
+    getJson<ResourceCatalogRecord>(`/api/resources/catalog/${encodeURIComponent(resourceId)}`),
+  saveResource: (body: Record<string, unknown>) =>
+    postJson<ResourceCatalogRecord>("/api/resources/catalog", body),
+  validateResource: (resourceId: string) =>
+    postJson<ResourceValidationResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/validate`, {}),
+  publishResource: (resourceId: string) =>
+    postJson<ResourcePublishResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/publish`, {}),
+  kumaStatus: () => getJson<KumaStatusResponse>("/api/integrations/kuma/status"),
+  kumaResources: (params: { page?: number; kind?: string[]; tenant_id?: string; name?: string } = {}) => {
+    const search = new URLSearchParams();
+    if (params.page) search.set("page", String(params.page));
+    for (const kind of params.kind || []) search.append("kind", kind);
+    if (params.tenant_id) search.set("tenant_id", params.tenant_id);
+    if (params.name) search.set("name", params.name);
+    const query = search.toString();
+    return getJson<KumaResourcesResponse>(`/api/integrations/kuma/resources${query ? `?${query}` : ""}`);
+  },
+  importKumaPackage: async (file: File, password: string, tenantId = "", actions: Record<string, number> = {}) => {
+    const form = new FormData();
+    form.append("package", file);
+    form.append("password", password);
+    form.append("tenant_id", tenantId);
+    form.append("actions_json", JSON.stringify(actions));
+    const response = await fetch("/api/integrations/kuma/import", {
+      method: "POST",
+      credentials: "include",
+      headers: scopedHeaders(buildMutationHeaders("")),
+      body: form,
+    });
+    return parseResponse<RuntimeBlob>(response);
+  },
+  exportKumaResources: async (resourceIds: string[], password: string, tenantId = "") => {
+    const response = await fetch("/api/integrations/kuma/export", {
+      method: "POST",
+      credentials: "include",
+      headers: scopedHeaders(buildMutationHeaders()),
+      body: JSON.stringify({ resource_ids: resourceIds, password, tenant_id: tenantId }),
+    });
+    if (!response.ok) {
+      await parseResponse<RuntimeBlob>(response);
+    }
+    return {
+      blob: await response.blob(),
+      fileId: response.headers.get("X-KUMA-File-ID") || "",
+    };
+  },
   authMe: () => getJson<AuthMeResponse>("/api/auth/me"),
   authProviders: () => getJson<AuthProvidersResponse>("/api/auth/providers"),
   authGovernance: () => getJson<AuthGovernanceResponse>("/api/auth/governance"),
@@ -272,7 +355,7 @@ export const api = {
     const response = await fetch(`/api/auth/access-grants/${encodeURIComponent(grantId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<AccessGrantRecord>(response);
   },
@@ -289,7 +372,7 @@ export const api = {
     const response = await fetch(`/api/auth/keycloak/users/${encodeURIComponent(userId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<RuntimeBlob>(response);
   },
@@ -329,7 +412,7 @@ export const api = {
     const response = await fetch(`/api/auth/users/${encodeURIComponent(username)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<LocalUserRecord>(response);
   },
@@ -341,7 +424,7 @@ export const api = {
     const response = await fetch(`/api/auth/service-accounts/${encodeURIComponent(serviceAccountId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<ServiceAccountSummary>(response);
   },
@@ -363,7 +446,7 @@ export const api = {
     const response = await fetch(`/api/dashboards/${encodeURIComponent(dashboardId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<Record<string, unknown>>(response);
   },
@@ -413,7 +496,7 @@ export const api = {
     const response = await fetch(`/api/assets/binding-overrides/${encodeURIComponent(overrideId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<AssetBindingOverrideRecord>(response);
   },
@@ -438,7 +521,7 @@ export const api = {
     const response = await fetch(`/api/topology/host-access/${encodeURIComponent(profileId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<HostAccessProfileRecord>(response);
   },
@@ -481,7 +564,7 @@ export const api = {
     const response = await fetch(`/api/builders/drafts/${encodeURIComponent(draftId)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: buildMutationHeaders(""),
+      headers: scopedHeaders(buildMutationHeaders("")),
     });
     return parseResponse<Record<string, unknown>>(response);
   },

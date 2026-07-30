@@ -17,14 +17,17 @@ class _Result:
 
 
 class _Client:
-    def __init__(self, *, pending: bool = False):
+    def __init__(self, *, pending: bool = False, mutation_access_denied: bool = False):
         self.pending = pending
+        self.mutation_access_denied = mutation_access_denied
         self.commands: list[str] = []
 
     def query(self, query: str, parameters=None):
         if "system.columns" in query:
             return _Result([("ts",), ("message",), ("normalized_json",)])
         if "system.mutations" in query:
+            if self.mutation_access_denied:
+                raise RuntimeError("Code: 497. Not enough privileges. (ACCESS_DENIED)")
             return _Result([(1 if self.pending else 0,)])
         raise AssertionError(query)
 
@@ -60,3 +63,17 @@ def test_cleanup_does_not_stack_mutations() -> None:
 
     assert result == "deferred: pending mutation"
     assert client.commands == []
+
+
+def test_cleanup_runs_when_mutation_metadata_is_not_granted() -> None:
+    client = _Client(mutation_access_denied=True)
+
+    result = system_cleanup._cleanup_clickhouse_table(
+        client,
+        "siem.events",
+        ("message",),
+        time_column="ts",
+    )
+
+    assert result == "bounded schema-aware marker cleanup"
+    assert len(client.commands) == 1
