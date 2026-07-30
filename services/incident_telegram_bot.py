@@ -306,7 +306,7 @@ class IncidentTelegramBot:
             )
         next_message_id = (
             None
-            if telegram.get("status") == "deleted"
+            if telegram.get("status") in {"deleted", "archived"}
             else telegram.get("message_id") or message_id
         )
         delivered = int(telegram.get("status") in {"sent", "edited"})
@@ -429,12 +429,38 @@ class IncidentTelegramBot:
                 message_id,
                 exc,
             )
-            return {
-                "status": "delete_failed",
-                "message_id": int(message_id),
-                "reason": reason,
-                "error": str(exc)[:300],
-            }
+            try:
+                self._telegram_request(
+                    "editMessageText",
+                    {
+                        "chat_id": chat_id,
+                        "message_id": int(message_id),
+                        "text": (
+                            "[АРХИВ] Инцидент больше не находится "
+                            "в активной очереди SIEM.\n"
+                            f"Причина: {reason}"
+                        ),
+                        "disable_web_page_preview": True,
+                        "reply_markup": {"inline_keyboard": []},
+                    },
+                )
+                return {
+                    "status": "archived",
+                    "message_id": int(message_id),
+                    "reason": reason,
+                }
+            except Exception as edit_exc:  # noqa: BLE001
+                LOG.warning(
+                    "unable to archive stale Telegram incident card %s: %s",
+                    message_id,
+                    edit_exc,
+                )
+                return {
+                    "status": "delete_failed",
+                    "message_id": int(message_id),
+                    "reason": reason,
+                    "error": str(edit_exc)[:300],
+                }
 
     def _publish_delivery_state(
         self,

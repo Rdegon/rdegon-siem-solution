@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
@@ -8,7 +8,6 @@ import { usePolledData } from "../hooks";
 import type { RuntimeBlob, SecurityServiceDetailResponse } from "../types";
 import { MetricStrip, PageTabs, PanelHeader, SectionIntro, SeverityBadge, StatusBadge } from "../ui";
 import { SecurityControlPanel } from "./SecurityControlPanel";
-
 
 const SERVICE_TABS = [
   { id: "ndr", label: "NDR", to: "/security/ndr" },
@@ -33,14 +32,26 @@ function textValue(value: unknown) {
 }
 
 function listValue(value: unknown) {
-  return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  return Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+}
+
+function percentValue(value: unknown) {
+  const numeric = Number(value || 0);
+  return `${Math.round(Math.max(0, Math.min(1, numeric)) * 100)}%`;
 }
 
 export function SecurityServicePage() {
   const { serviceId = "ndr" } = useParams();
   const { lang, formatTimestamp } = useShellContext();
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [evidenceView, setEvidenceView] = useState<"alerts" | "events">("alerts");
   const normalizedServiceId = SERVICE_TABS.some((item) => item.id === serviceId) ? serviceId : "ndr";
-  const loadService = useCallback(() => api.securityService(normalizedServiceId), [normalizedServiceId]);
+  const loadService = useCallback(() => {
+    void refreshToken;
+    return api.securityService(normalizedServiceId);
+  }, [normalizedServiceId, refreshToken]);
   const state = usePolledData<SecurityServiceDetailResponse>(loadService, 30_000);
   const data = state.data;
   const service = data?.service;
@@ -51,9 +62,12 @@ export function SecurityServicePage() {
   const pivots = service?.pivots || {};
   const capabilities = listValue(service?.capabilities);
   const products = listValue(telemetry.products);
+  const matchedProducts = listValue(telemetry.matched_products);
+  const missingProducts = listValue(telemetry.missing_products);
+  const integrationState = textValue(telemetry.integration_state || telemetry.state);
+  const hostState = textValue(telemetry.host_telemetry_state);
   const interactive = normalizedServiceId === "ngfw" || normalizedServiceId === "ips";
   const workspaces = Array.isArray(service?.workspaces) ? service.workspaces as RuntimeBlob[] : [];
-  const integrationMode = textValue(service?.integration_mode);
 
   return (
     <AsyncGate
@@ -65,193 +79,205 @@ export function SecurityServicePage() {
     >
       <div className="react-page react-page-security-service">
         <SectionIntro
-          kicker={t(lang, { en: "Security systems", ru: "Системы безопасности" })}
+          kicker={t(lang, { en: "Security operations", ru: "Операции безопасности" })}
           title={service?.title || normalizedServiceId}
           subtitle={`${textValue(service?.product)} | ${textValue(service?.host_name)} | ${textValue(service?.address)}`}
           icon="intel"
-          actions={<StatusBadge value={String(telemetry.state || "stale")} />}
+          actions={
+            <div className="react-actions">
+              <button className="react-link-button" type="button" onClick={() => setRefreshToken((value) => value + 1)}>
+                {t(lang, { en: "Refresh", ru: "Обновить" })}
+              </button>
+              <StatusBadge value={integrationState} />
+            </div>
+          }
         />
 
         <PageTabs items={SERVICE_TABS} />
 
-        {interactive ? <SecurityControlPanel serviceId={normalizedServiceId} /> : null}
-
-        <section className="react-card react-security-workspaces">
-          <PanelHeader
-            title="Operational workspaces"
-            subtitle="Verified SIEM workflows and native product consoles. Native 10.20.x.x consoles require the routed operator or VPN network."
-            icon="control"
-            actions={<StatusBadge value={integrationMode} />}
-          />
-          <div className="react-security-workspace-grid">
-            {workspaces.map((workspace, index) => {
-              const href = textValue(workspace.href);
-              const content = (
-                <>
-                  <strong>{textValue(workspace.label)}</strong>
-                  <span>{textValue(workspace.description)}</span>
-                  <small>{workspace.kind === "native" ? "Native product" : "SIEM workspace"}</small>
-                </>
-              );
-              return workspace.external ? (
-                <a key={`${href}-${index}`} className="react-security-workspace-link" href={href} target="_blank" rel="noreferrer">
-                  {content}
-                </a>
-              ) : (
-                <Link key={`${href}-${index}`} className="react-security-workspace-link" to={href}>
-                  {content}
-                </Link>
-              );
-            })}
-          </div>
-          {service?.native_console_route && service.native_console_route !== "direct" ? (
-            <div className="react-inline-note react-inline-note-spaced">
-              Native route: {textValue(service.native_console_route)}
+        <section className="react-security-commandbar" aria-label={t(lang, { en: "Service actions", ru: "Действия системы" })}>
+          <div className="react-security-commandbar-state">
+            <StatusBadge value={hostState} />
+            <div>
+              <strong>{t(lang, { en: "Host telemetry", ru: "Телеметрия узла" })}</strong>
+              <span>{formatTimestamp(telemetry.latest_event, "compact")}</span>
             </div>
-          ) : null}
+          </div>
+          <div className="react-actions react-wrap">
+            <Link className="react-link-button" to={String(pivots.events || "/events")}>
+              {t(lang, { en: "Events", ru: "События" })}
+            </Link>
+            <Link className="react-link-button" to={String(pivots.incidents || "/incidents")}>
+              {t(lang, { en: "Incidents", ru: "Инциденты" })}
+            </Link>
+            <Link className="react-link-button" to={String(pivots.host_runtime || "/host-runtime")}>
+              {t(lang, { en: "Host runtime", ru: "Состояние узла" })}
+            </Link>
+          </div>
         </section>
+
+        {missingProducts.length ? (
+          <div className="react-callout react-security-health-warning" role="status">
+            <strong>{t(lang, { en: "Product telemetry is incomplete.", ru: "Телеметрия продукта неполная." })}</strong>
+            <span>
+              {t(lang, { en: "Missing:", ru: "Не поступают:" })} {missingProducts.join(", ")}
+            </span>
+          </div>
+        ) : null}
 
         <MetricStrip
           items={[
             {
-              label: t(lang, { en: "Events 15m", ru: "События 15 мин" }),
+              label: t(lang, { en: "Events 15m", ru: "События за 15 минут" }),
               value: numberValue(telemetry.events_15m),
-              hint: t(lang, { en: "Fresh normalized telemetry.", ru: "Свежая нормализованная телеметрия." }),
+              hint: t(lang, { en: "Current normalized flow.", ru: "Текущий нормализованный поток." }),
               tone: Number(telemetry.events_15m || 0) > 0 ? "success" : "critical",
             },
             {
-              label: t(lang, { en: "Events 1h", ru: "События 1 ч" }),
+              label: t(lang, { en: "Events 1h", ru: "События за час" }),
               value: numberValue(telemetry.events_1h),
-              hint: t(lang, { en: "Stored source events.", ru: "Сохраненные события источника." }),
+              hint: t(lang, { en: "Stored source evidence.", ru: "Сохранённые события источника." }),
               tone: "info",
             },
             {
-              label: t(lang, { en: "Products", ru: "Продукты" }),
-              value: numberValue(products.length),
-              hint: t(lang, { en: "Observed normalized products.", ru: "Обнаруженные нормализованные продукты." }),
-              tone: "default",
+              label: t(lang, { en: "Product coverage", ru: "Покрытие продуктов" }),
+              value: percentValue(telemetry.product_coverage),
+              hint: matchedProducts.join(", ") || t(lang, { en: "No product signals.", ru: "Сигналов продукта нет." }),
+              tone: missingProducts.length ? "warning" : "success",
             },
             {
-              label: t(lang, { en: "Alerts 7d", ru: "Алерты 7 дней" }),
+              label: t(lang, { en: "Alerts 7d", ru: "Алерты за 7 дней" }),
               value: numberValue(telemetry.alerts_7d_returned),
-              hint: t(lang, { en: "Linked correlation alerts.", ru: "Связанные алерты корреляции." }),
-              tone: Number(telemetry.alerts_7d_returned || 0) > 0 ? "warning" : "success",
-            },
-            {
-              label: t(lang, { en: "Last event", ru: "Последнее событие" }),
-              value: formatTimestamp(telemetry.latest_event, "compact"),
-              hint: t(lang, { en: "Latest stored timestamp.", ru: "Время последнего сохраненного события." }),
-              tone: "default",
+              hint: t(lang, { en: "Correlation output linked to the service.", ru: "Связанные результаты корреляции." }),
+              tone: Number(telemetry.alerts_7d_returned || 0) > 0 ? "warning" : "default",
             },
           ]}
         />
 
-        <section className="react-card">
+        {interactive ? <SecurityControlPanel serviceId={normalizedServiceId} /> : null}
+
+        <div className="react-security-ops-grid">
+          <section className="react-security-ops-panel">
+            <PanelHeader
+              title={t(lang, { en: "Integration and access", ru: "Интеграция и доступ" })}
+              subtitle={t(lang, {
+                en: "Real SIEM workspaces and native product consoles.",
+                ru: "Рабочие области SIEM и штатные консоли продукта.",
+              })}
+              icon="control"
+            />
+            <div className="react-security-facts">
+              <div><span>{t(lang, { en: "Placement", ru: "Размещение" })}</span><strong>{textValue(service?.placement)}</strong></div>
+              <div><span>{t(lang, { en: "Role", ru: "Роль" })}</span><strong>{textValue(service?.role)}</strong></div>
+              <div><span>{t(lang, { en: "Asset group", ru: "Группа активов" })}</span><strong>{textValue(service?.asset_group)}</strong></div>
+              <div><span>{t(lang, { en: "Observed", ru: "Обнаружено" })}</span><strong>{products.join(", ") || "n/a"}</strong></div>
+            </div>
+            <nav className="react-security-workspace-list" aria-label={t(lang, { en: "Operational workspaces", ru: "Рабочие области" })}>
+              {workspaces.map((workspace, index) => {
+                const href = textValue(workspace.href);
+                const content = (
+                  <>
+                    <span>
+                      <strong>{textValue(workspace.label)}</strong>
+                      <small>{workspace.kind === "native" ? t(lang, { en: "Native", ru: "Штатная" }) : "SIEM"}</small>
+                    </span>
+                    <span>{textValue(workspace.description)}</span>
+                  </>
+                );
+                return workspace.external ? (
+                  <a key={`${href}-${index}`} href={href} target="_blank" rel="noreferrer">{content}</a>
+                ) : (
+                  <Link key={`${href}-${index}`} to={href}>{content}</Link>
+                );
+              })}
+            </nav>
+          </section>
+
+          <section className="react-security-ops-panel">
+            <PanelHeader
+              title={t(lang, { en: "Signal coverage", ru: "Покрытие сигналов" })}
+              subtitle={t(lang, { en: "Normalized families observed during the last hour.", ru: "Нормализованные семейства за последний час." })}
+              icon="events"
+            />
+            <div className="react-table-wrap">
+              <table className="react-table react-table-compact">
+                <thead><tr><th>Product</th><th>Signal</th><th>Severity</th><th>Events</th></tr></thead>
+                <tbody>
+                  {breakdown.slice(0, 12).map((row, index) => (
+                    <tr key={`${row.device_product || "product"}-${row.subcategory || index}`}>
+                      <td>{textValue(row.device_product)}</td>
+                      <td>{textValue(row.subcategory || row.category)}</td>
+                      <td><SeverityBadge value={String(row.severity || "info")} /></td>
+                      <td>{numberValue(row.event_count)}</td>
+                    </tr>
+                  ))}
+                  {!breakdown.length ? <tr><td colSpan={4}>{t(lang, { en: "No product signals.", ru: "Сигналы продукта не поступали." })}</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+            {capabilities.length ? (
+              <div className="react-chip-row react-security-capabilities">
+                {capabilities.map((item) => <span key={item} className="react-chip">{item}</span>)}
+              </div>
+            ) : null}
+          </section>
+        </div>
+
+        <section className="react-security-evidence-panel">
           <PanelHeader
-            title={t(lang, { en: "Integration state", ru: "Состояние интеграции" })}
+            title={t(lang, { en: "Operational evidence", ru: "Операционные данные" })}
             subtitle={t(lang, {
-              en: "Placement, normalized products and investigation pivots.",
-              ru: "Размещение, нормализованные продукты и переходы расследования.",
+              en: "Correlation alerts and normalized source events without leaving the service context.",
+              ru: "Алерты корреляции и события источника в контексте системы.",
             })}
-            icon="sources"
+            icon="incidents"
             actions={
-              <div className="react-actions">
-                <Link className="react-link-button" to={String(pivots.events || "/events")}>
-                  {t(lang, { en: "Events", ru: "События" })}
-                </Link>
-                <Link className="react-link-button" to={String(pivots.incidents || "/incidents")}>
-                  {t(lang, { en: "Incidents", ru: "Инциденты" })}
-                </Link>
+              <div className="react-segmented react-segmented-compact">
+                <button type="button" className={evidenceView === "alerts" ? "active" : ""} onClick={() => setEvidenceView("alerts")}>
+                  {t(lang, { en: `Alerts (${alerts.length})`, ru: `Алерты (${alerts.length})` })}
+                </button>
+                <button type="button" className={evidenceView === "events" ? "active" : ""} onClick={() => setEvidenceView("events")}>
+                  {t(lang, { en: `Events (${events.length})`, ru: `События (${events.length})` })}
+                </button>
               </div>
             }
           />
-          <div className="react-kv-grid">
-            <div className="react-kv"><div className="react-kv-label">{t(lang, { en: "Placement", ru: "Размещение" })}</div><div className="react-kv-value">{textValue(service?.placement)}</div></div>
-            <div className="react-kv"><div className="react-kv-label">{t(lang, { en: "Role", ru: "Роль" })}</div><div className="react-kv-value">{textValue(service?.role)}</div></div>
-            <div className="react-kv"><div className="react-kv-label">{t(lang, { en: "Asset group", ru: "Группа активов" })}</div><div className="react-kv-value">{textValue(service?.asset_group)}</div></div>
-            <div className="react-kv"><div className="react-kv-label">{t(lang, { en: "Products seen", ru: "Продукты в событиях" })}</div><div className="react-kv-value">{products.join(", ") || "n/a"}</div></div>
-          </div>
-          {capabilities.length ? (
-            <div className="react-chip-row" style={{ marginTop: 16 }}>
-              {capabilities.map((item) => <span key={item} className="react-chip">{item}</span>)}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="react-card">
-          <PanelHeader
-            title={t(lang, { en: "Signal breakdown", ru: "Распределение сигналов" })}
-            subtitle={t(lang, { en: "Normalized event families observed during the last hour.", ru: "Нормализованные семейства событий за последний час." })}
-            icon="events"
-          />
           <div className="react-table-wrap">
-            <table className="react-table">
-              <thead><tr><th>Product</th><th>Category</th><th>Signal</th><th>Severity</th><th>Events</th><th>Latest</th></tr></thead>
-              <tbody>
-                {breakdown.map((row, index) => (
-                  <tr key={`${row.device_product || "product"}-${row.subcategory || index}`}>
-                    <td>{textValue(row.device_product)}</td>
-                    <td>{textValue(row.category)}</td>
-                    <td>{textValue(row.subcategory)}</td>
-                    <td><SeverityBadge value={String(row.severity || "info")} /></td>
-                    <td>{numberValue(row.event_count)}</td>
-                    <td>{formatTimestamp(row.latest_event, "compact")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="react-card">
-          <PanelHeader
-            title={t(lang, { en: "Recent alerts", ru: "Последние алерты" })}
-            subtitle={t(lang, { en: "Correlation output linked to this service.", ru: "Результаты корреляции, связанные с этой системой." })}
-            icon="incidents"
-          />
-          {alerts.length ? (
-            <div className="react-table-wrap">
+            {evidenceView === "alerts" ? (
               <table className="react-table">
-                <thead><tr><th>Time</th><th>Rule</th><th>Severity</th><th>Hits</th><th>Entity</th><th>Status</th></tr></thead>
+                <thead><tr><th>{t(lang, { en: "Time", ru: "Время" })}</th><th>{t(lang, { en: "Rule", ru: "Правило" })}</th><th>Severity</th><th>Hits</th><th>{t(lang, { en: "Entity", ru: "Сущность" })}</th><th>Status</th></tr></thead>
                 <tbody>
                   {alerts.map((row, index) => (
                     <tr key={String(row.alert_id || index)}>
                       <td>{formatTimestamp(row.ts_last, "compact")}</td>
-                      <td>{textValue(row.rule_name)}</td>
+                      <td><Link to={`/incidents?view=raw&focus=${encodeURIComponent(String(row.alert_id || ""))}`}>{textValue(row.rule_name)}</Link></td>
                       <td><SeverityBadge value={String(row.severity || "info")} /></td>
                       <td>{numberValue(row.hits)}</td>
                       <td>{textValue(row.entity_key)}</td>
                       <td><StatusBadge value={String(row.status || "new")} /></td>
                     </tr>
                   ))}
+                  {!alerts.length ? <tr><td colSpan={6}>{t(lang, { en: "No linked alerts.", ru: "Связанных алертов нет." })}</td></tr> : null}
                 </tbody>
               </table>
-            </div>
-          ) : <div className="react-empty">{t(lang, { en: "No linked alerts.", ru: "Связанных алертов нет." })}</div>}
-        </section>
-
-        <section className="react-card">
-          <PanelHeader
-            title={t(lang, { en: "Recent source events", ru: "Последние события источника" })}
-            subtitle={t(lang, { en: "Normalized evidence stored in SIEM.", ru: "Нормализованные данные, сохраненные в SIEM." })}
-            icon="events"
-          />
-          <div className="react-table-wrap">
-            <table className="react-table">
-              <thead><tr><th>Time</th><th>Product</th><th>Signal</th><th>Severity</th><th>Host</th><th>Message</th></tr></thead>
-              <tbody>
-                {events.map((row: RuntimeBlob, index) => (
-                  <tr key={String(row.event_id || index)}>
-                    <td>{formatTimestamp(row.ts, "compact")}</td>
-                    <td>{textValue(row.device_product)}</td>
-                    <td>{textValue(row.subcategory || row.category)}</td>
-                    <td><SeverityBadge value={String(row.severity || "info")} /></td>
-                    <td>{textValue(row.host_name || row.log_source)}</td>
-                    <td>{textValue(row.message).slice(0, 280)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            ) : (
+              <table className="react-table">
+                <thead><tr><th>{t(lang, { en: "Time", ru: "Время" })}</th><th>Product</th><th>{t(lang, { en: "Signal", ru: "Сигнал" })}</th><th>Severity</th><th>{t(lang, { en: "Host", ru: "Узел" })}</th><th>{t(lang, { en: "Message", ru: "Сообщение" })}</th></tr></thead>
+                <tbody>
+                  {events.map((row: RuntimeBlob, index) => (
+                    <tr key={String(row.event_id || index)}>
+                      <td>{formatTimestamp(row.ts, "compact")}</td>
+                      <td>{textValue(row.device_product)}</td>
+                      <td><Link to={`/events?q=${encodeURIComponent(String(row.event_id || row.subcategory || ""))}`}>{textValue(row.subcategory || row.category)}</Link></td>
+                      <td><SeverityBadge value={String(row.severity || "info")} /></td>
+                      <td>{textValue(row.host_name || row.log_source)}</td>
+                      <td className="react-security-message">{textValue(row.message).slice(0, 280)}</td>
+                    </tr>
+                  ))}
+                  {!events.length ? <tr><td colSpan={6}>{t(lang, { en: "No source events.", ru: "События источника не поступали." })}</td></tr> : null}
+                </tbody>
+              </table>
+            )}
           </div>
         </section>
       </div>

@@ -202,6 +202,31 @@ class SecurityToolNormalizerTests(unittest.TestCase):
         self.assertEqual("abcdef123456", normalized["container.id"])
         self.assertEqual("bash -i", normalized["process.command_line"])
 
+    def test_security_sensor_heartbeat_stays_out_of_detection_category(self) -> None:
+        normalized = self._normalize(
+            {
+                "event.id": "sensor-heartbeat-1",
+                "source_type": "falco",
+                "source": "gamepanel-01",
+                "host.name": "gamepanel-01",
+                "event.provider": "falco",
+                "event.dataset": "falco.health",
+                "event.category": "health",
+                "event.type": "security_integration_heartbeat",
+                "event.action": "heartbeat",
+                "event.outcome": "success",
+                "event.severity": "info",
+                "sensor.status": "running",
+            }
+        )
+
+        self.assertEqual("falco", normalized["event.provider"])
+        self.assertEqual("health", normalized["event.category"])
+        self.assertEqual("security_integration_heartbeat", normalized["event.type"])
+        self.assertEqual("info", normalized["event.severity"])
+        self.assertEqual("success", normalized["event.outcome"])
+        self.assertIn("suppress:correlation", normalized["tags"])
+
     def test_trivy_finding_maps_vulnerability_fields(self) -> None:
         normalized = self._normalize(
             {

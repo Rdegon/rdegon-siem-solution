@@ -435,6 +435,150 @@
   min-width: min(320px, 100%);
 }
 
+.react-security-commandbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 54px;
+  margin: 10px 0 12px;
+  padding: 8px 12px;
+  border-block: 1px solid rgba(141, 167, 198, 0.14);
+  background: rgba(4, 13, 21, 0.58);
+}
+
+.react-security-commandbar-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.react-security-commandbar-state > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.react-security-commandbar-state span {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.react-security-health-warning {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.react-security-health-warning span {
+  color: var(--color-text-secondary);
+}
+
+.react-security-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.86fr) minmax(520px, 1.34fr);
+  gap: 18px;
+  margin: 16px 0;
+}
+
+.react-security-ops-panel,
+.react-security-evidence-panel {
+  min-width: 0;
+  padding: 14px 0 0;
+  border-top: 1px solid rgba(141, 167, 198, 0.18);
+}
+
+.react-security-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 10px 0 12px;
+  background: rgba(141, 167, 198, 0.1);
+}
+
+.react-security-facts > div {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  padding: 9px 10px;
+  background: #07111c;
+}
+
+.react-security-facts span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.react-security-facts strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.react-security-workspace-list {
+  display: grid;
+  border-top: 1px solid rgba(141, 167, 198, 0.12);
+}
+
+.react-security-workspace-list > a {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 50px;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.react-security-workspace-list > a:hover,
+.react-security-workspace-list > a:focus-visible {
+  background: rgba(105, 216, 255, 0.05);
+  color: #dff6ff;
+}
+
+.react-security-workspace-list > a > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.react-security-workspace-list small {
+  padding: 2px 5px;
+  border: 1px solid rgba(129, 255, 218, 0.22);
+  border-radius: 4px;
+  color: rgba(129, 255, 218, 0.78);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.react-security-workspace-list > a > span:last-child {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.react-security-capabilities {
+  margin-top: 10px;
+}
+
+.react-security-message {
+  max-width: 48ch;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.react-security-evidence-panel {
+  margin-bottom: 18px;
+}
+
 .react-topology-shell {
   margin: 10px 0 16px;
   border: 1px solid rgba(141, 167, 198, 0.14);
@@ -3066,6 +3210,21 @@
 }
 
 @media (max-width: 960px) {
+  .react-security-commandbar,
+  .react-security-health-warning {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .react-security-ops-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .react-security-workspace-list > a {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
   .react-page-incidents .react-incidents-drawer-summary-wide {
     grid-column: span 1;
   }

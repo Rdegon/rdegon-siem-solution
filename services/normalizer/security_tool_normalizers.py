@@ -778,6 +778,28 @@ def _parse_malware(event: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _parse_security_integration_heartbeat(event: Dict[str, Any]) -> Dict[str, Any]:
+    provider = _text(_first(event, "event.provider", "source_type")) or "security-integration"
+    dataset = _text(event.get("event.dataset")) or f"{provider}.health"
+    normalized = _base(
+        event,
+        provider=provider,
+        dataset=dataset,
+        category="health",
+        event_type="security_integration_heartbeat",
+        action="heartbeat",
+        severity="info",
+    )
+    normalized["event.outcome"] = "success"
+    normalized["service.name"] = provider
+    normalized["service.state"] = _text(_first(event, "sensor.status", "service.state")) or "running"
+    normalized["tags"] = _tags(
+        normalized["tags"],
+        ["telemetry:integration-health", "suppress:correlation"],
+    )
+    return normalized
+
+
 def parse_security_tool_event(raw_event: Dict[str, Any]) -> Dict[str, Any]:
     source_type = _text(raw_event.get("source_type")).lower()
     provider = _text(raw_event.get("event.provider")).lower()
@@ -785,6 +807,8 @@ def parse_security_tool_event(raw_event: Dict[str, Any]) -> Dict[str, Any]:
     collector = _text(_first(raw_event, "collector", "collector_profile", "observer.collector")).lower()
     identity = " ".join((source_type, provider, dataset, collector))
 
+    if _text(raw_event.get("event.type")).lower() == "security_integration_heartbeat":
+        return _parse_security_integration_heartbeat(raw_event)
     if "suricata" in identity:
         payload = _first(raw_event, "eve", "payload", "message", "event.original")
         parsed = parse_suricata_payload(raw_event, payload)

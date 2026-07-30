@@ -235,6 +235,7 @@ _QUERY_SETTINGS = {"max_execution_time": 6, "max_threads": 2}
 _SECRET_RE = re.compile(
     r"(?i)\b(password|passwd|token|api[_-]?key|secret|client_secret)\b(\s*[:=]\s*)([^\s,;]+)"
 )
+_HOST_MONITORING_PRODUCTS = {"host.metrics"}
 
 
 def _sql_quote(value: str) -> str:
@@ -276,6 +277,66 @@ def _service_payload(service: SecurityService) -> dict[str, Any]:
     return payload
 
 
+def _normalized_product(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", ".", str(value or "").strip().lower()).strip(".")
+
+
+def _product_matches(expected: str, observed: str) -> bool:
+    expected_name = _normalized_product(expected)
+    observed_name = _normalized_product(observed)
+    if not expected_name or not observed_name:
+        return False
+    return (
+        expected_name == observed_name
+        or observed_name.endswith(f".{expected_name}")
+        or expected_name.endswith(f".{observed_name}")
+    )
+
+
+def _integration_health(
+    service: SecurityService,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    observed = [
+        str(value)
+        for value in summary.get("products") or []
+        if _normalized_product(value) not in _HOST_MONITORING_PRODUCTS
+    ]
+    expected = [
+        value
+        for value in service.expected_products
+        if _normalized_product(value) not in _HOST_MONITORING_PRODUCTS
+    ]
+    matched = [
+        expected_product
+        for expected_product in expected
+        if any(_product_matches(expected_product, observed_product) for observed_product in observed)
+    ]
+    missing = [value for value in expected if value not in matched]
+    events_15m = int(summary.get("events_15m") or 0)
+    events_24h = int(summary.get("events_24h") or 0)
+    monitoring_seen = any(
+        _normalized_product(value) in _HOST_MONITORING_PRODUCTS
+        for value in summary.get("products") or []
+    )
+    if matched and events_15m > 0:
+        state = "healthy"
+    elif matched and events_24h > 0:
+        state = "quiet"
+    elif events_15m > 0 or monitoring_seen:
+        state = "degraded"
+    else:
+        state = "stale"
+    return {
+        "integration_state": state,
+        "telemetry_state": state,
+        "host_telemetry_state": "healthy" if events_15m > 0 and monitoring_seen else ("quiet" if monitoring_seen else "stale"),
+        "matched_products": matched,
+        "missing_products": missing,
+        "product_coverage": round(len(matched) / len(expected), 3) if expected else 1.0,
+    }
+
+
 def _summary_rows(
     client: Any,
     services: tuple[SecurityService, ...] = SECURITY_SERVICES,
@@ -285,12 +346,13 @@ def _summary_rows(
         SELECT
             if(host_name IN ({hosts}), host_name, log_source) AS service_host,
             countIf(ts >= now() - INTERVAL 15 MINUTE) AS events_15m,
-            count() AS events_1h,
+            countIf(ts >= now() - INTERVAL 1 HOUR) AS events_1h,
+            count() AS events_24h,
             max(ts) AS latest_event,
-            groupUniqArray(16)(device_product) AS products,
-            groupUniqArray(24)(subcategory) AS signal_types
+            groupUniqArray(128)(device_product) AS products,
+            groupUniqArray(128)(subcategory) AS signal_types
         FROM siem.events
-        WHERE ts >= now() - INTERVAL 1 HOUR
+        WHERE ts >= now() - INTERVAL 24 HOUR
           AND (host_name IN ({hosts}) OR log_source IN ({hosts}))
         GROUP BY service_host
     """
@@ -298,6 +360,7 @@ def _summary_rows(
         str(row["service_host"]): {
             "events_15m": int(row.get("events_15m") or 0),
             "events_1h": int(row.get("events_1h") or 0),
+            "events_24h": int(row.get("events_24h") or 0),
             "latest_event": _format(row.get("latest_event")),
             "products": sorted(str(value) for value in row.get("products") or [] if str(value or "").strip()),
             "signal_types": sorted(str(value) for value in row.get("signal_types") or [] if str(value or "").strip()),
@@ -319,17 +382,20 @@ def list_security_services(*, client: Any | None = None) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     for service in SECURITY_SERVICES:
         summary = summaries.get(service.host_name, {})
-        events_15m = int(summary.get("events_15m") or 0)
+        health = _integration_health(service, summary)
         items.append(
             {
                 **_service_payload(service),
                 **summary,
-                "telemetry_state": "healthy" if events_15m > 0 else "stale",
+                **health,
             }
         )
     payload = {
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
-        "healthy": sum(1 for item in items if item["telemetry_state"] == "healthy"),
+        "healthy": sum(1 for item in items if item["integration_state"] == "healthy"),
+        "quiet": sum(1 for item in items if item["integration_state"] == "quiet"),
+        "degraded": sum(1 for item in items if item["integration_state"] == "degraded"),
+        "stale": sum(1 for item in items if item["integration_state"] == "stale"),
         "total": len(items),
         "items": items,
     }
@@ -418,13 +484,14 @@ def _detail_payload(service: SecurityService, client: Any) -> dict[str, Any]:
         for row in client.query(alerts_query, settings=_QUERY_SETTINGS).named_results()
     ]
     summary = _summary_rows(client, (service,)).get(service.host_name, {})
-    events_15m = int(summary.get("events_15m") or 0)
+    health = _integration_health(service, summary)
     return {
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
         "service": _service_payload(service),
         "telemetry": {
             **summary,
-            "state": "healthy" if events_15m > 0 else "stale",
+            **health,
+            "state": health["integration_state"],
             "alerts_7d_returned": len(recent_alerts),
         },
         "signal_breakdown": breakdown,

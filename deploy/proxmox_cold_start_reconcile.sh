@@ -8,7 +8,11 @@ readonly CORE_QEMU_GUESTS=(102 103 106 108 105 104 107)
 readonly PLATFORM_QEMU_GUESTS=(122 123 124 125 127 130 131)
 readonly PLATFORM_LXC_GUESTS=(100 120 121 128 129 132 133)
 readonly START_ONLY_QEMU_GUESTS=(109 111)
+readonly RUNTIME_FAILURE_DIR=/var/lib/siem-cold-start-reconcile
+readonly QEMU_RECOVERY_THRESHOLD=2
 failures=0
+
+install -d -m 0750 "$RUNTIME_FAILURE_DIR"
 
 log() {
   printf 'siem-cold-start %s\n' "$*"
@@ -70,6 +74,37 @@ wait_guest_runtime() {
     sleep 5
   done
   return 1
+}
+
+runtime_failure_file() {
+  printf '%s/qemu-%s-runtime-failures' "$RUNTIME_FAILURE_DIR" "$1"
+}
+
+clear_runtime_failures() {
+  rm -f "$(runtime_failure_file "$1")"
+}
+
+record_runtime_failure() {
+  local vmid="$1"
+  local path count
+  path="$(runtime_failure_file "$vmid")"
+  count=0
+  if [[ -s "$path" ]]; then
+    read -r count <"$path" || count=0
+  fi
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$path"
+  printf '%s' "$count"
+}
+
+recover_unresponsive_qemu() {
+  local vmid="$1"
+  log "guest_type=qemu vm=$vmid action=reset reason=guest_runtime_unresponsive"
+  if ! timeout 90 qm reset "$vmid" >/dev/null 2>&1; then
+    return 1
+  fi
+  clear_runtime_failures "$vmid"
+  wait_guest_runtime qemu "$vmid"
 }
 
 wait_opnsense() {
@@ -218,9 +253,23 @@ reconcile_guest() {
     return
   fi
   if ! wait_guest_runtime "$guest_type" "$vmid"; then
-    log "guest_type=$guest_type vm=$vmid result=not_ready check=guest_runtime"
-    failures=$((failures + 1))
-    return
+    if [[ "$guest_type" == "qemu" ]]; then
+      runtime_failures="$(record_runtime_failure "$vmid")"
+      if (( runtime_failures >= QEMU_RECOVERY_THRESHOLD )) \
+        && recover_unresponsive_qemu "$vmid"; then
+        log "guest_type=qemu vm=$vmid result=runtime_recovered"
+      else
+        log "guest_type=qemu vm=$vmid result=not_ready check=guest_runtime consecutive_failures=$runtime_failures"
+        failures=$((failures + 1))
+        return
+      fi
+    else
+      log "guest_type=$guest_type vm=$vmid result=not_ready check=guest_runtime"
+      failures=$((failures + 1))
+      return
+    fi
+  elif [[ "$guest_type" == "qemu" ]]; then
+    clear_runtime_failures "$vmid"
   fi
   if guest_ready "$guest_type" "$vmid"; then
     log "guest_type=$guest_type vm=$vmid result=ready"

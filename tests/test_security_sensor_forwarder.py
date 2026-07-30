@@ -13,6 +13,7 @@ from deploy.security_sensor_forwarder import (
     _collect_once,
     _decorate,
     _deliver_once,
+    _enqueue_heartbeat,
     _load_state,
     _misp_attributes,
     _read_spool,
@@ -34,6 +35,31 @@ class SecuritySensorForwarderTests(unittest.TestCase):
 
         self.assertEqual("soc-ndr-01", decorated["source"])
         self.assertEqual("soc-ndr-01", decorated["log_source"])
+
+    def test_idle_sensor_enqueues_product_health_heartbeat(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = Namespace(
+                spool_path=str(root / "spool.jsonl"),
+                spool_max_bytes=1_048_576,
+                state_path=str(root / "state.json"),
+                heartbeat_interval=300,
+                kind="malware",
+                sensor="static-analysis",
+                host_name="soc-analysis-01",
+            )
+            state: dict[str, object] = {}
+
+            with patch("deploy.security_sensor_forwarder.time.time", return_value=1_800_000_000):
+                first = _enqueue_heartbeat(args, state)
+                second = _enqueue_heartbeat(args, state)
+            events, _ = _read_spool(Path(args.spool_path), 10)
+
+            self.assertEqual(1, first)
+            self.assertEqual(0, second)
+            self.assertEqual("malware-analysis", events[0]["event.provider"])
+            self.assertEqual("security_integration_heartbeat", events[0]["event.type"])
+            self.assertEqual("soc-analysis-01", events[0]["host.name"])
 
     def test_trivy_document_is_expanded_into_findings(self) -> None:
         payload = {

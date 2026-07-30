@@ -78,6 +78,26 @@ class ProxmoxFleetRuntimeTests(unittest.TestCase):
 
         self.assertEqual([{"vmid": "123"}], payload["items"])
 
+    def test_list_inventory_can_serve_stale_cache_without_blocking_live_refresh(self) -> None:
+        with patch(
+            "proxmox_fleet_runtime._load_rows",
+            side_effect=lambda name: (
+                [{"vmid": "123"}]
+                if name == runtime.PROXMOX_FLEET_COLLECTION
+                else [{"updated_ts": "2026-01-01T00:00:00Z"}]
+            ),
+        ):
+            with patch("proxmox_fleet_runtime.proxmox_is_configured", return_value=True):
+                with patch("proxmox_fleet_runtime._fleet_cache_is_stale", return_value=True):
+                    with patch("proxmox_fleet_runtime.sync_proxmox_fleet_inventory") as sync:
+                        payload = runtime.list_proxmox_fleet_inventory(
+                            limit=500,
+                            refresh_if_stale=False,
+                        )
+
+        self.assertEqual([{"vmid": "123"}], payload["items"])
+        sync.assert_not_called()
+
     def test_sync_inventory_builds_states_and_metrics(self) -> None:
         saved_rows: dict[str, list[dict[str, object]]] = {}
         resources = {

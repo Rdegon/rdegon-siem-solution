@@ -322,6 +322,14 @@ class StreamWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(worker._should_skip_correlation({"event.dataset": "benchmark"}))
         self.assertTrue(worker._should_skip_correlation({"tags": '["distributed", "allowlist:benchmark"]'}))
         self.assertTrue(worker._should_skip_correlation({"event.tags": ["benchmark", "allowlist:benchmark"]}))
+        self.assertTrue(
+            worker._should_skip_correlation(
+                {
+                    "event.category": "health",
+                    "tags": ["telemetry:integration-health", "suppress:correlation"],
+                }
+            )
+        )
         self.assertFalse(
             worker._should_skip_correlation(
                 {

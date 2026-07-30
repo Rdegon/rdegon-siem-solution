@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock, get_ident
-from time import monotonic
+from time import monotonic, time
 from typing import Any
 
 try:
@@ -39,6 +39,7 @@ _CLIENT_CACHE: dict[tuple[str, int, str, str, str, int], Any] = {}
 _CLIENT_HEALTHCHECK_AT: dict[tuple[str, int, str, str, str, int], float] = {}
 _CACHE_LOCK = RLock()
 _PREFERRED_INDEX = 0
+_ROUTING_CHECK_AT = 0.0
 
 
 class _FallbackClickHouseConfig:
@@ -128,6 +129,20 @@ def _healthcheck_ttl_seconds() -> float:
         return 2.0
 
 
+def _routing_ttl_seconds() -> float:
+    try:
+        return max(1.0, min(30.0, float(str(os.environ.get("SIEM_CH_ROUTING_TTL_SECONDS", "5") or "5"))))
+    except ValueError:
+        return 5.0
+
+
+def _max_replica_lag_seconds() -> int:
+    try:
+        return max(0, int(str(os.environ.get("SIEM_CH_MAX_READ_REPLICA_LAG_SECONDS", "30") or "30")))
+    except ValueError:
+        return 30
+
+
 def _build_client(endpoint: ClickHouseEndpoint) -> Any:
     if clickhouse_connect is None:
         raise RuntimeError("clickhouse_connect_unavailable")
@@ -144,11 +159,101 @@ def _build_client(endpoint: ClickHouseEndpoint) -> Any:
 
 
 def clear_clickhouse_runtime_cache() -> None:
-    global _PREFERRED_INDEX
+    global _PREFERRED_INDEX, _ROUTING_CHECK_AT
     with _CACHE_LOCK:
         _CLIENT_CACHE.clear()
         _CLIENT_HEALTHCHECK_AT.clear()
         _PREFERRED_INDEX = 0
+        _ROUTING_CHECK_AT = 0.0
+
+
+def _thread_cache_key(endpoint: ClickHouseEndpoint) -> tuple[str, int, str, str, str, int]:
+    return (*_cache_key(endpoint), get_ident())
+
+
+def _client_for_endpoint(endpoint: ClickHouseEndpoint) -> tuple[Any, tuple[str, int, str, str, str, int]]:
+    key = _thread_cache_key(endpoint)
+    with _CACHE_LOCK:
+        client = _CLIENT_CACHE.get(key)
+    if client is None:
+        client = _build_client(endpoint)
+        with _CACHE_LOCK:
+            _CLIENT_CACHE[key] = client
+    return client, key
+
+
+def _drop_cached_client(key: tuple[str, int, str, str, str, int]) -> None:
+    with _CACHE_LOCK:
+        _CLIENT_CACHE.pop(key, None)
+        _CLIENT_HEALTHCHECK_AT.pop(key, None)
+
+
+def _refresh_preferred_route(
+    endpoints: tuple[ClickHouseEndpoint, ...],
+) -> tuple[int | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    global _PREFERRED_INDEX, _ROUTING_CHECK_AT
+    reachable: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for index, endpoint in enumerate(endpoints):
+        key: tuple[str, int, str, str, str, int] | None = None
+        try:
+            client, key = _client_for_endpoint(endpoint)
+            latest_event_epoch = _coerce_epoch(
+                client.command("SELECT toUnixTimestamp(max(ts)) FROM siem.events")
+            )
+            reachable.append(
+                {
+                    "index": index,
+                    "endpoint": endpoint,
+                    "client": client,
+                    "latest_event_epoch": latest_event_epoch,
+                }
+            )
+            with _CACHE_LOCK:
+                _CLIENT_HEALTHCHECK_AT[key] = monotonic()
+        except Exception as exc:  # noqa: BLE001
+            if key is not None:
+                _drop_cached_client(key)
+            failed.append(
+                {
+                    "index": index,
+                    "endpoint": endpoint,
+                    "error": f"{type(exc).__name__}:{exc}",
+                }
+            )
+
+    selected_index: int | None = None
+    epochs = [
+        int(item["latest_event_epoch"])
+        for item in reachable
+        if item.get("latest_event_epoch") is not None
+    ]
+    newest_epoch = max(epochs) if epochs else None
+    allowed_lag = _max_replica_lag_seconds()
+    for item in reachable:
+        epoch = item.get("latest_event_epoch")
+        item["replication_lag_seconds"] = (
+            max(0, int(newest_epoch - int(epoch)))
+            if newest_epoch is not None and epoch is not None
+            else None
+        )
+        item["data_fresh"] = (
+            newest_epoch is None
+            or (
+                item["replication_lag_seconds"] is not None
+                and int(item["replication_lag_seconds"]) <= allowed_lag
+            )
+        )
+        if selected_index is None and item["data_fresh"]:
+            selected_index = int(item["index"])
+    if selected_index is None and reachable:
+        selected_index = int(reachable[0]["index"])
+
+    with _CACHE_LOCK:
+        if selected_index is not None:
+            _PREFERRED_INDEX = selected_index
+        _ROUTING_CHECK_AT = monotonic()
+    return selected_index, reachable, failed
 
 
 def get_clickhouse_client() -> Any:
@@ -157,10 +262,24 @@ def get_clickhouse_client() -> Any:
     last_error: Exception | None = None
     with _CACHE_LOCK:
         start_index = _PREFERRED_INDEX % max(1, len(endpoints))
+        routing_check_at = _ROUTING_CHECK_AT
+    if len(endpoints) > 1 and monotonic() - routing_check_at >= _routing_ttl_seconds():
+        selected_index, reachable, failed = _refresh_preferred_route(endpoints)
+        if selected_index is not None:
+            selected = next(
+                (item for item in reachable if int(item["index"]) == selected_index),
+                None,
+            )
+            if selected is not None:
+                return selected["client"]
+        if failed:
+            last_error = RuntimeError(str(failed[-1]["error"]))
+        with _CACHE_LOCK:
+            start_index = _PREFERRED_INDEX % max(1, len(endpoints))
     for offset in range(len(endpoints)):
         index = (start_index + offset) % len(endpoints)
         endpoint = endpoints[index]
-        key = (*_cache_key(endpoint), get_ident())
+        key = _thread_cache_key(endpoint)
         now = monotonic()
         with _CACHE_LOCK:
             client = _CLIENT_CACHE.get(key)
@@ -171,9 +290,7 @@ def get_clickhouse_client() -> Any:
             return client
         try:
             if client is None:
-                client = _build_client(endpoint)
-                with _CACHE_LOCK:
-                    _CLIENT_CACHE[key] = client
+                client, key = _client_for_endpoint(endpoint)
             client.command("SELECT 1")
             with _CACHE_LOCK:
                 _CLIENT_HEALTHCHECK_AT[key] = monotonic()
@@ -181,46 +298,52 @@ def get_clickhouse_client() -> Any:
             return client
         except Exception as exc:  # noqa: BLE001
             last_error = exc
-            with _CACHE_LOCK:
-                _CLIENT_CACHE.pop(key, None)
-                _CLIENT_HEALTHCHECK_AT.pop(key, None)
+            _drop_cached_client(key)
     raise RuntimeError(f"All ClickHouse endpoints failed: {last_error}") from last_error
 
 
 def clickhouse_failover_status() -> dict[str, Any]:
     endpoints = configured_clickhouse_endpoints()
-    preferred_index = _PREFERRED_INDEX % max(1, len(endpoints))
+    selected_index, reachable, failed = _refresh_preferred_route(endpoints)
     healthy_endpoints: list[dict[str, Any]] = []
     failed_endpoints: list[dict[str, Any]] = []
-    for index, endpoint in enumerate(endpoints):
-        key = _cache_key(endpoint)
-        with _CACHE_LOCK:
-            client = _CLIENT_CACHE.get(key)
-        try:
-            if client is None:
-                client = _build_client(endpoint)
-            client.command("SELECT 1")
-            healthy_endpoints.append(
-                {
-                    "host": endpoint.host,
-                    "port": int(endpoint.port),
-                    "preferred": index == preferred_index,
-                }
-            )
-        except Exception as exc:  # noqa: BLE001
-            failed_endpoints.append(
-                {
-                    "host": endpoint.host,
-                    "port": int(endpoint.port),
-                    "error": f"{type(exc).__name__}:{exc}",
-                    "preferred": index == preferred_index,
-                }
-            )
-    active_endpoint = healthy_endpoints[0] if healthy_endpoints else None
+    now_epoch = int(time())
+    for item in reachable:
+        endpoint = item["endpoint"]
+        latest_event_epoch = item.get("latest_event_epoch")
+        healthy_endpoints.append(
+            {
+                "host": endpoint.host,
+                "port": int(endpoint.port),
+                "preferred": int(item["index"]) == selected_index,
+                "data_fresh": bool(item.get("data_fresh")),
+                "latest_event_epoch": latest_event_epoch,
+                "latest_event_age_seconds": (
+                    max(0, now_epoch - int(latest_event_epoch))
+                    if latest_event_epoch is not None
+                    else None
+                ),
+                "replication_lag_seconds": item.get("replication_lag_seconds"),
+            }
+        )
+    for item in failed:
+        endpoint = item["endpoint"]
+        failed_endpoints.append(
+            {
+                "host": endpoint.host,
+                "port": int(endpoint.port),
+                "error": item["error"],
+                "preferred": int(item["index"]) == selected_index,
+            }
+        )
+    active_endpoint = next(
+        (item for item in healthy_endpoints if item["preferred"]),
+        healthy_endpoints[0] if healthy_endpoints else None,
+    )
     return {
         "configured_hosts": [{"host": item.host, "port": int(item.port)} for item in endpoints],
         "active_endpoint": active_endpoint,
-        "healthy": bool(healthy_endpoints),
+        "healthy": bool(active_endpoint and active_endpoint.get("data_fresh")),
         "healthy_endpoints": healthy_endpoints,
         "failed_endpoints": failed_endpoints,
         "replica_hosts_total": max(0, len(endpoints) - 1),

@@ -7,10 +7,17 @@ from clickhouse_runtime import ClickHouseEndpoint, clear_clickhouse_runtime_cach
 
 
 class _FakeClient:
-    def __init__(self, host: str, port: int, broken: bool = False) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        broken: bool = False,
+        latest_event_epoch: int = 1774797100,
+    ) -> None:
         self.host = host
         self.port = port
         self.broken = broken
+        self.latest_event_epoch = latest_event_epoch
         self.commands: list[str] = []
 
     def command(self, sql: str):
@@ -32,7 +39,7 @@ class _FakeClient:
         if "count() FROM siem.alerts_raw WHERE ts >= now() - INTERVAL 5 MINUTE" in sql:
             return 2
         if "toUnixTimestamp(max(ts)) FROM siem.events" in sql:
-            return 1774797100
+            return self.latest_event_epoch
         return 1
 
 
@@ -60,6 +67,28 @@ class ClickHouseRuntimeTests(unittest.TestCase):
                 client = get_clickhouse_client()
 
         self.assertIs(client, fake_clients[("vm5", 8123)])
+
+    def test_get_clickhouse_client_skips_reachable_but_stale_replica(self) -> None:
+        fake_clients = {
+            ("vm3", 8123): _FakeClient("vm3", 8123, latest_event_epoch=1774793500),
+            ("vm5", 8123): _FakeClient("vm5", 8123, latest_event_epoch=1774797100),
+        }
+
+        def _build(endpoint: ClickHouseEndpoint):
+            return fake_clients[(endpoint.host, endpoint.port)]
+
+        with patch(
+            "clickhouse_runtime.configured_clickhouse_endpoints",
+            return_value=(ClickHouseEndpoint("vm3", 8123), ClickHouseEndpoint("vm5", 8123)),
+        ):
+            with patch("clickhouse_runtime._build_client", side_effect=_build):
+                client = get_clickhouse_client()
+                status = clickhouse_failover_status()
+
+        self.assertIs(client, fake_clients[("vm5", 8123)])
+        self.assertEqual("vm5", status["active_endpoint"]["host"])
+        self.assertFalse(status["healthy_endpoints"][0]["data_fresh"])
+        self.assertEqual(3600, status["healthy_endpoints"][0]["replication_lag_seconds"])
 
     def test_get_clickhouse_client_reuses_recent_healthcheck(self) -> None:
         client = _FakeClient("vm3", 8123)

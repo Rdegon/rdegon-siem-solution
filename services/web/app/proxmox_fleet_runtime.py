@@ -737,11 +737,17 @@ def sync_proxmox_fleet_inventory(*, actor: str = "system", connected_sources: li
     }
 
 
-def list_proxmox_fleet_inventory(*, limit: int = 500) -> dict[str, Any]:
+def list_proxmox_fleet_inventory(
+    *,
+    limit: int = 500,
+    refresh_if_stale: bool = True,
+) -> dict[str, Any]:
     items = [dict(item) for item in _load_rows(PROXMOX_FLEET_COLLECTION)]
     sync_rows = _load_rows(PROXMOX_FLEET_SYNC_COLLECTION)
     sync_state = dict(sync_rows[0]) if sync_rows else {}
-    if proxmox_is_configured() and (not items or _fleet_cache_is_stale(sync_state)):
+    if proxmox_is_configured() and (
+        not items or (refresh_if_stale and _fleet_cache_is_stale(sync_state))
+    ):
         try:
             return sync_proxmox_fleet_inventory(actor="auto-sync")
         except Exception:
@@ -850,7 +856,7 @@ def build_proxmox_fleet_vuln_coverage(*, days: int = 30, reports: list[dict[str,
         except Exception:  # noqa: BLE001
             fetch_vulnerability_reports = None  # type: ignore[assignment]
 
-    payload = list_proxmox_fleet_inventory(limit=5000)
+    payload = list_proxmox_fleet_inventory(limit=5000, refresh_if_stale=False)
     items = list(payload.get("items") or [])
     reports = list(reports) if reports is not None else (
         list(fetch_vulnerability_reports(limit=1000, days=max(1, int(days)))) if fetch_vulnerability_reports else []

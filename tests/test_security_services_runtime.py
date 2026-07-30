@@ -75,6 +75,9 @@ class SecurityServicesRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["healthy"], 1)
         self.assertEqual(by_id["ndr"]["telemetry_state"], "healthy")
         self.assertEqual(by_id["dfir"]["telemetry_state"], "stale")
+        self.assertEqual(by_id["ndr"]["host_telemetry_state"], "healthy")
+        self.assertEqual(by_id["ndr"]["matched_products"], ["zeek"])
+        self.assertEqual(by_id["ndr"]["missing_products"], ["arkime"])
         self.assertEqual(by_id["evidence"]["address"], "10.20.10.133")
         self.assertEqual(by_id["ngfw"]["address"], "192.168.3.103")
         self.assertEqual(by_id["ngfw"]["host_name"], "opnsense-edge-01")
@@ -84,6 +87,7 @@ class SecurityServicesRuntimeTests(unittest.TestCase):
         payload = get_security_service("ndr", client=_Client())
 
         self.assertEqual(payload["telemetry"]["state"], "healthy")
+        self.assertEqual(payload["telemetry"]["product_coverage"], 0.5)
         self.assertEqual(payload["signal_breakdown"][0]["subcategory"], "zeek_conn")
         self.assertEqual(payload["recent_events"][0]["message"], "token=[REDACTED]")
         self.assertEqual(payload["recent_alerts"][0]["alert_id"], "12345678-1234-5678-1234-567812345678")
@@ -91,3 +95,66 @@ class SecurityServicesRuntimeTests(unittest.TestCase):
     def test_detail_rejects_unknown_service(self) -> None:
         with self.assertRaises(KeyError):
             get_security_service("does-not-exist", client=_Client())
+
+    def test_host_metrics_do_not_mask_missing_product_integration(self) -> None:
+        class HostMetricsOnlyClient(_Client):
+            def query(self, query: str, settings=None):
+                if "GROUP BY service_host" in query:
+                    return _Result(
+                        [
+                            {
+                                "service_host": "soc-analysis-01",
+                                "events_15m": 20,
+                                "events_1h": 80,
+                                "events_24h": 1200,
+                                "latest_event": datetime(2026, 7, 27, tzinfo=timezone.utc),
+                                "products": ["host.metrics"],
+                                "signal_types": ["host_metrics"],
+                            }
+                        ]
+                    )
+                return super().query(query, settings=settings)
+
+        payload = list_security_services(client=HostMetricsOnlyClient())
+        analysis = next(item for item in payload["items"] if item["service_id"] == "analysis")
+
+        self.assertEqual(analysis["integration_state"], "degraded")
+        self.assertEqual(analysis["host_telemetry_state"], "healthy")
+        self.assertEqual(analysis["matched_products"], [])
+        self.assertEqual(
+            analysis["missing_products"],
+            ["malware-analysis", "clamav", "yara"],
+        )
+
+    def test_product_health_is_not_truncated_by_busy_host_processes(self) -> None:
+        class BusyRuntimeClient(_Client):
+            def query(self, query: str, settings=None):
+                if "GROUP BY service_host" in query:
+                    products = [
+                        "host.metrics",
+                        *[f"linux.process-{index}" for index in range(20)],
+                        "falco",
+                    ]
+                    if "groupUniqArray(16)" in query:
+                        products = products[:16]
+                    return _Result(
+                        [
+                            {
+                                "service_host": "gamepanel-01",
+                                "events_15m": 300,
+                                "events_1h": 1200,
+                                "events_24h": 28000,
+                                "latest_event": datetime(2026, 7, 30, tzinfo=timezone.utc),
+                                "products": products,
+                                "signal_types": ["security_integration_heartbeat"],
+                            }
+                        ]
+                    )
+                return super().query(query, settings=settings)
+
+        payload = list_security_services(client=BusyRuntimeClient())
+        runtime = next(item for item in payload["items"] if item["service_id"] == "runtime")
+
+        self.assertEqual(runtime["integration_state"], "healthy")
+        self.assertEqual(runtime["matched_products"], ["falco"])
+        self.assertEqual(runtime["missing_products"], [])

@@ -154,6 +154,29 @@ class IncidentTelegramBotTests(unittest.TestCase):
             calls[0],
         )
 
+    def test_old_telegram_card_is_archived_when_delete_is_rejected(self) -> None:
+        bot = self._bot()
+        calls: list[tuple[str, dict]] = []
+
+        def request(method: str, payload: dict) -> dict:
+            calls.append((method, payload))
+            if method == "deleteMessage":
+                raise RuntimeError("message can't be deleted")
+            return {"ok": True}
+
+        bot._telegram_request = request  # type: ignore[method-assign]
+
+        result = bot._delete_incident_card(
+            chat_id="12345",
+            message_id=42,
+            reason="left_main_incident_queue",
+        )
+
+        self.assertEqual("archived", result["status"])
+        self.assertEqual(["deleteMessage", "editMessageText"], [item[0] for item in calls])
+        self.assertEqual({"inline_keyboard": []}, calls[1][1]["reply_markup"])
+        self.assertIn("АРХИВ", calls[1][1]["text"])
+
     def test_telegram_request_redacts_bot_token_from_transport_errors(self) -> None:
         bot = self._bot()
         request_error = sys.modules["requests"].RequestException(

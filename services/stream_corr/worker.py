@@ -267,7 +267,8 @@ class StreamCorrWorker:
         return candidates
 
     def _should_skip_correlation(self, event: dict[str, Any]) -> bool:
-        return _is_benchmark_event(event)
+        tags = _event_tags(event)
+        return _is_benchmark_event(event) or "suppress:correlation" in tags
 
     def _ensure_runtime_tables(self) -> None:
         assert self._ch_client is not None

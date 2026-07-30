@@ -2214,6 +2214,11 @@ export type SecurityServiceRecord = RuntimeBlob & {
   expected_products?: string[];
   capabilities?: string[];
   telemetry_state?: string;
+  integration_state?: string;
+  host_telemetry_state?: string;
+  matched_products?: string[];
+  missing_products?: string[];
+  product_coverage?: number;
   events_15m?: number;
   events_1h?: number;
   events_24h?: number;
@@ -2226,6 +2231,9 @@ export type SecurityServiceRecord = RuntimeBlob & {
 export type SecurityServicesResponse = {
   generated_at?: string;
   healthy: number;
+  quiet?: number;
+  degraded?: number;
+  stale?: number;
   total: number;
   items: SecurityServiceRecord[];
 };

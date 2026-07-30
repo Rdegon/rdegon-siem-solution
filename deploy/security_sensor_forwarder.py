@@ -17,6 +17,10 @@ from typing import Any, Iterable
 
 DEFAULT_INGEST_URL = "https://10.20.10.104/ingest/json"
 RETRYABLE_HTTP_CODES = {408, 425, 429, 500, 502, 503, 504}
+HEARTBEAT_PROVIDERS = {
+    "malware": "malware-analysis",
+    "static-analysis": "malware-analysis",
+}
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -471,6 +475,57 @@ def _collect_once(args: argparse.Namespace, state: dict[str, Any]) -> int:
     return collected
 
 
+def _heartbeat_event(args: argparse.Namespace, bucket: int) -> dict[str, Any]:
+    provider = HEARTBEAT_PROVIDERS.get(args.kind, args.kind)
+    host_name = args.host_name or args.sensor
+    identity = f"{args.sensor}|{provider}|{bucket}".encode("utf-8", errors="replace")
+    return {
+        "event.id": f"sensor-heartbeat-{hashlib.sha256(identity).hexdigest()[:32]}",
+        "source_type": args.kind,
+        "source": host_name,
+        "log_source": host_name,
+        "host.name": host_name,
+        "collector": f"{args.kind}-forwarder",
+        "collector_profile": f"{args.kind}-json",
+        "ingest_profile": f"{args.kind}-json",
+        "observer.collector": f"{args.kind}-forwarder",
+        "observer.profile": f"{args.kind}-json",
+        "event.provider": provider,
+        "event.dataset": f"{provider}.health",
+        "event.category": "health",
+        "event.type": "security_integration_heartbeat",
+        "event.action": "heartbeat",
+        "event.outcome": "success",
+        "event.severity": "info",
+        "event.ingested": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "message": f"{provider} integration heartbeat",
+        "sensor.name": args.sensor,
+        "sensor.status": "running",
+    }
+
+
+def _enqueue_heartbeat(args: argparse.Namespace, state: dict[str, Any]) -> int:
+    interval = max(0, int(args.heartbeat_interval))
+    if interval <= 0:
+        return 0
+    now_epoch = int(time.time())
+    last_epoch = max(0, int(state.get("last_heartbeat_at_epoch") or 0))
+    if now_epoch - last_epoch < interval:
+        return 0
+    spool_path = Path(args.spool_path)
+    spool_offset = max(0, int(state.get("spool_offset") or 0))
+    written = _append_spool(
+        spool_path,
+        [_heartbeat_event(args, now_epoch // interval)],
+        args.spool_max_bytes,
+        consumed_bytes=spool_offset,
+    )
+    if written:
+        state["last_heartbeat_at_epoch"] = now_epoch
+        _atomic_json_write(Path(args.state_path), state)
+    return written
+
+
 def _deliver_once(args: argparse.Namespace, state: dict[str, Any]) -> int:
     spool_path = Path(args.spool_path)
     spool_offset = max(0, int(state.get("spool_offset") or 0))
@@ -546,6 +601,11 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=_env_int("SIEM_SENSOR_STATUS_INTERVAL_SECONDS", 60, 10, 3600),
     )
+    parser.add_argument(
+        "--heartbeat-interval",
+        type=int,
+        default=_env_int("SIEM_SENSOR_HEARTBEAT_INTERVAL_SECONDS", 300, 0, 3600),
+    )
     parser.add_argument("--once", action="store_true")
     return parser
 
@@ -585,6 +645,7 @@ def main() -> int:
         except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
             error = type(exc).__name__
         collected = _collect_once(args, state)
+        collected += _enqueue_heartbeat(args, state)
         if delivered == 0 and collected and not error:
             try:
                 delivered = _deliver_once(args, state)
