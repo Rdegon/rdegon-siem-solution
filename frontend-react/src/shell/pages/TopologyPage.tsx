@@ -7,7 +7,7 @@ import { useShellContext } from "../context";
 import { useAsyncData } from "../hooks";
 import { EmptyState, MetricStrip, PanelHeader, StatusBadge } from "../ui";
 import type { HostAccessProfileRecord, NetworkPacketFlowRecord, NetworkTopologyResponse, TopologyEdgeRecord, TopologyNodeRecord } from "../types";
-import { MaxGraphTopologyCanvas } from "./topology/MaxGraphTopologyCanvas";
+import { ReactFlowTopologyCanvas } from "./topology/ReactFlowTopologyCanvas";
 
 const TOPOLOGY_LANES: Record<string, { label: string; order: number }> = {
   external: { label: "External activity", order: 0 },
@@ -2771,7 +2771,7 @@ export function TopologyPage() {
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [hoveredNodeId, setHoveredNodeId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [mapMode, setMapMode] = useState<TopologyMapMode>("force");
+  const [mapMode, setMapMode] = useState<TopologyMapMode>("network");
   const [segmentScope, setSegmentScope] = useState<"all" | NetworkSegment>("all");
   const [layerScope, setLayerScope] = useState("all");
   const [graphZoom, setGraphZoom] = useState(100);
@@ -3002,8 +3002,9 @@ export function TopologyPage() {
             <span key={safeText(layer.id)}>{safeText(layer.title)} {Number(layer.count || 0).toLocaleString()}</span>
           ))}
         </div>
-        <div className="react-topology-workspace">
-          <aside className="react-topology-scope" aria-label="Topology scope">
+        <div className={`react-topology-workspace ${mapMode === "network" ? "is-blueprint" : ""}`}>
+          {mapMode !== "network" ? (
+            <aside className="react-topology-scope" aria-label="Topology scope">
             <div className="react-topology-pane-head">
               <div>
                 <span>Scope</span>
@@ -3061,15 +3062,23 @@ export function TopologyPage() {
               <div><i className="tone-attention" />Coverage gap</div>
               <div><i className="tone-neutral" />Runtime relation</div>
             </div>
-          </aside>
+            </aside>
+          ) : null}
 
           <div className="react-topology-canvas-stage">
             {mapMode === "network" ? (
-              <MaxGraphTopologyCanvas
+              <ReactFlowTopologyCanvas
                 nodes={scopedNodes}
                 edges={scopedEdges}
                 selectedNodeId={selectedNodeId}
+                searchTerm={searchTerm}
+                segmentScope={segmentScope}
+                segmentCounts={Object.fromEntries(segmentCounts)}
+                layerScope={layerScope}
+                layerOptions={Object.entries(TOPOLOGY_LANES).map(([id, lane]) => ({ id, label: lane.label }))}
                 onSelectNode={setSelectedNodeId}
+                onSegmentScopeChange={setSegmentScope}
+                onLayerScopeChange={setLayerScope}
               />
             ) : mapMode !== "force" ? (
               <OlympusNetworkTopology
@@ -3093,15 +3102,18 @@ export function TopologyPage() {
                 onZoomChange={setGraphZoom}
               />
             )}
-            <div className="react-topology-canvas-status">
-              <span>{mapMode === "force" ? "LIVE RELATION GRAPH" : mapMode === "network" ? "MAXGRAPH BLUEPRINT" : "REFERENCE VIEW"}</span>
-              <b>{scopedNodes.length} nodes</b>
-              <b>{scopedEdges.length} links</b>
-              {selectedNode ? <b>Focus: {nodeDisplayLabel(selectedNode)}</b> : null}
-            </div>
+            {mapMode !== "network" ? (
+              <div className="react-topology-canvas-status">
+                <span>{mapMode === "force" ? "LIVE RELATION GRAPH" : "REFERENCE VIEW"}</span>
+                <b>{scopedNodes.length} nodes</b>
+                <b>{scopedEdges.length} links</b>
+                {selectedNode ? <b>Focus: {nodeDisplayLabel(selectedNode)}</b> : null}
+              </div>
+            ) : null}
           </div>
 
-          <aside className="react-topology-inspector" aria-label="Topology inspector">
+          {(mapMode !== "network" || selectedNode) ? (
+            <aside className="react-topology-inspector" aria-label="Topology inspector">
             {selectedNode ? (
               <>
                 <div className="react-topology-inspector-identity">
@@ -3193,7 +3205,8 @@ export function TopologyPage() {
                 </div>
               </>
             )}
-          </aside>
+            </aside>
+          ) : null}
         </div>
       </section>
 

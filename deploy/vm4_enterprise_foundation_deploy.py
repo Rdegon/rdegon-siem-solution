@@ -104,6 +104,7 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
     FileMapping("services/web/app/certification_runtime.py", "certification_runtime.py"),
     FileMapping("frontend-react/.eslintrc.cjs", "services/web/frontend-react/.eslintrc.cjs"),
     FileMapping("frontend-react/build.cjs", "services/web/frontend-react/build.cjs"),
+    FileMapping("frontend-react/package-lock.json", "services/web/frontend-react/package-lock.json"),
     FileMapping("frontend-react/package.json", "services/web/frontend-react/package.json"),
     FileMapping("frontend-react/tsconfig.json", "services/web/frontend-react/tsconfig.json"),
     FileMapping("frontend-react/tsconfig.quality.json", "services/web/frontend-react/tsconfig.quality.json"),
@@ -407,6 +408,9 @@ FILE_MAPPINGS: tuple[FileMapping, ...] = (
 ) + _directory_mappings(
     "frontend-react/src/shell/pages/builders",
     "services/web/frontend-react/src/shell/pages/builders",
+) + _directory_mappings(
+    "frontend-react/src/shell/pages/topology",
+    "services/web/frontend-react/src/shell/pages/topology",
 ) + _directory_mappings(
     "frontend-react/src/shell/__tests__",
     "services/web/frontend-react/src/shell/__tests__",

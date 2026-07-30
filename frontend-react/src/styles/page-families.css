@@ -514,6 +514,30 @@
   min-height: 720px;
 }
 
+.react-topology-workspace.is-blueprint {
+  position: relative;
+  display: block;
+  min-height: 820px;
+}
+
+.react-topology-workspace.is-blueprint .react-topology-canvas-stage {
+  min-height: 820px;
+}
+
+.react-topology-workspace.is-blueprint .react-topology-inspector {
+  position: absolute;
+  top: 72px;
+  right: 16px;
+  z-index: 12;
+  width: min(336px, calc(100% - 32px));
+  max-height: 724px;
+  border: 1px solid rgba(122, 153, 181, 0.26);
+  border-radius: 6px;
+  background: rgba(6, 15, 23, 0.97);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px);
+}
+
 .react-topology-scope,
 .react-topology-inspector {
   min-width: 0;
@@ -854,80 +878,404 @@
   min-height: 720px;
 }
 
-.react-maxgraph-shell {
+.react-flow-topology-shell {
   position: relative;
   display: flex;
-  min-height: 720px;
+  height: 820px;
+  min-height: 820px;
   flex-direction: column;
-  background: #030910;
+  background: #02080d;
 }
 
-.react-maxgraph-toolbar {
-  z-index: 2;
+.react-flow-topology-toolbar {
+  z-index: 5;
   display: flex;
-  min-height: 54px;
+  min-height: 58px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(141, 167, 198, 0.13);
-  background: rgba(7, 16, 25, 0.96);
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(122, 153, 181, 0.16);
+  background: #071019;
 }
 
-.react-maxgraph-toolbar > div:first-child {
+.react-flow-topology-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: #67c9c6;
+}
+
+.react-flow-topology-title > span {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.react-maxgraph-toolbar strong {
+.react-flow-topology-title strong {
   color: #e5edf4;
-  font-size: 12px;
+  font-size: 13px;
 }
 
-.react-maxgraph-toolbar span {
+.react-flow-topology-title small {
   overflow: hidden;
-  color: rgba(166, 185, 207, 0.66);
+  color: rgba(174, 193, 212, 0.62);
   font-family: var(--font-mono);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.react-maxgraph-status {
-  z-index: 2;
-  padding: 5px 12px;
-  border-bottom: 1px solid rgba(141, 167, 198, 0.1);
-  background: rgba(14, 29, 41, 0.94);
-  color: #9db0c2;
-  font-family: var(--font-mono);
+.react-flow-topology-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.react-flow-topology-actions .react-primary-button,
+.react-flow-topology-actions .react-link-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
   font-size: 10px;
 }
 
-.react-maxgraph-canvas {
-  position: relative;
-  min-height: 646px;
-  flex: 1 1 auto;
+.react-flow-topology-status {
+  max-width: 260px;
   overflow: hidden;
-  background:
-    linear-gradient(rgba(141, 167, 198, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(141, 167, 198, 0.045) 1px, transparent 1px),
-    #030910;
-  background-size: 32px 32px, 32px 32px, auto;
+  color: rgba(172, 193, 214, 0.68);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-flow-topology-canvas {
+  position: relative;
+  height: 762px;
+  min-height: 762px;
+  flex: 0 0 762px;
+  overflow: hidden;
+  background: #02080d;
+}
+
+.react-flow-topology-canvas .react-flow {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  background: #02080d;
+}
+
+.react-flow-topology-shell.is-editing .react-flow-topology-canvas {
+  box-shadow: inset 0 0 0 1px rgba(76, 199, 192, 0.5);
+}
+
+.react-flow-topology-canvas .react-flow__pane {
   cursor: grab;
 }
 
-.react-maxgraph-canvas:active {
+.react-flow-topology-canvas .react-flow__pane:active {
   cursor: grabbing;
 }
 
-.react-maxgraph-shell.is-editing .react-maxgraph-canvas {
-  box-shadow: inset 0 0 0 1px rgba(47, 183, 163, 0.4);
-  cursor: default;
+.react-flow-topology-shell.is-editing .react-flow__node-device {
+  cursor: move;
 }
 
-.react-maxgraph-canvas svg {
-  display: block;
+.react-flow-topology-canvas .react-flow__node-segment {
+  z-index: 0 !important;
+  pointer-events: none;
+}
+
+.react-flow-topology-canvas .react-flow__node-device {
+  z-index: 3 !important;
+}
+
+.react-flow-segment {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--segment-color) 42%, rgba(116, 145, 171, 0.3));
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--segment-color) 9%, transparent), transparent 105px),
+    rgba(5, 15, 23, 0.72);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--segment-color) 74%, transparent);
+}
+
+.react-flow-segment-head {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  height: 56px;
+  padding: 0 17px;
+  border-bottom: 1px solid color-mix(in srgb, var(--segment-color) 30%, transparent);
+  color: var(--segment-color);
+}
+
+.react-flow-segment-head > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.react-flow-segment-head strong {
+  color: #dce8f2;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.react-flow-segment-head small {
+  color: rgba(171, 191, 211, 0.58);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.react-flow-segment-head b {
+  min-width: 28px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--segment-color) 32%, transparent);
+  border-radius: 3px;
+  color: color-mix(in srgb, var(--segment-color) 78%, white);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+.react-flow-device {
+  --device-status: #728497;
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: 3px 42px minmax(0, 1fr) 12px;
+  gap: 10px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(117, 148, 175, 0.36);
+  border-radius: 5px;
+  background: rgba(8, 20, 30, 0.98);
+  color: #e4edf5;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.25);
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.react-flow-device.tone-ok {
+  --device-status: #4cc7c0;
+}
+
+.react-flow-device.tone-warn {
+  --device-status: #e36a7e;
+}
+
+.react-flow-device:hover,
+.react-flow-device.is-selected {
+  border-color: color-mix(in srgb, var(--segment-color) 84%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--segment-color) 18%, transparent), 0 8px 22px rgba(0, 0, 0, 0.32);
+}
+
+.react-flow-device.is-muted {
+  opacity: 0.22;
+}
+
+.react-flow-device-accent {
+  align-self: stretch;
+  background: var(--segment-color);
+}
+
+.react-flow-device-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--segment-color) 38%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--segment-color) 9%, rgba(4, 12, 18, 0.94));
+  color: color-mix(in srgb, var(--segment-color) 84%, white);
+}
+
+.react-flow-device-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 10px 0;
+}
+
+.react-flow-device-copy strong {
+  color: #e9f1f7;
+  font-size: 13px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.react-flow-device-copy span {
+  color: rgba(174, 196, 216, 0.72);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 13px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.react-flow-device-copy small {
+  color: color-mix(in srgb, var(--segment-color) 70%, #a7b7c8);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.react-flow-device-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--device-status);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--device-status) 14%, transparent);
+}
+
+.react-flow-handle {
+  width: 7px !important;
+  height: 7px !important;
+  border: 1px solid #8ba3b8 !important;
+  background: #0a1721 !important;
+  opacity: 0;
+}
+
+.react-flow-device:hover .react-flow-handle,
+.react-flow-device.is-selected .react-flow-handle,
+.react-flow-topology-shell.is-editing .react-flow-handle {
+  opacity: 1;
+}
+
+.react-flow-topology-canvas .react-flow__edge-path {
+  transition: stroke 120ms ease, opacity 120ms ease;
+}
+
+.react-flow-topology-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 2.7;
+  opacity: 1;
+}
+
+.react-flow-segment-filter {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+  padding: 4px;
+  border: 1px solid rgba(117, 148, 175, 0.24);
+  border-radius: 5px;
+  background: rgba(5, 15, 23, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
+  scrollbar-width: thin;
+}
+
+.react-flow-segment-filter button {
+  display: grid;
+  grid-template-columns: 7px auto auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(194, 210, 226, 0.72);
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.react-flow-segment-filter button:hover,
+.react-flow-segment-filter button:focus-visible {
+  border-color: rgba(117, 148, 175, 0.25);
+  color: #e4edf5;
+}
+
+.react-flow-segment-filter button.active {
+  border-color: rgba(76, 199, 192, 0.4);
+  background: rgba(76, 199, 192, 0.1);
+  color: #dffbf8;
+}
+
+.react-flow-segment-filter button i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #91a2b3;
+}
+
+.react-flow-segment-filter button b {
+  color: rgba(180, 199, 218, 0.58);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.react-flow-segment-filter .react-select {
+  width: 136px;
+  min-height: 32px;
+  margin-left: 4px;
+  padding: 0 24px 0 8px;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+.react-flow-topology-canvas .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid rgba(117, 148, 175, 0.25);
+  border-radius: 4px;
+  background: rgba(5, 15, 23, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
+}
+
+.react-flow-topology-canvas .react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  border-bottom-color: rgba(117, 148, 175, 0.18);
+  background: transparent;
+  color: #b9c9d8;
+}
+
+.react-flow-topology-canvas .react-flow__controls-button:hover {
+  background: rgba(76, 199, 192, 0.1);
+}
+
+.react-flow-topology-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.react-flow-topology-canvas .react-flow__minimap {
+  width: 178px;
+  height: 112px;
+  border: 1px solid rgba(117, 148, 175, 0.25);
+  border-radius: 4px;
+  background: rgba(5, 15, 23, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
+}
+
+.react-flow-layout-state {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: rgba(2, 8, 13, 0.76);
+  color: #c8d8e5;
+  font-size: 11px;
+  pointer-events: none;
 }
 
 .react-topology-canvas-status {
@@ -2802,17 +3150,36 @@
 
   .react-topology-widget,
   .react-topology-cytoscape,
-  .react-maxgraph-shell {
+  .react-flow-topology-shell {
+    height: 650px;
     min-height: 500px;
   }
 
-  .react-maxgraph-canvas {
-    min-height: 430px;
+  .react-flow-topology-canvas {
+    height: 524px;
+    min-height: 524px;
+    flex-basis: 524px;
   }
 
-  .react-maxgraph-toolbar {
+  .react-flow-topology-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .react-flow-topology-actions {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .react-topology-workspace.is-blueprint,
+  .react-topology-workspace.is-blueprint .react-topology-canvas-stage {
+    min-height: 650px;
+  }
+
+  .react-topology-workspace.is-blueprint .react-topology-inspector {
+    top: 126px;
+    max-height: 500px;
   }
 
   .react-topology-widget-hint {
@@ -2881,17 +3248,50 @@
 
   .react-topology-widget,
   .react-topology-cytoscape,
-  .react-maxgraph-shell {
+  .react-flow-topology-shell {
+    height: 560px;
     min-height: 430px;
   }
 
-  .react-maxgraph-canvas {
-    min-height: 350px;
+  .react-flow-topology-canvas {
+    height: 432px;
+    min-height: 432px;
+    flex-basis: 432px;
   }
 
-  .react-maxgraph-toolbar .react-actions {
+  .react-flow-topology-actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .react-flow-topology-status {
+    display: none;
+  }
+
+  .react-flow-segment-filter {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+
+  .react-flow-topology-canvas .react-flow__minimap {
+    width: 132px;
+    height: 86px;
+  }
+
+  .react-topology-workspace.is-blueprint,
+  .react-topology-workspace.is-blueprint .react-topology-canvas-stage {
+    min-height: 560px;
+  }
+
+  .react-topology-workspace.is-blueprint .react-topology-inspector {
+    position: fixed;
+    top: 88px;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    width: auto;
+    max-height: none;
   }
 
   .react-topology-inspector {
