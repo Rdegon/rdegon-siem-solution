@@ -56,11 +56,11 @@ describe("ResourceCatalogPage", () => {
     );
   });
 
-  it("shows active runtime status and limits the first page to 100 resources", async () => {
+  it("shows active runtime status and limits the first page to 25 resources", async () => {
     renderWithShell(<ResourceCatalogPage />);
 
     expect(await screen.findByText("Collector 1")).toBeInTheDocument();
-    expect(screen.getByText("1–100 / 105")).toBeInTheDocument();
+    expect(screen.getByText("1–25 / 105")).toBeInTheDocument();
     expect(screen.queryByText("Collector 101")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("status active").length).toBeGreaterThan(0);
   });

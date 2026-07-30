@@ -6,7 +6,8 @@ import { AsyncGate } from "../async";
 import { t, useShellContext } from "../context";
 import { usePolledData } from "../hooks";
 import type { RuntimeBlob, SecurityServiceDetailResponse } from "../types";
-import { MetricStrip, PageTabs, PanelHeader, SectionIntro, SeverityBadge, StatusBadge } from "../ui";
+import { MetricStrip, PageTabs, PanelHeader, SeverityBadge, StatusBadge } from "../ui";
+import { NativePageHeader } from "../native";
 import { SecurityControlPanel } from "./SecurityControlPanel";
 
 const SERVICE_TABS = [
@@ -77,9 +78,8 @@ export function SecurityServicePage() {
         ru: "Загрузка телеметрии системы безопасности...",
       })}
     >
-      <div className="react-page react-page-security-service">
-        <SectionIntro
-          kicker={t(lang, { en: "Security operations", ru: "Операции безопасности" })}
+      <div className="react-page react-page-security-service native-page">
+        <NativePageHeader
           title={service?.title || normalizedServiceId}
           subtitle={`${textValue(service?.product)} | ${textValue(service?.host_name)} | ${textValue(service?.address)}`}
           icon="intel"

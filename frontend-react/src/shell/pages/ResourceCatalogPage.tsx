@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { api } from "../api";
 import { AsyncGate } from "../async";
 import { t, useShellContext } from "../context";
 import { useFeedback } from "../feedback";
 import { useAsyncData } from "../hooks";
-import { DrawerOverlay, EmptyState, JsonPreview, KeyValue, PanelHeader, SectionIntro, StatCard, StatusBadge } from "../ui";
+import { DrawerOverlay, EmptyState, JsonPreview, KeyValue, PanelHeader, StatusBadge } from "../ui";
+import { NativeActionBar, NativePageHeader, NativePager } from "../native";
 import type {
   KumaResourceRecord,
   KumaResourcesResponse,
@@ -29,7 +31,7 @@ const RESOURCE_KINDS = [
 ] as const;
 
 type ResourceKind = typeof RESOURCE_KINDS[number];
-const SENTINEL_PAGE_SIZE = 100;
+const SENTINEL_PAGE_SIZE = 25;
 
 const KIND_LABELS: Record<ResourceKind, { en: string; ru: string }> = {
   collector: { en: "Collectors", ru: "Коллекторы" },
@@ -131,10 +133,6 @@ export function ResourceCatalogPage() {
     [kind, kumaStatusState.data?.healthy],
   );
   const kumaResourcesState = useAsyncData<KumaResourcesResponse>(loadKumaResources, [kind, kumaStatusState.data?.healthy, refreshToken]);
-
-  useEffect(() => {
-    if (!selected && catalogState.data?.items?.length) setSelected(catalogState.data.items[0]);
-  }, [catalogState.data?.items, selected]);
 
   const sentinelItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -346,27 +344,94 @@ export function ResourceCatalogPage() {
     return <ConfigField label={t(lang, { en: "Configuration", ru: "Конфигурация" })}><textarea className="react-input react-resource-code react-resource-code-tall" value={JSON.stringify(config, null, 2)} onChange={(event) => { try { setForm((current) => ({ ...current, config: JSON.parse(event.target.value) })); } catch { /* keep last valid object */ } }} /></ConfigField>;
   }
 
+  if (editorOpen) {
+    return (
+      <div className="react-page native-page native-resource-wizard">
+        <NativePageHeader
+          title={form.id ? t(lang, { en: "Edit resource", ru: "Изменение ресурса" }) : t(lang, { en: "Create resource", ru: "Создание ресурса" })}
+          subtitle={kindLabel(form.kind, lang)}
+          icon="builders"
+          actions={(
+            <>
+              <button type="button" className="react-link-button" onClick={() => setEditorOpen(false)}>{t(lang, { en: "Cancel", ru: "Отмена" })}</button>
+              <button type="button" className="react-link-button" disabled={Boolean(resourceAction)} onClick={() => void runResourceAction("save")}>{resourceAction === "save" ? t(lang, { en: "Saving...", ru: "Сохранение..." }) : t(lang, { en: "Save draft", ru: "Сохранить черновик" })}</button>
+              <button type="button" className="react-link-button" disabled={Boolean(resourceAction)} onClick={() => void runResourceAction("validate")}>{resourceAction === "validate" ? t(lang, { en: "Validating...", ru: "Проверка..." }) : t(lang, { en: "Validate", ru: "Проверить" })}</button>
+              <button type="button" className="react-primary-button" disabled={Boolean(resourceAction)} onClick={() => void runResourceAction("publish")}>{resourceAction === "publish" ? t(lang, { en: "Publishing...", ru: "Публикация..." }) : t(lang, { en: "Publish", ru: "Опубликовать" })}</button>
+            </>
+          )}
+        />
+        <div className="native-resource-wizard-steps" aria-label={t(lang, { en: "Resource workflow", ru: "Этапы ресурса" })}>
+          <span className="active"><b>1</b>{t(lang, { en: "General", ru: "Общие параметры" })}</span>
+          <span className="active"><b>2</b>{t(lang, { en: "Configuration", ru: "Конфигурация" })}</span>
+          <span className={validation ? "active" : ""}><b>3</b>{t(lang, { en: "Validation", ru: "Проверка" })}</span>
+          <span className={operationOutput ? "active" : ""}><b>4</b>{t(lang, { en: "Runtime", ru: "Runtime" })}</span>
+        </div>
+        <div className="native-resource-wizard-body">
+          <section>
+            <h2>{t(lang, { en: "General", ru: "Общие параметры" })}</h2>
+            <div className="react-resource-form-grid">
+              <ConfigField label={t(lang, { en: "Name", ru: "Название" })}><input className="react-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></ConfigField>
+              <ConfigField label={t(lang, { en: "Kind", ru: "Тип" })}><select className="react-select" value={form.kind} onChange={(event) => setForm(emptyResource(event.target.value as ResourceKind))} disabled={Boolean(form.id)}>{RESOURCE_KINDS.map((item) => <option key={item} value={item}>{kindLabel(item, lang)}</option>)}</select></ConfigField>
+              <ConfigField label={t(lang, { en: "Description", ru: "Описание" })}><textarea className="react-input react-resource-textarea" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /></ConfigField>
+            </div>
+          </section>
+          <section>
+            <h2>{t(lang, { en: "Configuration", ru: "Конфигурация" })}</h2>
+            <div className="react-resource-form-grid">{renderKindFields()}</div>
+          </section>
+          <aside>
+            <h2>{t(lang, { en: "Publication state", ru: "Состояние публикации" })}</h2>
+            <KeyValue label={t(lang, { en: "Resource kind", ru: "Тип ресурса" })} value={kindLabel(form.kind, lang)} />
+            <KeyValue label={t(lang, { en: "Draft ID", ru: "ID черновика" })} value={form.id || t(lang, { en: "Not saved", ru: "Не сохранен" })} />
+            <KeyValue label={t(lang, { en: "Validation", ru: "Проверка" })} value={validation ? <StatusBadge value={validation.valid ? "active" : "failed"} /> : t(lang, { en: "Not run", ru: "Не запускалась" })} />
+            {validation ? <div className={`react-alert ${validation.valid ? "react-alert-success" : "react-alert-danger"}`}><strong>{validation.valid ? t(lang, { en: "Valid", ru: "Проверка пройдена" }) : t(lang, { en: "Invalid", ru: "Есть ошибки" })}</strong><span>{[...validation.errors, ...validation.warnings].join(" / ") || t(lang, { en: "No blocking issues", ru: "Блокирующих проблем нет" })}</span></div> : null}
+            {operationOutput ? <JsonPreview value={operationOutput} /> : null}
+          </aside>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AsyncGate states={[catalogState, kumaStatusState]} loadingMessage={t(lang, { en: "Loading resources...", ru: "Загрузка ресурсов..." })}>
-      <div className="react-page react-page-resources">
-        <SectionIntro
-          kicker={t(lang, { en: "Platform", ru: "Платформа" })}
+      <div className="react-page react-page-resources native-page">
+        <NativePageHeader
           title={t(lang, { en: "Resources", ru: "Ресурсы" })}
-          subtitle={t(lang, { en: "Versioned runtime content and KUMA package operations.", ru: "Версионируемый runtime-контент и операции с пакетами KUMA." })}
           icon="builders"
           actions={<><button type="button" className="react-link-button" onClick={() => setRefreshToken((value) => value + 1)}>{t(lang, { en: "Refresh", ru: "Обновить" })}</button><button type="button" className="react-primary-button" onClick={() => openCreate()}>{t(lang, { en: "Create", ru: "Создать" })}</button></>}
         />
-        <div className="react-stat-grid react-stat-grid-4">
-          <StatCard label={t(lang, { en: "Sentinel resources", ru: "Ресурсы Sentinel" })} value={catalogState.data?.total || 0} hint={t(lang, { en: "Runtime and managed content.", ru: "Runtime и управляемый контент." })} />
-          <StatCard label={t(lang, { en: "Active rules", ru: "Активные правила" })} value={(catalogState.data?.items || []).filter((item) => item.kind === "correlationRule" && item.status === "active").length} hint="siem.correlation_rules_stream" />
-          <StatCard label={t(lang, { en: "KUMA resources", ru: "Ресурсы KUMA" })} value={kumaStatusState.data?.resource_count || 0} hint={kumaStatusState.data?.healthy ? "REST API online" : "REST API unavailable"} />
-          <StatCard label={t(lang, { en: "Catalog issues", ru: "Проблемы каталога" })} value={(catalogState.data?.issues || []).length + (kumaStatusState.data?.issues || []).length} hint={t(lang, { en: "Partial-data signals.", ru: "Сигналы неполных данных." })} />
+        <div className="native-list-search">
+          <label className="native-search-field">
+            <Search size={16} aria-hidden="true" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(lang, { en: "Search resources by name, kind and origin", ru: "Поиск ресурсов по названию, типу и источнику" })} />
+          </label>
+          <select value={kind} onChange={(event) => setKind(event.target.value as ResourceKind | "all")}>
+            <option value="all">{t(lang, { en: "All resource types", ru: "Все типы ресурсов" })}</option>
+            {RESOURCE_KINDS.map((item) => <option key={item} value={item}>{kindLabel(item, lang)}</option>)}
+          </select>
+          <button type="button" className="react-link-button" onClick={() => { setQuery(""); setKind("all"); }}>{t(lang, { en: "Clear", ru: "Очистить" })}</button>
         </div>
-
-        <div className="react-resource-tabs">
-          <button type="button" className={workspace === "sentinel" ? "active" : ""} onClick={() => setWorkspace("sentinel")}>Rdegon Sentinel</button>
-          <button type="button" className={workspace === "kuma" ? "active" : ""} onClick={() => setWorkspace("kuma")}>KUMA 3.4</button>
+        <div className="native-workspace-tabs">
+          <div>
+            <button type="button" className={workspace === "sentinel" ? "active" : ""} onClick={() => setWorkspace("sentinel")}>Rdegon Sentinel</button>
+            <button type="button" className={workspace === "kuma" ? "active" : ""} onClick={() => setWorkspace("kuma")}>KUMA 3.4</button>
+          </div>
+          <span>{workspace === "sentinel" ? `${catalogState.data?.total || 0} resources` : `${kumaStatusState.data?.resource_count || 0} resources`}</span>
         </div>
+        <NativeActionBar
+          primary={workspace === "kuma" ? (
+            <>
+              <button type="button" className="react-link-button" onClick={() => setKumaOperation("import")}>{t(lang, { en: "Import", ru: "Импорт" })}</button>
+              <button type="button" className="react-link-button" disabled={!kumaSelection.length} onClick={() => setKumaOperation("export")}>{t(lang, { en: "Export", ru: "Экспорт" })}</button>
+            </>
+          ) : <button type="button" className="react-link-button" onClick={() => openCreate(kind === "all" ? "collector" : kind)}>{t(lang, { en: "New resource", ru: "Новый ресурс" })}</button>}
+          meta={(
+            <>
+              <span>{t(lang, { en: "Active rules", ru: "Активные правила" })}: <strong>{(catalogState.data?.items || []).filter((item) => item.kind === "correlationRule" && item.status === "active").length}</strong></span>
+              <span>{t(lang, { en: "Issues", ru: "Проблемы" })}: <strong>{(catalogState.data?.issues || []).length + (kumaStatusState.data?.issues || []).length}</strong></span>
+            </>
+          )}
+        />
 
         <div className="react-resource-layout">
           <aside className="react-resource-kind-list">
@@ -383,7 +448,6 @@ export function ResourceCatalogPage() {
             <PanelHeader
               title={workspace === "sentinel" ? "Rdegon Sentinel" : "KUMA"}
               subtitle={kind === "all" ? t(lang, { en: "All resource types", ru: "Все типы ресурсов" }) : kindLabel(kind, lang)}
-              actions={<div className="react-actions"><input className="react-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(lang, { en: "Search resources", ru: "Поиск ресурсов" })} />{workspace === "kuma" ? <><button type="button" className="react-link-button" onClick={() => setKumaOperation("import")}>{t(lang, { en: "Import", ru: "Импорт" })}</button><button type="button" className="react-link-button" disabled={!kumaSelection.length} onClick={() => setKumaOperation("export")}>{t(lang, { en: "Export", ru: "Экспорт" })}</button></> : null}</div>}
             />
             {workspace === "sentinel" ? (
               <div className="react-table-wrap">
@@ -459,9 +523,16 @@ export function ResourceCatalogPage() {
             )}
           </section>
         </div>
+        {workspace === "sentinel" ? <NativePager shown={sentinelVisibleItems.length} total={sentinelItems.length} lang={lang} /> : <NativePager shown={kumaItems.length} total={kumaResourcesState.data?.total || kumaItems.length} lang={lang} />}
 
         {workspace === "sentinel" && selected ? (
-          <section className="react-card react-resource-detail">
+          <DrawerOverlay
+            open
+            title={selected.name}
+            subtitle={`${kindLabel(selected.kind, lang)} · ${selected.id}`}
+            onClose={() => setSelected(null)}
+          >
+          <section className="react-card react-card-nested react-resource-detail">
             <PanelHeader title={selected.name} subtitle={`${kindLabel(selected.kind, lang)} · ${selected.id}`} actions={<div className="react-actions"><button type="button" className="react-link-button" onClick={() => openEdit(selected, true)}>{t(lang, { en: "Duplicate", ru: "Дублировать" })}</button>{!selected.read_only ? <button type="button" className="react-primary-button" onClick={() => openEdit(selected)}>{t(lang, { en: "Edit", ru: "Изменить" })}</button> : null}</div>} />
             <div className="react-kv-grid">
               <KeyValue label={t(lang, { en: "Status", ru: "Статус" })} value={selected.status} />
@@ -471,6 +542,7 @@ export function ResourceCatalogPage() {
             </div>
             <JsonPreview value={{ config: selected.config, bindings: selected.bindings, activation: selected.activation || {} }} />
           </section>
+          </DrawerOverlay>
         ) : null}
       </div>
 

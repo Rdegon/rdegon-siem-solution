@@ -36,6 +36,8 @@ const IngestPage = lazyPage(() => import("./pages/IngestPage"), "IngestPage");
 const IncidentsPage = lazyPage(() => import("./pages/IncidentsPage"), "IncidentsPage");
 const ResponsePage = lazyPage(() => import("./pages/ResponsePage"), "ResponsePage");
 const ResourceCatalogPage = lazyPage(() => import("./pages/ResourceCatalogPage"), "ResourceCatalogPage");
+const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage");
+const RulesPage = lazyPage(() => import("./pages/RulesPage"), "RulesPage");
 const SecurityServicePage = lazyPage(() => import("./pages/SecurityServicePage"), "SecurityServicePage");
 const SourcesPage = lazyPage(() => import("./pages/SourcesPage"), "SourcesPage");
 const ThreatIntelPage = lazyPage(() => import("./pages/ThreatIntelPage"), "ThreatIntelPage");
@@ -244,10 +246,10 @@ export function App() {
                 <Route path="/assets" element={routeElement("Активы", <AssetsPage />)} />
                 <Route path="/entities" element={routeElement("Сущности", <EntitiesPage />)} />
                 <Route path="/cases" element={routeElement("Кейсы", <CasesPage />)} />
-                <Route path="/reports" element={routeElement("Отчеты", <VulnPage />)} />
-                <Route path="/reports/:reportId" element={routeElement("Отчет", <VulnPage />)} />
+                <Route path="/reports" element={routeElement("Отчеты", <ReportsPage />)} />
+                <Route path="/reports/:reportId" element={routeElement("Отчет", <ReportsPage />)} />
                 <Route path="/resources" element={routeElement("Ресурсы", <ResourceCatalogPage />)} />
-                <Route path="/rules" element={routeElement("Контент детектирования", <BuildersPage />)} />
+                <Route path="/rules" element={routeElement("Контент детектирования", <RulesPage />)} />
                 <Route path="/tasks" element={routeElement("Диспетчер задач", <ResponsePage />)} />
                 <Route path="/metrics" element={routeElement("Метрики", <HostRuntimePage />)} />
                 <Route path="/control" element={routeElement("Control Plane", <ControlPanelPage />)} />

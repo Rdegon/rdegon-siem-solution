@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { AsyncGate } from "../async";
@@ -12,10 +13,10 @@ import {
   JsonPreview,
   KeyValue,
   PanelHeader,
-  SectionIntro,
   StatCard,
   StatusBadge,
 } from "../ui";
+import { NativeActionBar, NativePageHeader, NativePager } from "../native";
 import type {
   DiscoveryCandidate,
   DiscoveryJob,
@@ -88,7 +89,11 @@ function pickSourceTemplates(item: SourceInventoryRecord, templates: Integration
 
 export function SourcesPage() {
   const { lang } = useShellContext();
-  const loadSources = useCallback(() => api.sourcesInventory(), []);
+  const [sourceRefreshToken, setSourceRefreshToken] = useState(0);
+  const loadSources = useCallback(() => {
+    void sourceRefreshToken;
+    return api.sourcesInventory();
+  }, [sourceRefreshToken]);
   const loadIntegrations = useCallback(() => api.integrationsCatalog(), []);
   const [fleetRefreshToken, setFleetRefreshToken] = useState(0);
   const loadFleet = useCallback(() => {
@@ -472,46 +477,38 @@ export function SourcesPage() {
 
   return (
     <AsyncGate states={[state]} loadingMessage="Loading sources...">
-    <div className="react-page react-page-sources">
-      <SectionIntro
-        kicker={t(lang, { en: "Sources", ru: "Источники" })}
-        title={t(lang, { en: "Telemetry sources", ru: "Источники телеметрии" })}
+    <div className="react-page react-page-sources native-page">
+      <NativePageHeader
+        title={t(lang, { en: "Sources", ru: "Источники" })}
         icon="sources"
         actions={
-          <div className="react-actions react-wrap">
-            <input
-              className="react-input react-input-grow"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t(lang, {
-                en: "Search source, type, collector...",
-                ru: "Поиск по источнику, типу или коллектору...",
-              })}
-            />
+          <>
             <button type="button" className="react-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Source page settings">
               <Icon name="control" size={15} />
             </button>
-          </div>
+            <button type="button" className="react-primary-button" onClick={() => setSourceRefreshToken((value) => value + 1)}>{t(lang, { en: "Refresh", ru: "Обновить" })}</button>
+          </>
         }
       />
+      <div className="native-list-search">
+        <label className="native-search-field">
+          <Search size={16} aria-hidden="true" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(lang, { en: "Search sources, IP addresses, types and collectors", ru: "Поиск по источникам, IP-адресам, типам и коллекторам" })} />
+        </label>
+        <button type="button" className="react-link-button" onClick={() => setQuery("")}>{t(lang, { en: "Clear", ru: "Очистить" })}</button>
+      </div>
       {fallbackSourceCount ? (
-        <div className="react-inline-note react-inline-note-spaced">
+        <div className="native-operation-state">
           Source inventory is using ingest runtime fallback for {fallbackSourceCount} sources while ClickHouse inventory is degraded or empty.
         </div>
       ) : null}
       {sourceIssues.length ? (
-        <div className="react-inline-note react-inline-note-spaced">
+        <div className="native-operation-state">
           Partial source workspace: {sourceIssues.join(" / ")}
         </div>
       ) : null}
-
-      <div className="react-grid react-grid-5">
-        {kpiCards.map((card) => (
-          <StatCard key={card.label} label={card.label} value={card.value} hint={card.hint} />
-        ))}
-      </div>
-
-      <div className="react-segmented">
+      <div className="native-workspace-tabs native-source-tabs" role="tablist">
+        <div>
         <button type="button" className={view === "register" ? "active" : ""} onClick={() => setView("register")}>
           {t(lang, { en: "Register", ru: "Реестр" })}
         </button>
@@ -527,12 +524,22 @@ export function SourcesPage() {
         <button type="button" className={view === "fleet" ? "active" : ""} onClick={() => setView("fleet")}>
           {t(lang, { en: "Fleet", ru: "Флот" })}
         </button>
+        </div>
+        <span>{t(lang, { en: "Sources", ru: "Источники" })}: <strong>{items.length}</strong></span>
       </div>
+      <NativeActionBar
+        primary={(
+          <>
+            <Link className="react-link-button" to="/collectors">{t(lang, { en: "Collectors", ru: "Коллекторы" })}</Link>
+            <Link className="react-link-button" to="/resources">{t(lang, { en: "Publish resource", ru: "Опубликовать ресурс" })}</Link>
+          </>
+        )}
+        meta={kpiCards.map((card) => <span key={card.label}>{card.label}: <strong>{card.value}</strong></span>)}
+      />
 
       {view === "register" ? (
-        <div className="react-split react-split-xl">
-          <section className="react-card">
-            <PanelHeader title="Source register" subtitle="Emitter-centric view: freshness, signal mix and collector binding." />
+        <>
+          <section className="native-grid native-sources-grid">
             <div className="react-table-wrap">
               <table className="react-table">
                 <thead>
@@ -555,7 +562,10 @@ export function SourcesPage() {
                       onClick={() => setSelectedSource(item)}
                     >
                       <td>
-                        <strong>{item.source_name}</strong>
+                        <button type="button" className="native-primary-cell" onClick={() => setSelectedSource(item)}>
+                          <strong>{item.source_name}</strong>
+                          <small>{safeText(item.source_type)} / {safeText(item.collector_name || item.collector_id)}</small>
+                        </button>
                       </td>
                       <td>{sourceIpSummary(item)}</td>
                       <td>
@@ -574,30 +584,22 @@ export function SourcesPage() {
               </table>
             </div>
           </section>
-
-          <aside className="react-card react-drawer">
+          <NativePager shown={items.length} total={state.data?.items?.length || items.length} lang={lang} />
+          <DrawerOverlay
+            open={Boolean(selectedSource)}
+            title={selectedSource?.source_name || t(lang, { en: "Source details", ru: "Информация об источнике" })}
+            subtitle={selectedSource ? `${safeText(selectedSource.source_type)} / ${safeText(selectedSource.collector_name || selectedSource.collector_id)}` : ""}
+            onClose={() => setSelectedSource(null)}
+            panelClassName="react-drawer-panel-wide"
+          >
             {selectedSource ? (
               <>
-                <PanelHeader
-                  title={selectedSource.source_name}
-                  subtitle={`${safeText(selectedSource.source_type)} / ${safeText(selectedSource.collector_name || selectedSource.collector_id)}`}
-                  actions={
-                    <div className="react-actions react-wrap">
-                      <Link className="react-link-button" to={`/events?q=${encodeURIComponent(`log_source = '${selectedSource.source_name}'`)}`}>
-                        Open in Events
-                      </Link>
-                      <Link className="react-link-button" to={`/incidents?q=${encodeURIComponent(selectedSource.source_name)}`}>
-                        Related incidents
-                      </Link>
-                      <Link className="react-link-button" to={`/collectors?q=${encodeURIComponent(String(selectedSource.collector_name || selectedSource.collector_id || ""))}`}>
-                        Collector path
-                      </Link>
-                      <Link className="react-link-button" to="/builders?kind=integration">
-                        Open integration builder
-                      </Link>
-                    </div>
-                  }
-                />
+                <div className="react-actions react-wrap">
+                  <Link className="react-link-button" to={`/events?q=${encodeURIComponent(`log_source = '${selectedSource.source_name}'`)}`}>Open in Events</Link>
+                  <Link className="react-link-button" to={`/incidents?q=${encodeURIComponent(selectedSource.source_name)}`}>Related incidents</Link>
+                  <Link className="react-link-button" to={`/collectors?q=${encodeURIComponent(String(selectedSource.collector_name || selectedSource.collector_id || ""))}`}>Collector path</Link>
+                  <Link className="react-link-button" to="/resources">Publish integration</Link>
+                </div>
                 <section className="react-card react-card-nested">
                   <PanelHeader title="Emitter health" subtitle="Freshness, collector binding and signal balance for the selected source." />
                   <DrawerFieldGrid>
@@ -665,8 +667,8 @@ export function SourcesPage() {
             ) : (
               <EmptyState message="Select a source to inspect freshness, products and collector binding." />
             )}
-          </aside>
-        </div>
+          </DrawerOverlay>
+        </>
       ) : null}
 
       {view === "freshness" ? (

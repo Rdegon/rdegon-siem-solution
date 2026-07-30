@@ -17,12 +17,12 @@ import {
   PanelHeader,
   SeverityBadge,
   SparklineChart,
-  TimeScopeBar,
   Icon,
 } from "../ui";
+import { NativeActionBar, NativePageHeader, NativePager } from "../native";
 import { shiftTimeZoneInputValue, t, useShellContext } from "../context";
 import { humanizeEventLabel, humanizeSourceName, humanizeTechnicalValue } from "../humanize";
-import { refreshIntervalMs, refreshOptions, rowOptions, timeRangeOptions, timeScopeSummary } from "../timeControls";
+import { refreshIntervalMs, refreshOptions } from "../timeControls";
 import type { EventRow, EventsFacetsResponse, EventsQueryResponse, RuntimeBlob, SavedSearchRecord } from "../types";
 
 type Column<TRow> = {
@@ -584,8 +584,6 @@ export function EventsPage() {
       canNext: page < totalPages,
     };
   }, [state.data?.page, state.data?.total_pages]);
-  const visibleRangeStart = rows.length ? windowedRows.startIndex + 1 : 0;
-  const visibleRangeEnd = rows.length ? windowedRows.startIndex + windowedRows.visibleRows.length : 0;
   const { scrollToIndex } = windowedRows;
 
   useEffect(() => {
@@ -691,42 +689,44 @@ export function EventsPage() {
     }
   }
 
-  const eventRangeOptions = useMemo(() => timeRangeOptions(lang), [lang]);
-  const eventsScopeSummary = timeScopeSummary(lang, {
-    rangeLabel: windowSize === "custom" ? t(lang, { en: "Custom range", ru: "Свой диапазон" }) : windowSize,
-    refreshSeconds,
-    rows: limit,
-    fromTs,
-    toTs,
-  });
+  function exportCurrentRows() {
+    if (!rows.length) return;
+    const keys = activeColumns.map((column) => column.key);
+    const escape = (value: unknown) => {
+      const text = typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? "");
+      return `"${text.replace(/"/g, "\"\"")}"`;
+    };
+    const content = [
+      keys.join("\t"),
+      ...rows.map((row) => keys.map((key) => escape((row as RuntimeBlob)[key === "collector" ? "collector_profile" : key])).join("\t")),
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/tab-separated-values;charset=utf-8" });
+    const anchor = document.createElement("a");
+    anchor.href = URL.createObjectURL(blob);
+    anchor.download = `rdegon-events-${new Date().toISOString().replace(/[:.]/g, "-")}.tsv`;
+    anchor.click();
+    URL.revokeObjectURL(anchor.href);
+  }
 
   return (
-    <div className="react-page react-page-events">
-      <section className="react-card react-card-compact react-events-console-shell">
-        <div className="react-events-console-head">
-          <div className="react-events-console-copy">
-            <div className="react-top-kicker">{t(lang, { en: "Events", ru: "События" })}</div>
-            <h2 className="react-title-with-icon react-title-with-icon-hero">
-              <Icon name="events" size={20} />
-              <span>{t(lang, { en: "Event console", ru: "Консоль событий" })}</span>
-            </h2>
-            <p className="react-muted">
-              {t(lang, {
-                en: "ClickHouse-style search, dense analyst pivots and explicit time ranges in one investigation workspace.",
-                ru: "ClickHouse-поиск, плотные аналитические переходы и явные временные окна в одном investigation workspace.",
-              })}
-            </p>
-          </div>
-          <div className="react-actions react-wrap">
-            <button type="button" className="react-primary-button" onClick={() => setReloadToken((value) => value + 1)}>
-              {t(lang, { en: "Run query", ru: "Выполнить" })}
-            </button>
-            <button type="button" className="react-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Event page settings">
+    <div className="react-page react-page-events native-page">
+      <NativePageHeader
+        title={t(lang, { en: "Events", ru: "События" })}
+        icon="events"
+        actions={(
+          <>
+            <button type="button" className="react-link-button" onClick={saveCurrentSearch}>{t(lang, { en: "Save query", ru: "Сохранить запрос" })}</button>
+            <button type="button" className="react-icon-button" onClick={() => setSettingsOpen(true)} aria-label={t(lang, { en: "Event page settings", ru: "Настройки страницы событий" })}>
               <Icon name="control" size={15} />
             </button>
-          </div>
+          </>
+        )}
+      />
+      <section className="native-query-console">
+        <div className="native-workspace-tabs" role="tablist" aria-label={t(lang, { en: "Event search mode", ru: "Режим поиска событий" })}>
+          <button type="button" className="active" role="tab" aria-selected="true">SQL / field query</button>
+          <span>{t(lang, { en: "Storage", ru: "Хранилище" })}: <strong>{storage}</strong></span>
         </div>
-
         <div className="react-events-console-body">
         <div className="react-query-stack react-query-stack-compact">
           <textarea
@@ -744,6 +744,9 @@ export function EventsPage() {
               <button type="button" className="react-link-button" onClick={() => applyQuickQuery("message ILIKE '%auditd:%'")}>Auditd</button>
               <button type="button" className="react-link-button" onClick={() => applyQuickQuery("collector_profile = 'windows-security-http'")}>Windows security</button>
               <button type="button" className="react-link-button" onClick={() => applyQuickQuery("collector_profile = 'vpn-json-http'")}>VPN edge</button>
+              <button type="button" className="react-primary-button" onClick={() => setReloadToken((value) => value + 1)}>
+                {t(lang, { en: "Run query", ru: "Выполнить" })}
+              </button>
             </div>
             <div className="react-query-controls react-query-controls-compact">
               <label>
@@ -778,50 +781,14 @@ export function EventsPage() {
                   ))}
                 </select>
               </label>
-            </div>
-          </div>
-          <TimeScopeBar
-            rangeLabel={t(lang, { en: "Time range", ru: "Временной диапазон" })}
-            rangeValue={windowSize}
-            rangeOptions={eventRangeOptions}
-            onRangeChange={(value) => {
-              setSavedSearchId("");
-              applyPreset(value);
-            }}
-            refreshLabel={t(lang, { en: "Refresh", ru: "Обновление" })}
-            refreshValue={refreshSeconds}
-            refreshOptions={refreshOptions(lang)}
-            onRefreshChange={setRefreshSeconds}
-            rowsLabel={t(lang, { en: "Rows", ru: "Строк" })}
-            rowsValue={limit}
-            rowsOptions={rowOptions()}
-            onRowsChange={(value) => { setSavedSearchId(""); setLimit(Number(value)); }}
-            customRangeFields={
-              windowSize === "custom" ? (
-                <>
-                  <label className="react-time-scope-item">
-                    <span>{t(lang, { en: "Range from", ru: "Начало диапазона" })}</span>
-                    <input className="react-input" type="datetime-local" value={fromTs} onChange={(event) => { setSavedSearchId(""); setWindowSize("custom"); setFromTs(event.target.value); }} />
-                  </label>
-                  <label className="react-time-scope-item">
-                    <span>{t(lang, { en: "Range to", ru: "Конец диапазона" })}</span>
-                    <input className="react-input" type="datetime-local" value={toTs} onChange={(event) => { setSavedSearchId(""); setWindowSize("custom"); setToTs(event.target.value); }} />
-                  </label>
-                </>
-              ) : null
-            }
-            extraControls={
-              <label className="react-time-scope-item">
-                <span>{t(lang, { en: "Storage", ru: "Хранилище" })}</span>
-                <select className="react-select" value={storage} onChange={(event) => { setSavedSearchId(""); setStorage(event.target.value); }}>
-                  {["hot", "cold", "all"].map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
+              <label>
+                <span>{t(lang, { en: "Refresh", ru: "Обновление" })}</span>
+                <select className="react-select" value={refreshSeconds} onChange={(event) => setRefreshSeconds(event.target.value)}>
+                  {refreshOptions(lang).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
               </label>
-            }
-            summary={eventsScopeSummary}
-          />
+            </div>
+          </div>
           <div className="react-query-saved-row">
             <label className="react-query-saved-picker">
               <span>{t(lang, { en: "Saved view", ru: "Сохраненный вид" })}</span>
@@ -874,35 +841,27 @@ export function EventsPage() {
         <EmptyState message={state.error} />
       ) : (
         <>
-          <section className="react-card">
-            <div className="react-results-meta">
-              <span><strong>{state.data?.row_count || 0}</strong> {t(lang, { en: "rows on this page", ru: "строк на странице" })}</span>
-              <span><strong>{state.data?.total_count || 0}</strong> {t(lang, { en: "total", ru: "всего" })}</span>
-              <span>{t(lang, { en: "page", ru: "страница" })} <strong>{pagination.page}</strong> / {pagination.totalPages}</span>
-              <span>
-                {windowedRows.isWindowed ? `${visibleRangeStart}-${visibleRangeEnd}` : rows.length || 0}{" "}
-                {t(lang, { en: "rendered", ru: "отрисовано" })}
-              </span>
-              <span>{state.data?.elapsed_ms || 0} ms</span>
-              {(state.data?.from_ts || state.data?.to_ts) ? (
-                <span>{formatTimestamp(state.data?.from_ts || "", "full")} {"->"} {formatTimestamp(state.data?.to_ts || "", "full")}</span>
-              ) : null}
-            </div>
-            <PanelHeader
-              title={t(lang, { en: "Result set", ru: "Набор результатов" })}
-              subtitle={t(lang, { en: "Separate result window with table, pivots and side drawer.", ru: "Отдельное окно результатов с таблицей, переходами и боковой панелью." })}
-              icon="dashboard"
-              actions={
-                <div className="react-actions react-wrap">
-                  <button type="button" className="react-link-button" disabled={!pagination.canPrev} onClick={() => goToPage(1)}>First</button>
-                  <button type="button" className="react-link-button" disabled={!pagination.canPrev} onClick={() => goToPage(Math.max(1, pagination.page - 5))}>-5</button>
-                  <button type="button" className="react-link-button" disabled={!pagination.canPrev} onClick={() => goToPage(pagination.page - 1)}>Prev</button>
-                  <button type="button" className="react-link-button" disabled={!pagination.canNext} onClick={() => goToPage(pagination.page + 1)}>Next</button>
-                  <button type="button" className="react-link-button" disabled={!pagination.canNext} onClick={() => goToPage(Math.min(pagination.totalPages, pagination.page + 5))}>+5</button>
-                  <button type="button" className="react-link-button" disabled={!pagination.canNext} onClick={() => goToPage(pagination.totalPages)}>Last</button>
-                </div>
-              }
-            />
+          <div className="native-event-timeline" aria-label={t(lang, { en: "Event timeline", ru: "Таймлайн событий" })}>
+            <SparklineChart items={facets.histogram || []} />
+          </div>
+          <NativeActionBar
+            primary={(
+              <>
+                <button type="button" className="react-link-button" onClick={() => setSettingsOpen(true)}>{t(lang, { en: "Columns", ru: "Колонки" })}</button>
+                <button type="button" className="react-link-button" onClick={() => setReloadToken((value) => value + 1)}>{t(lang, { en: "Refresh", ru: "Обновить" })}</button>
+                <button type="button" className="react-link-button" disabled={!rows.length} onClick={exportCurrentRows}>TSV</button>
+              </>
+            )}
+            meta={(
+              <>
+                <span>{t(lang, { en: "Found", ru: "Найдено" })}: <strong>{state.data?.total_count || 0}</strong></span>
+                <span>{t(lang, { en: "Shown", ru: "Показано" })}: <strong>{state.data?.row_count || 0}</strong></span>
+                <span>{state.data?.elapsed_ms || 0} ms</span>
+                <span>{t(lang, { en: "Page", ru: "Страница" })} <strong>{pagination.page}</strong> / {pagination.totalPages}</span>
+              </>
+            )}
+          />
+          <section className="native-grid native-events-grid">
             <div className="react-results-window">
               <div
                 ref={windowedRows.containerRef}
@@ -950,6 +909,13 @@ export function EventsPage() {
               </div>
             </div>
           </section>
+          <NativePager shown={state.data?.row_count || 0} total={state.data?.total_count || 0} lang={lang}>
+            <button type="button" className="react-link-button" disabled={!pagination.canPrev} onClick={() => goToPage(1)}>{t(lang, { en: "First", ru: "Первая" })}</button>
+            <button type="button" className="react-link-button" disabled={!pagination.canPrev} onClick={() => goToPage(pagination.page - 1)}>{t(lang, { en: "Previous", ru: "Назад" })}</button>
+            <span>{pagination.page} / {pagination.totalPages}</span>
+            <button type="button" className="react-link-button" disabled={!pagination.canNext} onClick={() => goToPage(pagination.page + 1)}>{t(lang, { en: "Next", ru: "Вперед" })}</button>
+            <button type="button" className="react-link-button" disabled={!pagination.canNext} onClick={() => goToPage(pagination.totalPages)}>{t(lang, { en: "Last", ru: "Последняя" })}</button>
+          </NativePager>
 
           <details className="react-details">
             <summary>{t(lang, { en: "Analytical helpers", ru: "Аналитические виджеты" })}</summary>

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { AsyncGate } from "../async";
 import { t, useShellContext } from "../context";
 import { useAsyncData, useDebouncedValue } from "../hooks";
 import { humanizeSourceName } from "../humanize";
-import { DrawerFieldGrid, DrawerOverlay, EmptyState, Icon, InvestigationActionRail, InvestigationSummaryStrip, InvestigationTimeline, JsonPreview, KeyValue, PanelHeader, SectionIntro, SeverityBadge, StatCard, StatusBadge } from "../ui";
+import { DrawerFieldGrid, DrawerOverlay, EmptyState, Icon, InvestigationActionRail, InvestigationSummaryStrip, InvestigationTimeline, JsonPreview, KeyValue, PanelHeader, SeverityBadge, StatCard, StatusBadge } from "../ui";
+import { NativeActionBar, NativePageHeader, NativePager } from "../native";
 import type { AssetInventoryResponse, AssetRecord, DiscoveryCandidate, DiscoveryJob, RuntimeBlob, SourceDiscoveryResponse } from "../types";
 
 type AssetView = "inventory" | "exposure" | "ownership" | "unconnected";
@@ -89,7 +91,11 @@ function credentialsDefaultsForCandidate(candidate: DiscoveryCandidate | null): 
 export function AssetsPage() {
   const { lang } = useShellContext();
   const assetLabel = useCallback((value: unknown) => humanizeSourceName(value, lang, { technicalSuffix: false }) || String(value || ""), [lang]);
-  const loadAssets = useCallback(() => api.assetInventory(), []);
+  const [assetRefreshToken, setAssetRefreshToken] = useState(0);
+  const loadAssets = useCallback(() => {
+    void assetRefreshToken;
+    return api.assetInventory();
+  }, [assetRefreshToken]);
   const [discoveryRefreshToken, setDiscoveryRefreshToken] = useState(0);
   const loadDiscovery = useCallback(() => {
     void discoveryRefreshToken;
@@ -434,34 +440,50 @@ export function AssetsPage() {
 
   return (
     <AsyncGate states={[state]} loadingMessage={t(lang, { en: "Loading assets...", ru: "Загрузка активов..." })}>
-    <div className="react-page">
-      <SectionIntro
-        kicker={t(lang, { en: "Assets", ru: "Активы" })}
-        title={t(lang, { en: "Asset inventory", ru: "Инвентарь активов" })}
+    <div className="react-page native-page">
+      <NativePageHeader
+        title={t(lang, { en: "Assets", ru: "Активы" })}
         icon="assets"
         actions={
-          <div className="react-actions react-wrap">
-            <input className="react-input react-input-grow" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(lang, { en: "Search assets, owners, services...", ru: "Поиск по активам, владельцам и сервисам..." })} />
+          <>
             <button type="button" className="react-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Asset page settings">
               <Icon name="control" size={15} />
             </button>
-          </div>
+            <button type="button" className="react-primary-button" onClick={() => setAssetRefreshToken((value) => value + 1)}>{t(lang, { en: "Refresh", ru: "Обновить" })}</button>
+          </>
         }
       />
-
-      <div className="react-grid react-grid-4">
-        <StatCard label={t(lang, { en: "Assets", ru: "Активы" })} value={items.length} hint={t(lang, { en: "Observed canonical assets in the current time window.", ru: "Канонические активы, замеченные в текущем окне." })} />
-        <StatCard label={t(lang, { en: "Critical", ru: "Критичные" })} value={criticalAssets.length} hint={t(lang, { en: "Assets marked high or critical in CMDB.", ru: "Активы с высокой или критичной важностью в CMDB." })} />
-        <StatCard label={t(lang, { en: "With audit", ru: "С аудитом" })} value={observedAudit.length} hint={t(lang, { en: "Assets with Linux audit telemetry in the last day.", ru: "Активы с Linux-аудитом за последние сутки." })} />
-        <StatCard label={t(lang, { en: "Owners", ru: "Владельцы" })} value={owners.length} hint={t(lang, { en: "Distinct business owners attached to the current asset set.", ru: "Уникальные бизнес-владельцы в текущем наборе." })} />
+      <div className="native-list-search">
+        <label className="native-search-field">
+          <Search size={16} aria-hidden="true" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(lang, { en: "Search assets, IP addresses, owners and services", ru: "Поиск по активам, IP-адресам, владельцам и сервисам" })} />
+        </label>
+        <button type="button" className="react-link-button" onClick={() => setQuery("")}>{t(lang, { en: "Clear", ru: "Очистить" })}</button>
       </div>
-
-      <div className="react-segmented">
+      <div className="native-workspace-tabs native-asset-tabs" role="tablist" aria-label={t(lang, { en: "Asset views", ru: "Представления активов" })}>
+        <div>
         <button type="button" className={view === "inventory" ? "active" : ""} onClick={() => setView("inventory")}>{t(lang, { en: "Inventory", ru: "Инвентарь" })}</button>
         <button type="button" className={view === "unconnected" ? "active" : ""} onClick={() => setView("unconnected")}>{t(lang, { en: "Unconnected assets", ru: "Неподключенные активы" })}</button>
         <button type="button" className={view === "exposure" ? "active" : ""} onClick={() => setView("exposure")}>{t(lang, { en: "Exposure", ru: "Экспозиция" })}</button>
         <button type="button" className={view === "ownership" ? "active" : ""} onClick={() => setView("ownership")}>{t(lang, { en: "Ownership", ru: "Владение" })}</button>
+        </div>
+        <span>{t(lang, { en: "Observed assets", ru: "Наблюдаемые активы" })}: <strong>{items.length}</strong></span>
       </div>
+      <NativeActionBar
+        primary={(
+          <>
+            <Link className="react-link-button" to="/events?q=asset_id%20!=%20%27%27">{t(lang, { en: "Find in events", ru: "Найти в событиях" })}</Link>
+            <Link className="react-link-button" to="/vuln/hosts">{t(lang, { en: "Vulnerabilities", ru: "Уязвимости" })}</Link>
+          </>
+        )}
+        meta={(
+          <>
+            <span>{t(lang, { en: "Critical", ru: "Критичные" })}: <strong>{criticalAssets.length}</strong></span>
+            <span>{t(lang, { en: "With audit", ru: "С аудитом" })}: <strong>{observedAudit.length}</strong></span>
+            <span>{t(lang, { en: "Owners", ru: "Владельцы" })}: <strong>{owners.length}</strong></span>
+          </>
+        )}
+      />
 
       {view === "unconnected" ? (
       <div className="react-split react-split-xl">
@@ -745,14 +767,14 @@ export function AssetsPage() {
       ) : null}
 
       {view === "inventory" ? (
-      <div className="react-split react-split-xl">
-        <section className="react-card">
-          <PanelHeader title={t(lang, { en: "Asset register", ru: "Реестр активов" })} subtitle={t(lang, { en: "CMDB-first view: owner, criticality, service, product footprint and activity.", ru: "CMDB-ориентированное представление: владелец, критичность, сервис, продуктовый след и активность." })} />
+      <>
+        <section className="native-grid native-assets-grid">
           <div className="react-table-wrap">
             <table className="react-table">
               <thead>
                 <tr>
                   <th>{t(lang, { en: "Asset", ru: "Актив" })}</th>
+                  <th>IP / alias</th>
                   <th>{t(lang, { en: "Owner", ru: "Владелец" })}</th>
                   <th>{t(lang, { en: "Criticality", ru: "Критичность" })}</th>
                   <th>{t(lang, { en: "Service", ru: "Сервис" })}</th>
@@ -764,7 +786,8 @@ export function AssetsPage() {
               <tbody>
                 {items.map((item: AssetRecord) => (
                   <tr key={item.asset} className={selectedAsset?.asset === item.asset ? "react-table-row-active" : ""} onClick={() => setSelectedAsset(item)}>
-                    <td><strong>{assetLabel(item.asset)}</strong></td>
+                    <td><button type="button" className="native-primary-cell" onClick={() => setSelectedAsset(item)}><strong>{assetLabel(item.asset)}</strong><small>{item.cmdb_asset_id || item.cmdb_environment || "observed"}</small></button></td>
+                    <td>{(item.aliases || []).slice(0, 2).join(", ") || "n/a"}</td>
                     <td>{item.cmdb_owner || "n/a"}</td>
                     <td>{item.cmdb_criticality ? <SeverityBadge value={item.cmdb_criticality} /> : "n/a"}</td>
                     <td>{item.cmdb_service || "n/a"}</td>
@@ -777,14 +800,16 @@ export function AssetsPage() {
             </table>
           </div>
         </section>
-
-        <aside className="react-card react-drawer">
+        <NativePager shown={items.length} total={state.data?.items?.length || items.length} lang={lang} />
+        <DrawerOverlay
+          open={Boolean(selectedAsset)}
+          title={selectedAsset ? assetLabel(selectedAsset.asset) : t(lang, { en: "Asset details", ru: "Информация об активе" })}
+          subtitle={selectedAsset ? `${selectedAsset.cmdb_service || "n/a"} / ${selectedAsset.cmdb_environment || "n/a"}` : ""}
+          onClose={() => setSelectedAsset(null)}
+          panelClassName="react-drawer-panel-wide"
+        >
           {selectedAsset ? (
             <>
-                <PanelHeader
-                  title={assetLabel(selectedAsset.asset)}
-                  subtitle={`${selectedAsset.cmdb_service || t(lang, { en: "Unassigned service", ru: "Сервис не назначен" })} / ${selectedAsset.cmdb_environment || t(lang, { en: "unknown environment", ru: "неизвестное окружение" })}`}
-                />
                 <InvestigationSummaryStrip items={selectedAssetSummary} />
                 <InvestigationActionRail
                   items={[
@@ -833,8 +858,8 @@ export function AssetsPage() {
             ) : (
               <EmptyState message={t(lang, { en: "Select an asset to inspect its business and telemetry context.", ru: "Выберите актив, чтобы открыть его бизнес-контекст и телеметрию." })} />
             )}
-        </aside>
-      </div>
+        </DrawerOverlay>
+      </>
       ) : null}
 
       {view === "ownership" ? (

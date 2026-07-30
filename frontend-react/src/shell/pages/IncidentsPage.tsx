@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { readSessionJson, useDebouncedValue, usePolledData, useWindowedRows, writeSessionJson } from "../hooks";
 import { useFeedback } from "../feedback";
 import { buildIncidentDeepLink, incidentRowId, type IncidentView } from "../incidents";
-import { DrawerFieldGrid, DrawerOverlay, EmptyState, InfoList, JsonPreview, KeyValue, PanelHeader, SectionIntro, SeverityBadge, StatCard, StatusBadge, TimeScopeBar } from "../ui";
+import { DrawerFieldGrid, DrawerOverlay, EmptyState, InfoList, JsonPreview, KeyValue, PanelHeader, SeverityBadge, StatusBadge } from "../ui";
+import { NativeActionBar, NativePageHeader, NativePager } from "../native";
 import { shiftTimeZoneInputValue, t, timeZoneDisplayLabel, useShellContext } from "../context";
 import { humanizeSourceName, humanizeTechnicalValue } from "../humanize";
 import { localizeRuleName } from "../runtimeLocalization";
-import { refreshIntervalMs, refreshOptions, rowOptions, timeRangeOptions, timeScopeSummary } from "../timeControls";
+import { refreshIntervalMs, refreshOptions, rowOptions, timeRangeOptions } from "../timeControls";
 import type { IncidentDetailResponse, IncidentHistoryEntry, IncidentListResponse, IncidentRecord, IncidentStatusTransitions, RuntimeBlob } from "../types";
 
 function listValues(value: unknown) {
@@ -96,6 +98,7 @@ export function IncidentsPage() {
   const { announce, pushToast } = useFeedback();
   const location = useLocation();
   const navigate = useNavigate();
+  const routeView: IncidentView = location.pathname === "/alerts" ? "raw" : "agg";
   const announcedSnapshotRef = useRef("");
   const persistedState = readSessionJson("rdegon-incidents-view", {
     view: "agg",
@@ -108,7 +111,7 @@ export function IncidentsPage() {
     refreshSeconds: "0",
     selectedId: "",
   });
-  const [view, setView] = useState<IncidentView>(() => (persistedState.view === "raw" ? "raw" : "agg"));
+  const [view, setView] = useState<IncidentView>(routeView);
   const [scope, setScope] = useState<"main" | "vpn-noise" | "health">(() =>
     persistedState.scope === "vpn-noise" || persistedState.scope === "health" ? persistedState.scope : "main",
   );
@@ -130,8 +133,18 @@ export function IncidentsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [viewState, setViewState] = useState("");
   const [hostActionState, setHostActionState] = useState("");
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [bulkAssignee, setBulkAssignee] = useState("");
+  const [bulkState, setBulkState] = useState("");
   const debouncedQuery = useDebouncedValue(query, 250);
   const incidentTimeZoneLabel = useMemo(() => timeZoneDisplayLabel(timezone, lang), [timezone, lang]);
+
+  useEffect(() => {
+    setView(routeView);
+    setSelectedId("");
+    setSelectedRowIds([]);
+    setDrawerOpen(false);
+  }, [routeView]);
 
   const formatIncidentTimestamp = useCallback(
     (value: unknown) => {
@@ -147,7 +160,6 @@ export function IncidentsPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search || "");
     if (!params.toString()) return;
-    if (params.has("view")) setView(String(params.get("view") || "agg") === "raw" ? "raw" : "agg");
     if (params.has("scope")) {
       const requestedScope = String(params.get("scope") || "main");
       setScope(requestedScope === "vpn-noise" || requestedScope === "health" ? requestedScope : "main");
@@ -180,7 +192,6 @@ export function IncidentsPage() {
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (view !== "agg") params.set("view", view);
     if (scope !== "main") params.set("scope", scope);
     if (query.trim()) params.set("q", query.trim());
     if (windowPreset !== "24h") params.set("window", windowPreset);
@@ -318,6 +329,11 @@ export function IncidentsPage() {
   });
   const { scrollToIndex } = windowedRows;
   const selectedListIndex = items.findIndex((row) => incidentRowId(row, view) === selectedId);
+
+  useEffect(() => {
+    const availableIds = new Set(items.map((row) => incidentRowId(row, view)));
+    setSelectedRowIds((current) => current.filter((id) => availableIds.has(id)));
+  }, [items, view]);
 
   useEffect(() => {
     if (!items.length) {
@@ -467,8 +483,45 @@ export function IncidentsPage() {
     }
   }
 
+  async function runBulkUpdate(mode: "assign" | "close") {
+    if (!selectedRowIds.length) return;
+    if (mode === "assign" && !bulkAssignee.trim()) {
+      setBulkState(t(lang, { en: "Enter an assignee before applying the bulk action.", ru: "Укажите ответственного перед массовым назначением." }));
+      return;
+    }
+    setBulkState(t(lang, { en: "Applying changes...", ru: "Применяю изменения..." }));
+    try {
+      await Promise.all(
+        selectedRowIds.map((recordId) =>
+          api.updateIncident(view, recordId, mode === "assign"
+            ? { assignee: bulkAssignee.trim(), note: "Bulk assignment from analyst queue" }
+            : { status: "closed", note: "Bulk closure from analyst queue" }),
+        ),
+      );
+      setBulkState(
+        t(lang, {
+          en: `${selectedRowIds.length} records updated.`,
+          ru: `Обновлено записей: ${selectedRowIds.length}.`,
+        }),
+      );
+      setSelectedRowIds([]);
+      setRefreshToken((value) => value + 1);
+      pushToast({
+        title: t(lang, { en: "Queue updated", ru: "Очередь обновлена" }),
+        message: mode === "assign"
+          ? t(lang, { en: `Assigned to ${bulkAssignee.trim()}.`, ru: `Назначено: ${bulkAssignee.trim()}.` })
+          : t(lang, { en: "Selected records were closed.", ru: "Выбранные записи закрыты." }),
+        tone: "success",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Bulk update failed";
+      setBulkState(message);
+      pushToast({ title: t(lang, { en: "Bulk action failed", ru: "Массовое действие не выполнено" }), message, tone: "error" });
+    }
+  }
+
   function resetViewState() {
-    setView("agg");
+    setView(routeView);
     setScope("main");
     setQuery("");
     setWindowPreset("24h");
@@ -477,6 +530,7 @@ export function IncidentsPage() {
     setLimit(100);
     setRefreshSeconds("0");
     setSelectedId("");
+    setSelectedRowIds([]);
     setDrawerOpen(false);
     pushToast({
       title: t(lang, { en: "Queue reset", ru: "Очередь сброшена" }),
@@ -539,15 +593,12 @@ export function IncidentsPage() {
   const sampleHost = contextValue(selectedContext, "host_name", "source", "log_source", "observer_collector", "collector_profile") || "n/a";
   const sampleCategory = contextValue(selectedContext, "category", "event.category", "subcategory", "event.type") || "n/a";
   const incidentRangeOptions = timeRangeOptions(lang);
-  const incidentScopeSummary = timeScopeSummary(lang, {
-    rangeLabel: windowPreset === "custom" ? t(lang, { en: "Custom range", ru: "Свой диапазон" }) : windowPreset,
-    refreshSeconds,
-    rows: limit,
-    fromTs: windowPreset === "custom" ? fromTs : "",
-    toTs: windowPreset === "custom" ? toTs : "",
-  });
   const availableIncidentCount = Number(listState.data.available_count ?? items.length ?? 0);
   const returnedIncidentCount = Number(listState.data.returned_count ?? items.length ?? 0);
+  const allRowsSelected = items.length > 0 && items.every((row) => selectedRowIds.includes(incidentRowId(row, view)));
+  const pageTitle = view === "raw"
+    ? t(lang, { en: "Alerts", ru: "Алерты" })
+    : t(lang, { en: "Incidents", ru: "Инциденты" });
   const canRunHostAction = permissions.includes("response:run");
   const incidentSeverity = selected?.severity_agg || selected?.severity || "info";
   const incidentSeverityTone =
@@ -586,120 +637,113 @@ export function IncidentsPage() {
   const shouldShowCommandEvidence = isProcessIncident && commandEvidenceRows.length > 0;
   const shouldShowProcessContext = isProcessIncident && processEventRows.length > 0 && !shouldShowCommandEvidence;
   return (
-    <div className="react-page react-page-incidents">
-      <SectionIntro
-        kicker={t(lang, { en: "Incidents", ru: "Инциденты" })}
-        title={t(lang, { en: "Incident queue", ru: "Очередь инцидентов" })}
+    <div className="react-page react-page-incidents native-page">
+      <NativePageHeader
+        title={pageTitle}
         icon="incidents"
-        actions={<input className="react-input react-input-grow" value={query} onChange={(event) => { setSelectedId(""); setQuery(event.target.value); }} placeholder={t(lang, { en: "Search by title, source, asset, IOC, assignee...", ru: "Поиск по названию, источнику, активу, IOC, аналитику..." })} />}
+        actions={(
+          <>
+            <button type="button" className="react-icon-button" onClick={copyCurrentViewLink} title={t(lang, { en: "Copy view link", ru: "Скопировать ссылку на вид" })}>↗</button>
+            <button type="button" className="react-primary-button" onClick={() => setRefreshToken((value) => value + 1)}>
+              {t(lang, { en: "Refresh", ru: "Обновить" })}
+            </button>
+          </>
+        )}
       />
-      <div className="react-grid react-grid-4">
-        <StatCard label={t(lang, { en: "Aggregated", ru: "Агрегированные" })} value={listState.data.metrics?.agg_total || 0} hint={t(lang, { en: "Current grouped incidents.", ru: "Текущие сгруппированные инциденты." })} />
-        <StatCard label={t(lang, { en: "Open incidents", ru: "Открытые инциденты" })} value={listState.data.metrics?.agg_open || 0} hint={t(lang, { en: "Not yet closed incident groups.", ru: "Группы инцидентов, которые еще не закрыты." })} />
-        <StatCard label={t(lang, { en: "Raw alerts", ru: "Сырые алерты" })} value={listState.data.metrics?.raw_total || 0} hint={t(lang, { en: "Underlying raw alert rows.", ru: "Исходные строки сырых алертов." })} />
-        <StatCard label={t(lang, { en: "Critical raw", ru: "Критичные сырые" })} value={listState.data.metrics?.critical_raw || 0} hint={t(lang, { en: "Critical alerts waiting for review.", ru: "Критичные алерты, ожидающие разбора." })} />
-      </div>
 
-      <div className="react-toolbar">
-        <div className="react-segmented">
-          <button className={view === "agg" ? "active" : ""} type="button" onClick={() => setView("agg")}>{t(lang, { en: "Aggregated", ru: "Агрегированные" })}</button>
-          <button className={view === "raw" ? "active" : ""} type="button" onClick={() => setView("raw")}>{t(lang, { en: "Raw", ru: "Сырые" })}</button>
-        </div>
-        <div className="react-segmented">
-          <button className={scope === "main" ? "active" : ""} type="button" onClick={() => { setSelectedId(""); setScope("main"); }}>{t(lang, { en: "All incidents", ru: "Все инциденты" })}</button>
-          <button className={scope === "health" ? "active" : ""} type="button" onClick={() => { setSelectedId(""); setScope("health"); }}>{t(lang, { en: "Platform health", ru: "Состояние платформы" })}</button>
-          <button className={scope === "vpn-noise" ? "active" : ""} type="button" onClick={() => { setSelectedId(""); setScope("vpn-noise"); }}>{t(lang, { en: "VPN noise", ru: "VPN-шум" })}</button>
-        </div>
-        <button type="button" className="react-link-button" onClick={copyCurrentViewLink}>{t(lang, { en: "Copy link", ru: "Скопировать ссылку" })}</button>
-        <button type="button" className="react-link-button" onClick={resetViewState}>{t(lang, { en: "Reset", ru: "Сбросить" })}</button>
-      </div>
-      <div className="react-inline-note react-inline-note-spaced">
-        <strong>{t(lang, { en: "Telegram delivery", ru: "Доставка в Telegram" })}: </strong>
-        {scope === "main"
-          ? t(lang, {
-              en: `${listState.data.notification_delivery?.delivered || 0} delivered, ${listState.data.notification_delivery?.pending || 0} pending, ${listState.data.notification_delivery?.failed || 0} failed for the incidents currently shown.`,
-              ru: `${listState.data.notification_delivery?.delivered || 0} доставлено, ${listState.data.notification_delivery?.pending || 0} ожидают, ${listState.data.notification_delivery?.failed || 0} с ошибкой для показанных сейчас инцидентов.`,
-            })
-          : t(lang, {
-              en: "Not applicable to this operational scope; only security incidents are sent.",
-              ru: "Не применяется к этому операционному контуру; отправляются только ИБ-инциденты.",
+      <div className="native-list-search">
+        <label className="native-search-field">
+          <Search size={16} aria-hidden="true" />
+          <input
+            value={query}
+            onChange={(event) => { setSelectedId(""); setQuery(event.target.value); }}
+            placeholder={t(lang, {
+              en: `Search ${view === "raw" ? "alerts" : "incidents"} by rule, source, asset, IOC or assignee`,
+              ru: `Поиск ${view === "raw" ? "алертов" : "инцидентов"} по правилу, источнику, активу, IOC или аналитику`,
             })}
-        {" "}
-        <StatusBadge value={scope === "main" && !listState.data.notification_delivery?.synchronized ? "pending" : "synchronized"} />
-      </div>
-      <TimeScopeBar
-        rangeLabel={t(lang, { en: "Time range", ru: "Временной диапазон" })}
-        rangeValue={windowPreset}
-        rangeOptions={incidentRangeOptions}
-        onRangeChange={(value) => {
+          />
+        </label>
+        <select aria-label={t(lang, { en: "Queue view", ru: "Срез очереди" })} value={scope} onChange={(event) => { setSelectedId(""); setScope(event.target.value as typeof scope); }}>
+          <option value="main">{t(lang, { en: "Security queue", ru: "ИБ-очередь" })}</option>
+          <option value="health">{t(lang, { en: "Platform health", ru: "Состояние платформы" })}</option>
+          <option value="vpn-noise">{t(lang, { en: "VPN noise", ru: "VPN-шум" })}</option>
+        </select>
+        <select aria-label={t(lang, { en: "Time range", ru: "Период" })} value={windowPreset} onChange={(event) => {
+          const value = event.target.value;
           setSelectedId("");
           setWindowPreset(value);
           if (value !== "custom") {
             setFromTs("");
             setToTs("");
           }
-        }}
-        refreshLabel={t(lang, { en: "Refresh", ru: "Обновление" })}
-        refreshValue={refreshSeconds}
-        refreshOptions={refreshOptions(lang)}
-        onRefreshChange={setRefreshSeconds}
-        rowsLabel={t(lang, { en: "Rows", ru: "Строк" })}
-        rowsValue={limit}
-        rowsOptions={rowOptions()}
-        onRowsChange={(value) => { setSelectedId(""); setLimit(Number(value)); }}
-        customRangeFields={
-          windowPreset === "custom" ? (
-            <>
-              <label className="react-time-scope-item">
-                <span>{t(lang, { en: "Range from", ru: "Начало диапазона" })}</span>
-                <input className="react-input" type="datetime-local" value={fromTs} onChange={(event) => { setSelectedId(""); setWindowPreset("custom"); setFromTs(event.target.value); }} />
-              </label>
-              <label className="react-time-scope-item">
-                <span>{t(lang, { en: "Range to", ru: "Конец диапазона" })}</span>
-                <input className="react-input" type="datetime-local" value={toTs} onChange={(event) => { setSelectedId(""); setWindowPreset("custom"); setToTs(event.target.value); }} />
-              </label>
-            </>
-          ) : null
-        }
-        summary={incidentScopeSummary}
-      />
-      {viewState ? <div className="react-inline-note">{viewState}</div> : null}
+        }}>
+          {incidentRangeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select aria-label={t(lang, { en: "Refresh", ru: "Обновление" })} value={refreshSeconds} onChange={(event) => setRefreshSeconds(event.target.value)}>
+          {refreshOptions(lang).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <select aria-label={t(lang, { en: "Rows", ru: "Строк" })} value={limit} onChange={(event) => { setSelectedId(""); setLimit(Number(event.target.value)); }}>
+          {rowOptions().map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <button type="button" className="react-link-button" onClick={resetViewState}>{t(lang, { en: "Reset", ru: "Сбросить" })}</button>
+      </div>
+      {windowPreset === "custom" ? (
+        <div className="native-custom-range">
+          <label><span>{t(lang, { en: "From", ru: "От" })}</span><input type="datetime-local" value={fromTs} onChange={(event) => setFromTs(event.target.value)} /></label>
+          <label><span>{t(lang, { en: "To", ru: "До" })}</span><input type="datetime-local" value={toTs} onChange={(event) => setToTs(event.target.value)} /></label>
+        </div>
+      ) : null}
 
-      <section className="react-card">
-        <PanelHeader
-          title={t(lang, { en: "Incident queue", ru: "Очередь инцидентов" })}
-          subtitle={
-            returnedIncidentCount
-              ? t(lang, {
-                  en: `Click a row to open the side drawer. Hotkeys: J/K navigate, Enter opens, Esc closes. Context persists in URL and session. Showing ${returnedIncidentCount} of ${availableIncidentCount} incidents in scope.`,
-                  ru: `Нажмите на строку, чтобы открыть боковое окно. Горячие клавиши: J/K — навигация, Enter — открыть, Esc — закрыть. Контекст сохраняется в URL и сессии. Показано ${returnedIncidentCount} из ${availableIncidentCount} инцидентов в текущем скоупе.`,
-                })
-              : t(lang, {
-                  en: "Click a row to open the side drawer. Hotkeys: J/K navigate, Enter opens, Esc closes. Context persists in URL and session. No incidents are currently loaded.",
-                  ru: "Нажмите на строку, чтобы открыть боковое окно. Горячие клавиши: J/K — навигация, Enter — открыть, Esc — закрыть. Контекст сохраняется в URL и сессии. Инциденты пока не загружены.",
-                })
-          }
-        />
+      <NativeActionBar
+        primary={(
+          <>
+            <input className="native-assignee-input" value={bulkAssignee} onChange={(event) => setBulkAssignee(event.target.value)} placeholder={t(lang, { en: "Assignee", ru: "Ответственный" })} />
+            <button type="button" className="react-link-button" disabled={!selectedRowIds.length} onClick={() => void runBulkUpdate("assign")}>
+              {t(lang, { en: "Assign", ru: "Назначить" })}
+            </button>
+            <button type="button" className="react-link-button" disabled={!selectedRowIds.length} onClick={() => void runBulkUpdate("close")}>
+              {t(lang, { en: "Close", ru: "Закрыть" })}
+            </button>
+          </>
+        )}
+        meta={(
+          <>
+            <span>{t(lang, { en: "Found", ru: "Найдено" })}: <strong>{availableIncidentCount}</strong></span>
+            <span>{t(lang, { en: "Selected", ru: "Выбрано" })}: <strong>{selectedRowIds.length}</strong></span>
+            {scope === "main" ? (
+              <span className="native-delivery-state">
+                Telegram: {listState.data.notification_delivery?.delivered || 0}/{listState.data.notification_delivery?.queue_count || returnedIncidentCount}
+                <StatusBadge value={!listState.data.notification_delivery?.synchronized ? "pending" : "synchronized"} />
+              </span>
+            ) : null}
+          </>
+        )}
+      />
+      {bulkState || viewState ? <div className="native-operation-state">{bulkState || viewState}</div> : null}
+
+      <section className="native-grid native-incident-grid">
         <div
           ref={windowedRows.containerRef}
           className={`react-table-wrap react-incidents-table-wrap ${windowedRows.isWindowed ? "react-table-window windowed" : ""}`}
         >
-          <table className="react-table react-table-windowed" role="table" aria-label="Incident queue" aria-rowcount={items.length} aria-colcount={7}>
+          <table className="react-table react-table-windowed" role="table" aria-label={String(pageTitle)} aria-rowcount={items.length} aria-colcount={9}>
             <thead>
               <tr role="row">
-                <th role="columnheader">{t(lang, { en: "Rule", ru: "Правило" })}</th>
+                <th className="native-check"><input type="checkbox" aria-label={t(lang, { en: "Select all rows", ru: "Выбрать все строки" })} checked={allRowsSelected} onChange={(event) => setSelectedRowIds(event.target.checked ? items.map((row) => incidentRowId(row, view)) : [])} /></th>
                 <th role="columnheader">{t(lang, { en: "Severity", ru: "Важность" })}</th>
-                <th role="columnheader">{t(lang, { en: "Source", ru: "Источник" })}</th>
+                <th role="columnheader">{t(lang, { en: "Name", ru: "Название" })}</th>
                 <th role="columnheader">{t(lang, { en: "Status", ru: "Статус" })}</th>
-                <th role="columnheader">Telegram</th>
                 <th role="columnheader">{t(lang, { en: "Assignee", ru: "Ответственный" })}</th>
+                <th role="columnheader">{view === "raw" ? t(lang, { en: "Incident", ru: "Инцидент" }) : t(lang, { en: "Alerts", ru: "Алерты" })}</th>
+                <th role="columnheader">{t(lang, { en: "Source", ru: "Источник" })}</th>
+                <th role="columnheader">{t(lang, { en: "First seen", ru: "Первое появление" })}</th>
                 <th role="columnheader">{t(lang, { en: "Last seen", ru: "Последняя активность" })}</th>
               </tr>
             </thead>
             <tbody>
               {windowedRows.topSpacerHeight ? (
                 <tr className="react-table-spacer" aria-hidden="true">
-                  <td colSpan={7} style={{ height: `${windowedRows.topSpacerHeight}px` }} />
+                  <td colSpan={9} style={{ height: `${windowedRows.topSpacerHeight}px` }} />
                 </tr>
               ) : null}
               {windowedRows.visibleRows.map((row: IncidentRecord, visibleIndex: number) => {
@@ -707,27 +751,28 @@ export function IncidentsPage() {
                 const rowId = incidentRowId(row, view);
                 return (
                   <tr key={`${rowId}-${absoluteIndex}`} role="row" className={rowId === selectedId ? "selected" : ""} onClick={() => { setSelectedId(rowId); setDrawerOpen(true); }}>
-                    <td role="cell">{localizeRuleName(row.rule_name, lang)}</td>
+                    <td className="native-check" role="cell"><input type="checkbox" aria-label={`${t(lang, { en: "Select", ru: "Выбрать" })} ${rowId}`} checked={selectedRowIds.includes(rowId)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelectedRowIds((current) => event.target.checked ? [...new Set([...current, rowId])] : current.filter((id) => id !== rowId))} /></td>
                     <td role="cell"><SeverityBadge value={row.severity_agg || row.severity || "info"} /></td>
-                    <td role="cell">{row.source_summary || row.source || "n/a"}</td>
+                    <td role="cell"><button type="button" className="native-primary-cell" onClick={() => { setSelectedId(rowId); setDrawerOpen(true); }}><strong>{localizeRuleName(row.rule_name, lang)}</strong><small>{rowId}</small></button></td>
                     <td role="cell"><StatusBadge value={row.status || "new"} /></td>
-                    <td role="cell">
-                      <StatusBadge value={scope === "main" ? String(row.notification_delivery?.delivery_status || "pending") : "n/a"} />
-                    </td>
                     <td role="cell">{row.assignee || "n/a"}</td>
+                    <td role="cell">{view === "raw" ? String(row.agg_id || "—") : Number(row.count_alerts || row.hits || row.raw_hits_total || 0)}</td>
+                    <td role="cell">{row.source_summary || row.source || "n/a"}</td>
+                    <td role="cell">{formatIncidentTimestamp(row.ts_first || row.ts)}</td>
                     <td role="cell">{formatIncidentTimestamp(row.ts_last || row.ts)}</td>
                   </tr>
                 );
               })}
               {windowedRows.bottomSpacerHeight ? (
                 <tr className="react-table-spacer" aria-hidden="true">
-                  <td colSpan={7} style={{ height: `${windowedRows.bottomSpacerHeight}px` }} />
+                  <td colSpan={9} style={{ height: `${windowedRows.bottomSpacerHeight}px` }} />
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
       </section>
+      <NativePager shown={returnedIncidentCount} total={availableIncidentCount} lang={lang} />
       <DrawerOverlay
         open={drawerOpen && !!selectedId}
         title={t(lang, { en: "Incident details", ru: "Детали инцидента" })}

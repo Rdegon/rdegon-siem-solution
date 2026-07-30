@@ -901,3 +901,896 @@ html[data-theme="dark"] .react-table td {
     display: none;
   }
 }
+
+/* Native analyst workspaces ported from the approved UI/UX prototype. */
+.native-page {
+  width: 100%;
+  max-width: none;
+  gap: 0;
+  padding: 0;
+  background: var(--color-bg-surface);
+}
+
+.native-page-header {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-page-heading {
+  min-width: 0;
+}
+
+.native-page-heading h1 {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 620;
+}
+
+.native-page-heading p {
+  margin: 3px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.native-page-actions,
+.native-actionbar-primary,
+.native-actionbar-meta,
+.native-pager-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.native-list-search {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-panel-2);
+}
+
+.native-list-search select,
+.native-list-search input,
+.native-custom-range input,
+.native-assignee-input {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+}
+
+.native-list-search select {
+  min-width: 128px;
+  padding: 0 30px 0 10px;
+}
+
+.native-search-field {
+  min-width: 260px;
+  max-width: 560px;
+  flex: 1 1 420px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-surface);
+}
+
+.native-search-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.native-custom-range {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 9px 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-panel-2);
+}
+
+.native-custom-range label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.native-custom-range input {
+  padding: 0 9px;
+}
+
+.native-actionbar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-actionbar-meta {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.native-actionbar-meta > span + span {
+  padding-left: 10px;
+  border-left: 1px solid var(--color-bg-panel-3);
+}
+
+.native-assignee-input {
+  width: 176px;
+  padding: 0 9px;
+}
+
+.native-delivery-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.native-operation-state {
+  padding: 7px 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-panel-2);
+  font-size: 12px;
+}
+
+.native-grid {
+  min-width: 0;
+  overflow: auto;
+  border: 0;
+  background: var(--color-bg-surface);
+}
+
+.native-grid .react-table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+.native-grid .react-table {
+  min-width: 1180px;
+  table-layout: auto;
+}
+
+.native-grid .react-table th {
+  height: 38px;
+  padding: 7px 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-panel-2);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.native-grid .react-table td {
+  height: 48px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.native-grid .react-table tbody tr:hover td,
+.native-grid .react-table tbody tr.selected td {
+  background: color-mix(in srgb, var(--color-accent-blue) 8%, var(--color-bg-surface));
+}
+
+.native-check {
+  width: 38px;
+  min-width: 38px;
+  text-align: center;
+}
+
+.native-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-accent-blue);
+}
+
+.native-primary-cell {
+  min-width: 220px;
+  max-width: 410px;
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.native-primary-cell strong,
+.native-primary-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-primary-cell strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.native-primary-cell small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.native-secondary-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.native-secondary-cell small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.native-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.native-row-actions button {
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--color-bg-panel-3);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-surface);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.native-row-actions button:hover:not(:disabled) {
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+}
+
+.native-row-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.native-pager {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 24px;
+  border-top: 1px solid var(--color-bg-panel-3);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-panel-2);
+  font-size: 12px;
+}
+
+.native-query-console {
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-workspace-tabs {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.native-workspace-tabs button {
+  align-self: stretch;
+  padding: 0 4px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.native-workspace-tabs > div {
+  align-self: stretch;
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.native-workspace-tabs > div > button {
+  align-self: stretch;
+}
+
+.native-workspace-tabs button.active {
+  border-bottom-color: var(--color-accent-blue);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.native-query-console .react-events-console-body {
+  padding: 12px 24px;
+}
+
+.native-query-console .react-query-editor {
+  min-height: 104px;
+  border-radius: 4px;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+}
+
+.native-query-console .react-query-toolbar {
+  align-items: end;
+}
+
+.native-query-console .react-query-controls {
+  flex-wrap: wrap;
+}
+
+.native-query-console .react-query-controls label {
+  min-width: 108px;
+}
+
+.native-query-console .react-query-saved-row,
+.native-query-console .react-inline-note {
+  margin-top: 8px;
+}
+
+.native-query-console > .react-events-console-body > details {
+  margin: 0 24px 12px;
+}
+
+.native-event-timeline {
+  min-height: 90px;
+  padding: 10px 24px 6px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-event-timeline svg {
+  max-height: 72px;
+}
+
+.native-events-grid .react-results-window,
+.native-events-grid .react-table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+.native-assets-grid .react-table {
+  min-width: 1060px;
+}
+
+.native-dashboard-controls {
+  min-height: 58px;
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-panel-2);
+}
+
+.native-dashboard-controls label {
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.native-dashboard-controls label:first-child {
+  min-width: 240px;
+}
+
+.native-dashboard-controls select {
+  min-height: 34px;
+  padding: 0 30px 0 10px;
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+}
+
+.native-dashboard-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-dashboard-kpi {
+  min-width: 0;
+  min-height: 112px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 16px 24px;
+  border-right: 1px solid var(--color-bg-panel-3);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.native-dashboard-kpi:last-child {
+  border-right: 0;
+}
+
+.native-dashboard-kpi:hover {
+  background: color-mix(in srgb, var(--color-accent-blue) 6%, var(--color-bg-surface));
+}
+
+.native-dashboard-kpi > span,
+.native-dashboard-kpi > small {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-dashboard-kpi > strong {
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 620;
+}
+
+.react-overview-legacy-shell {
+  display: none;
+}
+
+.native-dashboard-page > .react-section-stack {
+  display: none;
+}
+
+.native-dashboard-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 24px 28px;
+}
+
+.native-dashboard-panel {
+  min-width: 0;
+  border: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-dashboard-panel-wide {
+  grid-column: 1 / -1;
+}
+
+.native-dashboard-panel > header {
+  min-height: 70px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.native-dashboard-panel > header h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.native-dashboard-panel > header p {
+  margin: 5px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.native-dashboard-panel > header a {
+  flex: 0 0 auto;
+  color: var(--color-accent-blue);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.native-dashboard-panel .native-data-table {
+  width: 100%;
+  min-width: 800px;
+}
+
+.native-dashboard-panel-wide .native-table-scroll {
+  width: 100%;
+}
+
+.native-dashboard-timeline {
+  height: 278px;
+  padding: 28px 16px 16px;
+  display: grid;
+  grid-template-columns: repeat(18, minmax(8px, 1fr));
+  align-items: end;
+  gap: 5px;
+}
+
+.native-dashboard-timeline-bar {
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr 18px 16px;
+  align-items: end;
+  text-align: center;
+}
+
+.native-dashboard-timeline-bar > span {
+  width: min(20px, 75%);
+  min-height: 4px;
+  margin: 0 auto;
+  background: var(--color-accent-blue);
+}
+
+.native-dashboard-timeline-bar strong,
+.native-dashboard-timeline-bar small {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-dashboard-breakdown {
+  min-height: 278px;
+  padding: 18px 16px;
+  display: grid;
+  align-content: center;
+  gap: 18px;
+}
+
+.native-dashboard-breakdown > div {
+  display: grid;
+  grid-template-columns: 88px minmax(80px, 1fr) 72px;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.native-dashboard-breakdown i {
+  height: 8px;
+  overflow: hidden;
+  background: var(--color-bg-panel-3);
+}
+
+.native-dashboard-breakdown i b {
+  display: block;
+  height: 100%;
+  background: var(--color-accent-blue);
+}
+
+.native-dashboard-breakdown strong {
+  text-align: right;
+}
+
+.native-dashboard-list {
+  min-height: 278px;
+}
+
+.native-dashboard-list > a {
+  min-height: 40px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.native-dashboard-list > a:last-child {
+  border-bottom: 0;
+}
+
+.native-dashboard-list > a:hover {
+  background: color-mix(in srgb, var(--color-accent-blue) 6%, var(--color-bg-surface));
+}
+
+.native-dashboard-list span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.native-dashboard-list strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-dashboard-list small {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.native-dashboard-list b {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.native-resource-wizard {
+  min-height: calc(100vh - 56px);
+}
+
+.native-resource-wizard-steps {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-panel-2);
+}
+
+.native-resource-wizard-steps span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border-right: 1px solid var(--color-bg-panel-3);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.native-resource-wizard-steps span:last-child {
+  border-right: 0;
+}
+
+.native-resource-wizard-steps span.active {
+  color: var(--color-text-primary);
+}
+
+.native-resource-wizard-steps b {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-text-muted);
+  border-radius: 50%;
+  font-size: 11px;
+}
+
+.native-resource-wizard-steps span.active b {
+  border-color: var(--color-accent-blue);
+  color: #fff;
+  background: var(--color-accent-blue);
+}
+
+.native-resource-wizard-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.3fr) minmax(260px, 0.8fr);
+  gap: 0;
+  min-height: calc(100vh - 184px);
+}
+
+.native-resource-wizard-body > section,
+.native-resource-wizard-body > aside {
+  min-width: 0;
+  padding: 24px;
+  border-right: 1px solid var(--color-bg-panel-3);
+  background: var(--color-bg-surface);
+}
+
+.native-resource-wizard-body > aside {
+  border-right: 0;
+  background: var(--color-bg-panel-2);
+}
+
+.native-resource-wizard-body h2 {
+  margin: 0 0 18px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.native-resource-wizard-body .react-resource-form-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.native-resource-wizard-body .react-resource-code-tall {
+  min-height: 300px;
+}
+
+.react-page-resources.native-page .react-resource-layout {
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--color-bg-panel-3);
+}
+
+.react-page-resources.native-page .react-resource-kind-list,
+.react-page-resources.native-page .react-resource-catalog {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.react-page-resources.native-page .react-resource-catalog {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.react-page-resources.native-page > .react-resource-detail {
+  margin: 20px 24px;
+}
+
+@media (max-width: 900px) {
+  .native-dashboard-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .native-dashboard-panel-wide {
+    grid-column: auto;
+  }
+
+  .native-page-header,
+  .native-list-search,
+  .native-actionbar,
+  .native-custom-range,
+  .native-workspace-tabs,
+  .native-query-console .react-events-console-body,
+  .native-event-timeline,
+  .native-dashboard-controls,
+  .native-dashboard-page > .react-section-stack,
+  .native-pager {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .native-list-search,
+  .native-actionbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .native-search-field {
+    min-width: 100%;
+    flex-basis: 100%;
+  }
+
+  .native-actionbar-meta {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .native-query-console .react-query-toolbar {
+    align-items: stretch;
+  }
+
+  .native-dashboard-controls {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .native-dashboard-controls label,
+  .native-dashboard-controls label:first-child {
+    min-width: calc(50% - 5px);
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  .native-dashboard-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .native-dashboard-kpi:nth-child(2) {
+    border-right: 0;
+  }
+
+  .native-dashboard-kpi:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--color-bg-panel-3);
+  }
+
+  .native-resource-wizard-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .native-resource-wizard-body > section,
+  .native-resource-wizard-body > aside {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-bg-panel-3);
+  }
+}
+
+@media (max-width: 600px) {
+  .native-dashboard-workspace {
+    padding: 10px 12px 20px;
+  }
+
+  .native-dashboard-timeline {
+    min-width: 620px;
+  }
+
+  .native-dashboard-panel:has(.native-dashboard-timeline) {
+    overflow-x: auto;
+  }
+
+  .native-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .native-page-actions {
+    width: 100%;
+  }
+
+  .native-page-actions > * {
+    flex: 1;
+  }
+
+  .native-list-search select,
+  .native-list-search > .react-link-button {
+    flex: 1 1 calc(50% - 8px);
+  }
+
+  .native-actionbar-primary {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .native-assignee-input {
+    width: 100%;
+  }
+
+  .native-dashboard-controls label,
+  .native-dashboard-controls label:first-child {
+    min-width: 100%;
+    flex-basis: 100%;
+  }
+
+  .native-dashboard-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .native-dashboard-kpi,
+  .native-dashboard-kpi:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-bg-panel-3);
+  }
+
+  .native-resource-wizard-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -4,6 +4,7 @@ import { api } from "../api";
 import { DashboardCanvas, groupDashboardLayout } from "../DashboardCanvas";
 import { useAsyncData, usePolledData } from "../hooks";
 import { DrawerFieldGrid, DrawerOverlay, EmptyState, Icon, KeyValue, PanelHeader, TimeScopePickerButton } from "../ui";
+import { NativePageHeader } from "../native";
 import { shiftTimeZoneInputValue, t, useShellContext } from "../context";
 import { localizeDashboardTitle, localizeRuleName } from "../runtimeLocalization";
 import { refreshIntervalMs, refreshOptions, rowOptions, timeRangeOptions, timeScopeSummary } from "../timeControls";
@@ -341,11 +342,206 @@ export function DashboardPage() {
       <div className="react-inline-note react-overview-heading-note">{dashboardScopeSummary}</div>
     </div>
   );
+  const compactTimeline = (summaryData.timeline || []).slice(-18);
+  const compactTimelineMax = Math.max(
+    1,
+    ...compactTimeline.map((row) => Number(row.count ?? row.cnt ?? row.__value ?? 0)),
+  );
+  const compactSeverities = (summaryData.alert_severity_breakdown || summaryData.severity_breakdown || []).slice(0, 5);
+  const compactSeverityMax = Math.max(
+    1,
+    ...compactSeverities.map((row) => Number(row.count ?? row.cnt ?? row.events ?? 0)),
+  );
+  const compactAlerts = (summaryData.recent_alerts || []).slice(0, 6);
+  const compactSources = (summaryData.top_sources || []).slice(0, 7);
+  const compactCategories = (summaryData.top_categories || []).slice(0, 6);
 
   return (
-    <div className="react-page react-page-dashboard">
+    <div className="react-page react-page-dashboard native-page native-dashboard-page">
       <div className="react-sr-only" aria-live="polite">{overviewLiveText}</div>
-      <section className="react-card react-overview-hero-shell">
+      <NativePageHeader
+        title={t(lang, { en: "Dashboard", ru: "Панель мониторинга" })}
+        icon="dashboard"
+        actions={(
+          <>
+            <Link className="react-link-button" to="/control">{t(lang, { en: "Edit layout", ru: "Изменить макет" })}</Link>
+            <button type="button" className="react-primary-button" onClick={() => setSettingsOpen(true)}>{t(lang, { en: "Add widget", ru: "Добавить виджет" })}</button>
+          </>
+        )}
+      />
+      <div className="native-dashboard-controls">
+        <label>
+          <span>{t(lang, { en: "Layout", ru: "Макет" })}</span>
+          <select value={selected?.id || ""} onChange={(event) => setSelectedDashboardId(event.target.value)}>
+            {dashboards.map((item) => <option key={item.id} value={item.id}>{localizeDashboardTitle(item.title, lang)}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>{t(lang, { en: "Period", ru: "Период" })}</span>
+          <select value={timelineWindow} onChange={(event) => handleTimelineWindowChange(event.target.value)}>
+            {dashboardRangeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>{t(lang, { en: "Refresh", ru: "Обновление" })}</span>
+          <select value={refreshSeconds} onChange={(event) => setRefreshSeconds(event.target.value)}>
+            {dashboardRefreshOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>{t(lang, { en: "Bucket", ru: "Интервал" })}</span>
+          <select value={timelineBucketMinutes} onChange={(event) => setTimelineBucketMinutes(Number(event.target.value))}>
+            {[5, 15, 30, 60, 180, 360].map((item) => <option key={item} value={item}>{item}m</option>)}
+          </select>
+        </label>
+      </div>
+      {timelineWindow === "custom" ? (
+        <div className="native-custom-range">
+          <label><span>{t(lang, { en: "From", ru: "От" })}</span><input type="datetime-local" value={timelineFrom} onChange={(event) => setTimelineFrom(event.target.value)} /></label>
+          <label><span>{t(lang, { en: "To", ru: "До" })}</span><input type="datetime-local" value={timelineTo} onChange={(event) => setTimelineTo(event.target.value)} /></label>
+        </div>
+      ) : null}
+      <div className="native-dashboard-kpis">
+        {overviewStats.map((item, index) => (
+          <Link key={item.label} className="native-dashboard-kpi" to={index === 1 ? "/incidents" : index === 2 ? "/threat-intel" : index === 3 ? "/sources" : "/events"}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.hint}</small>
+          </Link>
+        ))}
+      </div>
+      <div className="native-dashboard-workspace">
+        <section className="native-dashboard-panel native-dashboard-panel-wide">
+          <header>
+            <div>
+              <h2><Icon name="incidents" size={17} />{t(lang, { en: "Recent detections", ru: "Последние сработки" })}</h2>
+              <p>{t(lang, { en: "Live alert queue from the selected analytical window.", ru: "Живая очередь алертов за выбранный период." })}</p>
+            </div>
+            <Link to={currentRangeQuery ? `/alerts?${currentRangeQuery}` : "/alerts"}>
+              {t(lang, { en: "Open queue", ru: "Открыть очередь" })}
+            </Link>
+          </header>
+          <div className="native-table-scroll">
+            <table className="native-data-table">
+              <thead>
+                <tr>
+                  <th>{t(lang, { en: "Severity", ru: "Важность" })}</th>
+                  <th>{t(lang, { en: "Rule", ru: "Правило" })}</th>
+                  <th>{t(lang, { en: "Source", ru: "Источник" })}</th>
+                  <th>{t(lang, { en: "Status", ru: "Статус" })}</th>
+                  <th>{t(lang, { en: "Last seen", ru: "Последнее событие" })}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {compactAlerts.map((row, index) => {
+                  const focusId = String(row.agg_id || row.alert_id || "");
+                  return (
+                    <tr key={focusId || `${row.rule_id}-${index}`}>
+                      <td><span className={`react-badge severity-${String(row.severity || "info").toLowerCase()}`}>{row.severity || "info"}</span></td>
+                      <td>
+                        <Link className="native-row-link" to={focusId ? `/alerts?focus=${encodeURIComponent(focusId)}` : "/alerts"}>
+                          {localizeRuleName(row.rule_name || row.rule_id || "n/a", lang)}
+                        </Link>
+                      </td>
+                      <td>{row.source || "n/a"}</td>
+                      <td>{row.status || "open"}</td>
+                      <td>{formatTimestamp(row.ts_last || row.ts || row.ts_first, "compact")}</td>
+                    </tr>
+                  );
+                })}
+                {!compactAlerts.length ? (
+                  <tr><td colSpan={5}>{t(lang, { en: "No detections in the current window.", ru: "За выбранный период сработок нет." })}</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="native-dashboard-panel">
+          <header>
+            <div>
+              <h2><Icon name="dashboard" size={17} />{t(lang, { en: "Event flow", ru: "Поток событий" })}</h2>
+              <p>{activeWindowLabel}</p>
+            </div>
+            <Link to={currentRangeQuery ? `/events?${currentRangeQuery}` : "/events"}>{t(lang, { en: "Explore", ru: "Исследовать" })}</Link>
+          </header>
+          <div className="native-dashboard-timeline" aria-label={t(lang, { en: "Event volume timeline", ru: "Динамика объема событий" })}>
+            {compactTimeline.map((row, index) => {
+              const count = Number(row.count ?? row.cnt ?? row.__value ?? 0);
+              return (
+                <div className="native-dashboard-timeline-bar" key={`${row.bucket_start || row.ts || row.bucket}-${index}`}>
+                  <span style={{ height: `${Math.max(4, (count / compactTimelineMax) * 100)}%` }} />
+                  <strong>{count.toLocaleString()}</strong>
+                  <small>{formatTimestamp(row.bucket_start || row.ts || row.bucket, "time")}</small>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="native-dashboard-panel">
+          <header>
+            <div>
+              <h2><Icon name="incidents" size={17} />{t(lang, { en: "Severity posture", ru: "Распределение важности" })}</h2>
+              <p>{t(lang, { en: "Alert volume by normalized severity.", ru: "Объем алертов по нормализованной важности." })}</p>
+            </div>
+          </header>
+          <div className="native-dashboard-breakdown">
+            {compactSeverities.map((row, index) => {
+              const label = String(row.severity || row.label || "unknown");
+              const count = Number(row.count ?? row.cnt ?? row.events ?? 0);
+              return (
+                <div key={`${label}-${index}`}>
+                  <span>{label}</span>
+                  <i><b style={{ width: `${Math.max(2, (count / compactSeverityMax) * 100)}%` }} /></i>
+                  <strong>{count.toLocaleString()}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="native-dashboard-panel">
+          <header>
+            <div>
+              <h2><Icon name="collectors" size={17} />{t(lang, { en: "Top sources", ru: "Основные источники" })}</h2>
+              <p>{t(lang, { en: "Current event contribution and freshness.", ru: "Текущий вклад источников и актуальность данных." })}</p>
+            </div>
+            <Link to="/sources">{t(lang, { en: "All sources", ru: "Все источники" })}</Link>
+          </header>
+          <div className="native-dashboard-list">
+            {compactSources.map((row, index) => (
+              <Link key={`${row.log_source}-${index}`} to={`/events?q=${encodeURIComponent(String(row.log_source || ""))}`}>
+                <span><strong>{row.log_source || "n/a"}</strong><small>{formatTimestamp(row.last_seen, "compact")}</small></span>
+                <b>{Number(row.events || 0).toLocaleString()}</b>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section className="native-dashboard-panel">
+          <header>
+            <div>
+              <h2><Icon name="builders" size={17} />{t(lang, { en: "Detection categories", ru: "Категории детектирования" })}</h2>
+              <p>{t(lang, { en: "Normalized category mix across the event stream.", ru: "Структура нормализованных категорий в потоке." })}</p>
+            </div>
+            <Link to="/rules">{t(lang, { en: "Rules", ru: "Правила" })}</Link>
+          </header>
+          <div className="native-dashboard-list">
+            {compactCategories.map((row, index) => {
+              const label = String(row.label || row.category || row.severity || row.status || "unknown");
+              const count = Number(row.count ?? row.cnt ?? row.events ?? 0);
+              return (
+                <Link key={`${label}-${index}`} to={`/events?q=${encodeURIComponent(label)}`}>
+                  <span><strong>{label}</strong></span>
+                  <b>{count.toLocaleString()}</b>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+      <section className="react-card react-overview-hero-shell react-overview-legacy-shell">
         <div className="react-overview-hero-top react-overview-heading-bar">
           <div className="react-overview-heading-controls">
             <label className="react-time-inline-select">
