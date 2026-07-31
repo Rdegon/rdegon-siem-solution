@@ -11,7 +11,11 @@ const shouldMinify = process.env.SIEM_SHELL_MINIFY !== "false";
 const shouldGenerateSourceMaps = process.env.SIEM_SHELL_SOURCEMAP !== "false";
 
 if (fs.existsSync(outdir)) {
-  fs.rmdirSync(outdir, { recursive: true });
+  if (typeof fs.rmSync === "function") {
+    fs.rmSync(outdir, { recursive: true, force: true });
+  } else {
+    fs.rmdirSync(outdir, { recursive: true });
+  }
 }
 fs.mkdirSync(outdir, { recursive: true });
 
@@ -53,7 +57,7 @@ esbuild
     fs.copyFileSync(path.join(brandDir, "favicon.ico"), path.join(outdir, "favicon.ico"));
     fs.copyFileSync(path.join(brandDir, "mark.svg"), path.join(outdir, "mark.svg"));
     const html = `<!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -71,11 +75,11 @@ esbuild
       <div class="react-bootstrap-error">
         <div class="react-bootstrap-error-card">
           <div class="react-top-kicker">Rdegon Sentinel</div>
-          <h1>Loading operator workspace</h1>
-          <p>Preparing the /app control plane. If this screen stays visible, refresh the workspace and sign in again.</p>
+          <h1>Загрузка рабочей области SOC</h1>
+          <p>Подготовка /app. Если экран не меняется, обновите страницу и выполните вход повторно.</p>
           <div class="react-actions react-wrap">
-            <a class="react-link-button" href="/auth/login">Login</a>
-            <a class="react-link-button" href="/app">Open /app</a>
+            <a class="react-link-button" href="/auth/login">Войти</a>
+            <a class="react-link-button" href="/app">Открыть /app</a>
           </div>
         </div>
       </div>

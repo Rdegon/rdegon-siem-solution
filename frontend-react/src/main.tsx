@@ -1,7 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
-import "./styles.css";
+import "./sentinel/styles.css";
 
 const root = ReactDOM.createRoot(document.getElementById("root")!);
 
@@ -36,15 +35,11 @@ window.addEventListener("unhandledrejection", (event) => {
   renderBootstrapFallback("React shell promise error", message);
 });
 
-renderBootstrapFallback("Loading Rdegon Sentinel", "Preparing instrument-grade React shell...");
+renderBootstrapFallback("Загрузка Rdegon Sentinel", "Подготовка рабочей области SOC...");
 
-import("./shell/App")
+import("./sentinel/App")
   .then(({ App }) => {
-    root.render(
-      <BrowserRouter basename="/app">
-        <App />
-      </BrowserRouter>,
-    );
+    root.render(<App />);
   })
   .catch((error) => {
     console.error("bootstrap import failed", error);
