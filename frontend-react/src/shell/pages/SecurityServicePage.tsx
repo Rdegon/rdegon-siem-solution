@@ -14,6 +14,7 @@ const SERVICE_TABS = [
   { id: "ndr", label: "NDR", to: "/security/ndr" },
   { id: "ngfw", label: "NGFW", to: "/security/ngfw" },
   { id: "ips", label: "IPS", to: "/security/ips" },
+  { id: "vpn", label: "VPN", to: "/security/vpn" },
   { id: "dfir", label: "DFIR", to: "/security/dfir" },
   { id: "analysis", label: "Analysis", to: "/security/analysis" },
   { id: "vulnerability", label: "VM", to: "/security/vulnerability" },

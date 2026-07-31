@@ -1,0 +1,16 @@
+[Unit]
+Description=Rdegon SIEM scheduled report generator
+After=network-online.target siem-web.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=rdegon
+Group=rdegon
+WorkingDirectory=/opt/siem/siem-solution
+EnvironmentFile=-/etc/siem/web.env
+ExecStart=/opt/siem/venv-web/bin/python -m services.web.maintenance.report_scheduler
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

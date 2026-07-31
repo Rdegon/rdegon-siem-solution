@@ -398,7 +398,12 @@ export function ResourceCatalogPage() {
         <NativePageHeader
           title={t(lang, { en: "Resources", ru: "Ресурсы" })}
           icon="builders"
-          actions={<><button type="button" className="react-link-button" onClick={() => setRefreshToken((value) => value + 1)}>{t(lang, { en: "Refresh", ru: "Обновить" })}</button><button type="button" className="react-primary-button" onClick={() => openCreate()}>{t(lang, { en: "Create", ru: "Создать" })}</button></>}
+          actions={<>
+            <button type="button" className="react-link-button" onClick={() => setRefreshToken((value) => value + 1)}>{t(lang, { en: "Refresh", ru: "Обновить" })}</button>
+            <a className="react-link-button" href="/builders">{t(lang, { en: "Flow builder", ru: "Конструктор потоков" })}</a>
+            <a className="react-link-button" href="/builders?workspace=correlation">{t(lang, { en: "Correlation builder", ru: "Конструктор корреляции" })}</a>
+            <button type="button" className="react-primary-button" onClick={() => openCreate()}>{t(lang, { en: "Create", ru: "Создать" })}</button>
+          </>}
         />
         <div className="native-list-search">
           <label className="native-search-field">

@@ -5,6 +5,7 @@ import os
 from collections import Counter
 from datetime import datetime, timezone
 import ipaddress
+from pathlib import Path
 from typing import Any
 
 try:
@@ -13,9 +14,19 @@ except Exception:  # noqa: BLE001
     from clickhouse_runtime import get_clickhouse_client  # type: ignore[no-redef]
 
 try:
-    from .host_runtime_pipeline import DEFAULT_STALE_AFTER_SECONDS, HOST_ROLE_ALIASES
+    from .host_runtime_pipeline import (
+        DEFAULT_EVENT_POLICY,
+        DEFAULT_STALE_AFTER_SECONDS,
+        DEFAULT_THRESHOLDS,
+        HOST_ROLE_ALIASES,
+    )
 except Exception:  # noqa: BLE001
-    from host_runtime_pipeline import DEFAULT_STALE_AFTER_SECONDS, HOST_ROLE_ALIASES  # type: ignore[no-redef]
+    from host_runtime_pipeline import (  # type: ignore[no-redef]
+        DEFAULT_EVENT_POLICY,
+        DEFAULT_STALE_AFTER_SECONDS,
+        DEFAULT_THRESHOLDS,
+        HOST_ROLE_ALIASES,
+    )
 try:
     from .proxmox_fleet_runtime import list_proxmox_fleet_inventory
 except Exception:  # noqa: BLE001
@@ -31,6 +42,43 @@ def _utc_now() -> datetime:
 
 def _now_iso() -> str:
     return _utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def load_host_runtime_policy() -> dict[str, Any]:
+    default_path = Path(__file__).resolve().parents[3] / "correlation_rule_packs" / "host_runtime_policy_v1.json"
+    path = Path(str(os.getenv("SIEM_HOST_RUNTIME_POLICY_PATH") or default_path))
+    configured: dict[str, Any] = {}
+    load_error = ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            configured = payload
+        else:
+            load_error = "policy root must be an object"
+    except (OSError, json.JSONDecodeError) as exc:
+        load_error = str(exc)
+    overrides: dict[str, dict[str, Any]] = {
+        key: dict(value)
+        for key, value in DEFAULT_EVENT_POLICY.items()
+    }
+    for key, value in dict(configured.get("event_overrides") or {}).items():
+        if isinstance(value, dict):
+            overrides[str(key)] = {**overrides.get(str(key), {}), **value}
+    thresholds = {
+        **DEFAULT_THRESHOLDS,
+        **{
+            str(key): value
+            for key, value in dict(configured.get("thresholds") or {}).items()
+            if isinstance(value, (int, float))
+        },
+    }
+    return {
+        "version": str(configured.get("version") or "host-runtime-defaults"),
+        "loaded": not bool(load_error),
+        "load_error": load_error,
+        "event_overrides": overrides,
+        "thresholds": thresholds,
+    }
 
 
 def _parse_iso8601(value: Any) -> datetime | None:
@@ -400,4 +448,5 @@ def fetch_host_runtime_overview(*, hours: int = 24, limit: int = 50) -> dict[str
             "avg_memory_available_pct": round(sum(memory_available_values) / len(memory_available_values), 1) if memory_available_values else 0.0,
             "avg_memory_cache_pct": round(sum(memory_cache_values) / len(memory_cache_values), 1) if memory_cache_values else 0.0,
         },
+        "policy": load_host_runtime_policy(),
     }

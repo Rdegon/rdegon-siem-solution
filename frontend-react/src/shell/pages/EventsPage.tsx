@@ -724,7 +724,7 @@ export function EventsPage() {
       />
       <section className="native-query-console">
         <div className="native-workspace-tabs" role="tablist" aria-label={t(lang, { en: "Event search mode", ru: "Режим поиска событий" })}>
-          <button type="button" className="active" role="tab" aria-selected="true">SQL / field query</button>
+          <span className="native-static-tab active" role="tab" aria-selected="true">SQL / field query</span>
           <span>{t(lang, { en: "Storage", ru: "Хранилище" })}: <strong>{storage}</strong></span>
         </div>
         <div className="react-events-console-body">

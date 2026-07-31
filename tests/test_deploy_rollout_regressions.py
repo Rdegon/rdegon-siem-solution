@@ -419,6 +419,21 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         self.assertIn("correlation_rule_packs/pilot_services_v1.json", remote_paths)
         self.assertIn("ops/windows-agent-profile.local.example.json", remote_paths)
 
+    def test_vm4_ui_functional_wave_contains_backend_frontend_and_scheduler(self) -> None:
+        import deploy.vm4_ui_functional_wave_deploy as ui_deploy
+
+        release_files = set(ui_deploy.RELEASE_FILES)
+        self.assertIn("services/web/app/security.py", release_files)
+        self.assertIn("services/web/app/control_plane_access_ops.py", release_files)
+        self.assertIn("services/web/app/control_plane_report_ops.py", release_files)
+        self.assertIn("services/web/app/control_plane_source_policy_ops.py", release_files)
+        self.assertIn("services/web/app/routes/console_reporting_routes.py", release_files)
+        self.assertIn("services/web/app/routes/console_source_policy_routes.py", release_files)
+        self.assertIn("services/web/maintenance/report_scheduler.py", release_files)
+        self.assertIn("frontend-react/src/shell/pages/ReportsPage.tsx", release_files)
+        self.assertIn("frontend-react/src/shell/pages/sources/SourcePoliciesWorkspace.tsx", release_files)
+        self.assertIn("deploy/systemd/siem-report-scheduler.timer", release_files)
+
     def test_operational_rule_pack_publisher_avoids_clickhouse_mutations(self) -> None:
         publish_text = (ROOT / "deploy" / "publish_operational_rule_packs.py").read_text(encoding="utf-8")
 

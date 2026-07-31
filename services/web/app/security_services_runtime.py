@@ -81,6 +81,23 @@ SECURITY_SERVICES: tuple[SecurityService, ...] = (
         ),
     ),
     SecurityService(
+        "vpn",
+        "Remote Access VPN",
+        "WireGuard on OPNsense",
+        "opnsense-edge-01",
+        "192.168.3.103",
+        "VM103",
+        "Remote access gateway",
+        "mgmt",
+        ("wireguard", "opnsense", "host.metrics"),
+        (
+            "remote access tunnels",
+            "peer activity",
+            "VPN-aware firewall policy",
+            "connection telemetry",
+        ),
+    ),
+    SecurityService(
         "dfir",
         "Endpoint DFIR",
         "Velociraptor 0.77.1",
@@ -191,6 +208,11 @@ SERVICE_WORKSPACES: dict[str, list[dict[str, Any]]] = {
         {"label": "OPNsense console", "href": "https://192.168.3.103/", "external": True, "kind": "native", "description": "Native Suricata policy and diagnostics."},
         {"label": "IPS events", "href": "/events?q=suricata", "kind": "siem", "description": "Normalized alerts, flows, DNS and TLS evidence."},
     ],
+    "vpn": [
+        {"label": "OPNsense console", "href": "https://192.168.3.103/", "external": True, "kind": "native", "description": "Native WireGuard peers, tunnels and gateway diagnostics."},
+        {"label": "VPN events", "href": "/events?q=wireguard", "kind": "siem", "description": "Normalized tunnel, peer and firewall telemetry."},
+        {"label": "Access governance", "href": "/access", "kind": "siem", "description": "Identity, service accounts and remote-access permissions."},
+    ],
     "dfir": [
         {"label": "Velociraptor console", "href": "https://192.168.3.102:8889/app/index.html", "external": True, "kind": "native", "description": "Endpoint hunts and artifact collections."},
         {"label": "Cases", "href": "/cases", "kind": "siem", "description": "Investigation case files and evidence."},
@@ -225,6 +247,7 @@ SERVICE_WORKSPACES: dict[str, list[dict[str, Any]]] = {
 SERVICE_INTEGRATION_MODES = {
     "ngfw": "managed_control",
     "ips": "managed_control",
+    "vpn": "siem_workflow",
     "vulnerability": "siem_workflow",
     "threat-intel": "siem_workflow",
 }

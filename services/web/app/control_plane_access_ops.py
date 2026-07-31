@@ -127,6 +127,7 @@ _FALLBACK_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "cmdb:write",
         "threat_intel:write",
         "resources:view",
+        "resources:write",
         "docs:write",
         "storage:archive",
         "connectors:view",
@@ -239,7 +240,7 @@ SIEM_SECTION_PERMISSIONS: dict[str, set[str]] = {
     "assets": {"assets:view"},
     "entities": {"entities:view", "entities:write"},
     "threat-intel": {"content:view", "entities:view"},
-    "sources": {"sources:discover", "health:view", "content:view"},
+    "sources": {"sources:discover", "health:view", "content:view", "resources:write"},
     "collectors": {"health:view", "ingest:view"},
     "builders": {"content:view", "rules:test", "rules:write", "normalizers:write", "active_lists:write", "search:write"},
     "vuln": {"assets:view", "content:view", "health:view", "response:view", "resources:view", "vuln:operate"},
@@ -249,7 +250,7 @@ SIEM_SECTION_PERMISSIONS: dict[str, set[str]] = {
     "response": {"response:view", "response:run"},
     "host-runtime": {"health:view"},
     "access": {"auth:view", "auth:write"},
-    "docs": {"content:view", "docs:write"},
+    "docs": {"content:view", "docs:write", "resources:view", "resources:write"},
     "control": {"health:view", "audit:view"},
 }
 

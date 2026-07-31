@@ -119,6 +119,7 @@ ROLE_PERMISSIONS: dict[ROLE, set[str]] = {
         "cmdb:write",
         "threat_intel:write",
         "resources:view",
+        "resources:write",
         "docs:write",
         "storage:archive",
         "connectors:view",

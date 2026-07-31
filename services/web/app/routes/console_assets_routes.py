@@ -609,7 +609,7 @@ async def sources_discovery_scan_api(payload: dict = Body(default={}), user=Depe
     try:
         return JSONResponse(
             scan_source_candidates(
-                str(payload.get("cidr") or "192.168.1.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24").strip(),
+                str(payload.get("cidr") or "192.168.3.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24").strip(),
                 ports=[int(item) for item in (payload.get("ports") or []) if str(item).strip()],
                 timeout_seconds=float(payload.get("timeout_seconds") or 0.35),
                 max_hosts=int(payload.get("max_hosts") or 256),

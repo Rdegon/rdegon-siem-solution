@@ -8,9 +8,11 @@ from .console_dashboard_routes import router as dashboard_router
 from .console_docs_routes import router as docs_router
 from .console_health_routes import router as health_router
 from .console_operations_routes import router as operations_router
+from .console_reporting_routes import router as reporting_router
 from .console_response_routes import router as response_router
 from .console_resources_routes import router as resources_router
 from .console_security_services_routes import router as security_services_router
+from .console_source_policy_routes import router as source_policy_router
 
 
 ROUTERS = (
@@ -21,8 +23,10 @@ ROUTERS = (
     resources_router,
     dashboard_router,
     docs_router,
+    reporting_router,
     assets_router,
     security_services_router,
+    source_policy_router,
 )
 
 

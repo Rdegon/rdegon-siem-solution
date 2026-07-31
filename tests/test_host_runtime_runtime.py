@@ -2,8 +2,15 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 import json
+import tempfile
+from pathlib import Path
 
-from host_runtime_runtime import fetch_host_runtime_last_seen_map, fetch_host_runtime_overview, host_runtime_targets_from_env
+from host_runtime_runtime import (
+    fetch_host_runtime_last_seen_map,
+    fetch_host_runtime_overview,
+    host_runtime_targets_from_env,
+    load_host_runtime_policy,
+)
 
 
 class _FakeQueryResult:
@@ -25,6 +32,34 @@ class _FakeClient:
 
 
 class HostRuntimeRuntimeTests(unittest.TestCase):
+    def test_load_host_runtime_policy_merges_configured_values_with_effective_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            policy_path = Path(temp_dir) / "policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "version": "test-policy-v2",
+                        "event_overrides": {
+                            "host_cpu_pressure": {
+                                "suppression_seconds": 120,
+                                "escalate_after": 2,
+                                "severity": "critical",
+                            }
+                        },
+                        "thresholds": {"cpu_pct_high": 95},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict("os.environ", {"SIEM_HOST_RUNTIME_POLICY_PATH": str(policy_path)}, clear=False):
+                policy = load_host_runtime_policy()
+
+        self.assertTrue(policy["loaded"])
+        self.assertEqual("test-policy-v2", policy["version"])
+        self.assertEqual(120, policy["event_overrides"]["host_cpu_pressure"]["suppression_seconds"])
+        self.assertIn("host_memory_pressure", policy["event_overrides"])
+        self.assertEqual(95, policy["thresholds"]["cpu_pct_high"])
+
     def test_host_runtime_targets_from_env_merges_proxmox_fleet_monitoring_targets(self) -> None:
         fleet_payload = {
             "items": [

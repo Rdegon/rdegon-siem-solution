@@ -1244,6 +1244,91 @@ html[data-theme="dark"] .react-table td {
   font-weight: 600;
 }
 
+.native-workspace-tabs .native-static-tab {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  border-bottom: 2px solid transparent;
+}
+
+.native-workspace-tabs .native-static-tab.active {
+  border-bottom-color: var(--color-accent-blue);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.react-table-link {
+  padding: 0;
+  border: 0;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.react-table-link:hover,
+.react-table-link:focus-visible {
+  color: var(--color-accent-blue);
+}
+
+.react-actions-compact {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.react-danger-button {
+  color: var(--color-critical);
+}
+
+.source-policy-form .react-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.react-report-template-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.react-report-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.react-report-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid rgba(140, 169, 200, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--color-text-secondary);
+}
+
+.react-report-option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.react-report-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .react-report-template-grid,
+  .react-report-option-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .native-query-console .react-events-console-body {
   padding: 12px 24px;
 }

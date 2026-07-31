@@ -166,6 +166,13 @@ function builderWorkspaceFromQuery(value: string | null): BuilderWorkspace {
   return value === "correlation" ? "correlation" : "graph";
 }
 
+function builderFamilyFromQuery(value: string | null): BuilderFamilyId | null {
+  const normalized = String(value || "").trim();
+  return BUILDER_FAMILIES.some((item) => item.id === normalized)
+    ? normalized as BuilderFamilyId
+    : null;
+}
+
 function starterBlocks(kind: BuilderFamilyId, lang: BuilderLang) {
   return (STARTER_LIBRARY[kind] || STARTER_LIBRARY.detection).map((type, index) => {
     const definition = BLOCK_LIBRARY.find((item) => item.type === type) || BLOCK_LIBRARY[0];
@@ -337,6 +344,10 @@ export function BuildersWorkbench() {
   const { pushToast } = useFeedback();
   const [searchParams, setSearchParams] = useSearchParams();
   const [workspace, setWorkspace] = useState<BuilderWorkspace>(() => builderWorkspaceFromQuery(searchParams.get("workspace")));
+  const [launchIntent, setLaunchIntent] = useState(() => {
+    const kind = builderFamilyFromQuery(searchParams.get("kind"));
+    return kind ? { kind, templateId: String(searchParams.get("template") || "").trim() } : null;
+  });
   const [draftRefreshToken, setDraftRefreshToken] = useState(0);
   const [correlationRefreshToken, setCorrelationRefreshToken] = useState(0);
   const [selectedDraftId, setSelectedDraftId] = useState("");
@@ -389,11 +400,11 @@ export function BuildersWorkbench() {
   useEffect(() => {
     if (draftsState.data?.items) {
       setDrafts(draftsState.data.items);
-      if (!selectedDraftId && draftsState.data.items[0]?.id) {
+      if (!selectedDraftId && !launchIntent && !draftEditorOpen && draftsState.data.items[0]?.id) {
         setSelectedDraftId(String(draftsState.data.items[0].id || ""));
       }
     }
-  }, [draftsState.data?.items, selectedDraftId]);
+  }, [draftEditorOpen, draftsState.data?.items, launchIntent, selectedDraftId]);
 
   useEffect(() => {
     if (correlationPacksState.data?.items) {
@@ -432,6 +443,64 @@ export function BuildersWorkbench() {
       setSearchParams(next, { replace: true });
     }
   }, [searchParams, setSearchParams, workspace]);
+
+  useEffect(() => {
+    if (!launchIntent || !draftsState.data?.items) return undefined;
+    let cancelled = false;
+    const launch = async () => {
+      let template: RuntimeBlob | undefined;
+      if (launchIntent.templateId) {
+        try {
+          const catalog = await api.integrationsCatalog();
+          template = (catalog.items || []).find((item) => String(item.id || "") === launchIntent.templateId);
+        } catch {
+          template = undefined;
+        }
+      }
+      if (cancelled) return;
+      const next = emptyDraftForm(lang);
+      next.kind = launchIntent.kind;
+      next.blocks = starterBlocks(launchIntent.kind, lang);
+      if (template) {
+        next.title = String(template.title || template.id || next.title);
+        next.description = String(template.description || "");
+        next.blocks = next.blocks.map((block) => (
+          block.type === "source"
+            ? {
+                ...block,
+                config: {
+                  ...(block.config || {}),
+                  integration_template: String(template?.id || launchIntent.templateId),
+                  mode: String(template?.mode || ""),
+                  protocols: Array.isArray(template?.protocols) ? template.protocols : [],
+                },
+              }
+            : block
+        ));
+      } else if (launchIntent.templateId) {
+        next.title = `${lang === "ru" ? "Интеграция" : "Integration"} · ${launchIntent.templateId}`;
+        next.blocks = next.blocks.map((block) => (
+          block.type === "source"
+            ? { ...block, config: { ...(block.config || {}), integration_template: launchIntent.templateId } }
+            : block
+        ));
+      }
+      setWorkspace("graph");
+      setSelectedDraftId("");
+      setSelectedBlockId(String(next.blocks[0]?.id || ""));
+      setDraftForm(next);
+      setDraftEditorOpen(true);
+      setLaunchIntent(null);
+      const cleanParams = new URLSearchParams(searchParams);
+      cleanParams.delete("kind");
+      cleanParams.delete("template");
+      setSearchParams(cleanParams, { replace: true });
+    };
+    void launch();
+    return () => {
+      cancelled = true;
+    };
+  }, [draftsState.data?.items, lang, launchIntent, searchParams, setSearchParams]);
 
   const filteredDrafts = useMemo(() => {
     const query = String(draftSearch || "").trim().toLowerCase();

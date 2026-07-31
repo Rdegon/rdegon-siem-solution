@@ -969,6 +969,40 @@ export type SourcesInventoryResponse = {
   generated_ts?: string;
 };
 
+export type SourceMonitoringViolation = {
+  source_name: string;
+  events: number;
+  last_seen?: string;
+  reasons: string[];
+};
+
+export type SourceMonitoringPolicyRecord = {
+  id: string;
+  type: "source_monitoring_policy";
+  name: string;
+  description?: string;
+  enabled: boolean;
+  source_pattern: string;
+  window_hours: number;
+  min_events: number;
+  max_events: number;
+  stale_after_minutes: number;
+  severity: string;
+  notifications: string[];
+  owner: string;
+  matched_sources?: number;
+  violation_count?: number;
+  violations?: SourceMonitoringViolation[];
+  evaluation_status?: string;
+  evaluated_ts?: string;
+  created_ts?: string;
+  updated_ts?: string;
+};
+
+export type SourceMonitoringPoliciesResponse = {
+  items: SourceMonitoringPolicyRecord[];
+};
+
 export type DiscoveryOpenPort = {
   port?: number | string;
   service?: string;
@@ -1862,6 +1896,67 @@ export type VulnReportDetailResponse = {
   [key: string]: unknown;
 };
 
+export type ReportSchedule = {
+  enabled: boolean;
+  frequency: string;
+  time: string;
+  timezone: string;
+  recipients: string[];
+};
+
+export type ReportTemplateRecord = {
+  id: string;
+  type: "report_template";
+  name: string;
+  description?: string;
+  owner: string;
+  tenant_scope: string[];
+  period: "12h" | "24h" | "7d" | "30d";
+  retention_days: number;
+  sections: string[];
+  formats: Array<"json" | "csv">;
+  schedule: ReportSchedule;
+  created_ts?: string;
+  updated_ts?: string;
+};
+
+export type ReportTemplatesResponse = {
+  items: ReportTemplateRecord[];
+};
+
+export type GeneratedReportRecord = {
+  id: string;
+  type: "report_run";
+  template_id: string;
+  name: string;
+  description?: string;
+  status: "completed" | "completed_with_warnings" | "failed" | string;
+  owner: string;
+  tenant_scope: string[];
+  period: {
+    window: string;
+    from_ts: string;
+    to_ts: string;
+  };
+  formats: string[];
+  sections: string[];
+  section_count: number;
+  record_count: number;
+  errors: Array<{ section: string; error: string }>;
+  snapshot?: RuntimeBlob;
+  created_ts: string;
+  completed_ts: string;
+  duration_ms: number;
+};
+
+export type GeneratedReportsResponse = {
+  items: GeneratedReportRecord[];
+};
+
+export type GeneratedReportDetailResponse = {
+  item: GeneratedReportRecord;
+};
+
 export type VulnIntegrationContractEntity = {
   id: string;
   required?: string[];
@@ -2234,6 +2329,17 @@ export type HostRuntimeOverviewResponse = {
     [key: string]: unknown;
   };
   memory_truth?: RuntimeBlob;
+  policy?: {
+    version?: string;
+    loaded?: boolean;
+    load_error?: string;
+    event_overrides?: Record<string, {
+      suppression_seconds?: number;
+      escalate_after?: number;
+      severity?: string;
+    }>;
+    thresholds?: Record<string, number>;
+  };
 };
 
 export type CertificationHealthResponse = RuntimeBlob & {

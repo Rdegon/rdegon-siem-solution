@@ -40,6 +40,7 @@ export function primaryNavigation(lang: "en" | "ru"): ShellNavGroup[] {
         { to: "/connectors", label: t(lang, { en: "Connectors", ru: "Коннекторы" }), icon: "connectors", section: "connectors" },
         { to: "/tasks", label: t(lang, { en: "Task manager", ru: "Диспетчер задач" }), icon: "control", section: "response" },
         { to: "/rules", label: t(lang, { en: "Detection content", ru: "Контент детектирования" }), icon: "builders", section: "builders" },
+        { to: "/builders", label: t(lang, { en: "Builders", ru: "Конструкторы" }), icon: "builders", section: "builders" },
         { to: "/metrics", label: t(lang, { en: "Metrics", ru: "Метрики" }), icon: "dashboard", section: "host-runtime" },
         { to: "/control", label: "Control Plane", icon: "control", section: "control" },
         { to: "/access", label: t(lang, { en: "Settings", ru: "Параметры" }), icon: "access", section: "access" },
@@ -57,7 +58,7 @@ export function securityNavigation(lang: "en" | "ru"): ShellNavGroup[] {
       items: [
         { to: "/security/coverage", label: t(lang, { en: "Coverage", ru: "Покрытие" }), icon: "connectors", section: "connectors" },
         { to: "/topology", label: t(lang, { en: "Topology", ru: "Топология" }), icon: "map", section: "sources" },
-        { to: "/security/discovery", label: "Discovery", icon: "sources", section: "sources" },
+        { to: "/security/discovery?view=discovery", label: "Discovery", icon: "sources", section: "sources" },
         { to: "/response", label: "SOAR", icon: "control", section: "response" },
       ],
     },

@@ -150,18 +150,8 @@ export function EntitiesPage() {
         body: [item.summary, item.message, item.description, item.score ? `score ${item.score}` : ""].filter(Boolean).join(" · "),
       };
     });
-    if (normalized.length) return normalized;
-    return [
-      {
-        id: `${selected.id}-synthetic`,
-        title: t(lang, { en: "Current entity posture", ru: "Текущая позиция сущности" }),
-        subtitle: `${humanizeEntityType(String(selected.entity_type || "entity"), lang)} · ${humanizeEntityName(selected, lang) || selected.id}`,
-        meta: formatTimestamp(selected.last_seen_ts, "compact"),
-        tone: String(selected.risk_level || "").toLowerCase() === "critical" ? ("critical" as const) : ("warning" as const),
-        body: t(lang, { en: "This entity is present in the rolling risk model but does not expose a detailed signal timeline yet.", ru: "Эта сущность уже участвует в rolling-risk модели, но подробный таймлайн сигналов пока не отдает." }),
-      },
-    ];
-  }, [formatTimestamp, lang, selected]);
+    return normalized;
+  }, [selected]);
 
   async function addSignal() {
     setSaveState(t(lang, { en: "Recording signal...", ru: "Фиксирую сигнал..." }));

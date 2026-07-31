@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Rdegon SIEM report schedules
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=siem-report-scheduler.service
+
+[Install]
+WantedBy=timers.target

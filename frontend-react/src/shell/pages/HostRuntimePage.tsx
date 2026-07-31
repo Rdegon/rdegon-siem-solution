@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { AsyncGate } from "../async";
 import { usePolledData } from "../hooks";
@@ -19,28 +20,6 @@ import {
 import { t, useShellContext } from "../context";
 import { refreshIntervalMs, refreshOptions, rowOptions, timeRangeOptions, timeScopeSummary } from "../timeControls";
 import type { HostRuntimeOverviewResponse, HostRuntimeSnapshotRecord, HostRuntimeTargetRecord } from "../types";
-
-type RuntimePolicyRecord = {
-  eventType: string;
-  title: string;
-  threshold: number;
-  suppressionSeconds: number;
-  escalateAfter: number;
-  severity: string;
-};
-
-const HOST_RUNTIME_POLICIES: RuntimePolicyRecord[] = [
-  { eventType: "host_cpu_pressure", title: "Давление CPU", threshold: 3, suppressionSeconds: 600, escalateAfter: 3, severity: "high" },
-  { eventType: "host_memory_pressure", title: "Давление RAM", threshold: 3, suppressionSeconds: 600, escalateAfter: 2, severity: "high" },
-  { eventType: "host_disk_pressure", title: "Давление по диску", threshold: 3, suppressionSeconds: 1800, escalateAfter: 2, severity: "high" },
-  { eventType: "host_load_pressure", title: "Давление по нагрузке", threshold: 3, suppressionSeconds: 600, escalateAfter: 3, severity: "medium" },
-  { eventType: "host_swap_pressure", title: "Перегрузка swap", threshold: 2, suppressionSeconds: 900, escalateAfter: 2, severity: "high" },
-  { eventType: "host_inode_pressure", title: "Давление по inode", threshold: 2, suppressionSeconds: 1800, escalateAfter: 2, severity: "medium" },
-  { eventType: "host_service_flapping", title: "Флаппинг сервисов", threshold: 1, suppressionSeconds: 900, escalateAfter: 2, severity: "medium" },
-  { eventType: "host_storage_pressure", title: "Давление по хранилищу", threshold: 2, suppressionSeconds: 900, escalateAfter: 2, severity: "high" },
-  { eventType: "host_control_plane_pressure", title: "Давление control-plane", threshold: 2, suppressionSeconds: 900, escalateAfter: 2, severity: "high" },
-  { eventType: "host_telemetry_stale", title: "Устаревшая телеметрия", threshold: 1, suppressionSeconds: 1800, escalateAfter: 1, severity: "high" },
-];
 
 function metricValue(value: unknown, digits = 0) {
   const numeric = Number(value || 0);
@@ -99,6 +78,7 @@ function presetToHours(preset: string) {
 
 export function HostRuntimePage() {
   const { lang, formatTimestamp } = useShellContext();
+  const [searchParams] = useSearchParams();
   const [windowPreset, setWindowPreset] = useState("24h");
   const [limit, setLimit] = useState("50");
   const [refreshSeconds, setRefreshSeconds] = useState("30");
@@ -116,14 +96,30 @@ export function HostRuntimePage() {
 
   const targets = useMemo(() => state.data?.targets || [], [state.data?.targets]);
   const recentAlerts = useMemo(() => state.data?.recent_alerts || [], [state.data?.recent_alerts]);
+  const runtimePolicies = useMemo(
+    () => Object.entries(state.data?.policy?.event_overrides || {}).map(([eventType, policy]) => ({
+      eventType,
+      title: eventType.replace(/^host_/, "").replaceAll("_", " "),
+      suppressionSeconds: Number(policy.suppression_seconds || 0),
+      escalateAfter: Number(policy.escalate_after || 1),
+      severity: String(policy.severity || "inherited"),
+    })),
+    [state.data?.policy?.event_overrides],
+  );
   const metrics = state.data?.metrics || {};
   const eventTypeBreakdown = state.data?.breakdowns?.event_types || [];
+  const requestedHost = String(searchParams.get("host") || "").trim();
 
   useEffect(() => {
+    if (requestedHost && targets.some((item) => String(item.host_name || "") === requestedHost)) {
+      setSelectedHost(requestedHost);
+      setDrawerOpen(true);
+      return;
+    }
     if (!selectedHost && targets.length) {
       setSelectedHost(String(targets[0].host_name || ""));
     }
-  }, [selectedHost, targets]);
+  }, [requestedHost, selectedHost, targets]);
 
   const selectedTarget = useMemo(
     () => targets.find((item) => String(item.host_name || "") === selectedHost) || null,
@@ -353,7 +349,7 @@ export function HostRuntimePage() {
 
           <WorkspaceSection
             title={t(lang, { en: "Signal quality policy", ru: "Политика качества сигналов" })}
-            subtitle={t(lang, { en: "Thresholds, suppression, dedup and escalation for production host telemetry rules.", ru: "Пороги, подавление, дедупликация и эскалация для правил телеметрии хостов." })}
+            subtitle={`${t(lang, { en: "Effective suppression and escalation loaded by production host telemetry.", ru: "Фактические подавление и эскалация, загруженные production-телеметрией." })} ${state.data?.policy?.version || ""}`.trim()}
             icon="control"
           >
             <div className="react-table-wrap">
@@ -361,20 +357,18 @@ export function HostRuntimePage() {
                 <thead>
                   <tr>
                     <th>{t(lang, { en: "Signal", ru: "Сигнал" })}</th>
-                    <th>{t(lang, { en: "Threshold", ru: "Порог" })}</th>
                     <th>{t(lang, { en: "Suppression", ru: "Подавление" })}</th>
                     <th>{t(lang, { en: "Escalate after", ru: "Эскалация после" })}</th>
                     <th>{t(lang, { en: "Severity", ru: "Серьезность" })}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {HOST_RUNTIME_POLICIES.map((item) => (
+                  {runtimePolicies.map((item) => (
                     <tr key={item.eventType}>
                       <td>
                         <strong>{item.title}</strong>
                         <div className="react-card-button-copy">{item.eventType}</div>
                       </td>
-                      <td>{item.threshold}</td>
                       <td>{item.suppressionSeconds}s</td>
                       <td>{item.escalateAfter}</td>
                       <td>

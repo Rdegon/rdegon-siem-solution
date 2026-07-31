@@ -107,6 +107,28 @@ class AccessGrantTests(unittest.TestCase):
         self.assertIn("resources:view", set(resolved["permissions"]))
         self.assertIn("vuln:operate", set(resolved["permissions"]))
 
+    def test_admin_sources_and_docs_grant_includes_resource_write(self) -> None:
+        runtime = _FakeKeycloakRuntime()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, {"SIEM_CONTROL_PLANE_DIR": temp_dir}, clear=False):
+                with patch("control_plane_access_ops._keycloak_runtime", return_value=runtime):
+                    access_ops.save_access_grant(
+                        {
+                            "principal_kind": "keycloak_user",
+                            "principal_id": "alice",
+                            "system_id": "siem",
+                            "role": "admin",
+                            "sections": ["sources", "docs"],
+                            "enabled": True,
+                        },
+                        actor="tester",
+                    )
+                    resolved = access_ops.resolve_keycloak_principal_access("alice")
+
+        self.assertTrue(resolved["allowed"])
+        self.assertIn("resources:view", set(resolved["permissions"]))
+        self.assertIn("resources:write", set(resolved["permissions"]))
+
     def test_nextcloud_admin_grant_adds_compatibility_groups(self) -> None:
         runtime = _FakeKeycloakRuntime()
         with tempfile.TemporaryDirectory() as temp_dir:

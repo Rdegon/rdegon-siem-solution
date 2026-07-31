@@ -48,6 +48,9 @@ import type {
   GeoCountryDetailResponse,
   GeoSourcesResponse,
   GeoVpnResponse,
+  GeneratedReportDetailResponse,
+  GeneratedReportRecord,
+  GeneratedReportsResponse,
   HostAccessProfileRecord,
   HostAccessProfilesResponse,
   HostRuntimeOverviewResponse,
@@ -82,6 +85,8 @@ import type {
   ResourceCatalogResponse,
   ResourcePublishResponse,
   ResourceValidationResponse,
+  ReportTemplateRecord,
+  ReportTemplatesResponse,
   ResponseAnalyticsResponse,
   ResponseActionsResponse,
   ResponseActionRecord,
@@ -103,6 +108,8 @@ import type {
   ServiceAccountTokenRevokeResponse,
   SourceDiscoveryResponse,
   SourceDiscoveryScanResponse,
+  SourceMonitoringPoliciesResponse,
+  SourceMonitoringPolicyRecord,
   SourceOnboardingExecutionResponse,
   SourceOnboardingPreparedResponse,
   SourcesInventoryResponse,
@@ -456,6 +463,23 @@ export const api = {
   playbookDetail: (slug: string) => getJson<PlaybookDetailResponse>(`/api/playbooks/${encodeURIComponent(slug)}`),
   reports: () => getJson<VulnReportsResponse>("/api/reports"),
   reportDetail: (reportId: string) => getJson<VulnReportDetailResponse>(`/api/reports/${encodeURIComponent(reportId)}`),
+  reportTemplates: () => getJson<ReportTemplatesResponse>("/api/reporting/templates"),
+  saveReportTemplate: (body: Record<string, unknown>) =>
+    postJson<ReportTemplateRecord>("/api/reporting/templates", body),
+  deleteReportTemplate: async (templateId: string) => {
+    const response = await fetch(`/api/reporting/templates/${encodeURIComponent(templateId)}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: scopedHeaders(buildMutationHeaders("")),
+    });
+    return parseResponse<{ deleted: boolean; id: string }>(response);
+  },
+  generatedReports: (params: { limit?: number } = {}) =>
+    getJson<GeneratedReportsResponse>(`/api/reporting/runs${toQuery(params)}`),
+  generatedReportDetail: (runId: string) =>
+    getJson<GeneratedReportDetailResponse>(`/api/reporting/runs/${encodeURIComponent(runId)}`),
+  runReportTemplate: (templateId: string, body: Record<string, unknown> = {}) =>
+    postJson<GeneratedReportRecord>(`/api/reporting/templates/${encodeURIComponent(templateId)}/run`, body),
   vulnOverview: (params: { days?: number; limit?: number } = {}) =>
     getJson<VulnOverviewResponse>(`/api/vuln/overview${toQuery(params)}`),
   vulnRuntime: (params: { days?: number } = {}) =>
@@ -502,6 +526,18 @@ export const api = {
   },
   sourcesInventory: (params: { hours?: number; limit?: number } = {}) =>
     getJson<SourcesInventoryResponse>(`/api/sources${toQuery(params)}`),
+  sourcePolicies: () =>
+    getJson<SourceMonitoringPoliciesResponse>("/api/sources/policies"),
+  saveSourcePolicy: (body: Record<string, unknown>) =>
+    postJson<SourceMonitoringPolicyRecord>("/api/sources/policies", body),
+  deleteSourcePolicy: async (policyId: string) => {
+    const response = await fetch(`/api/sources/policies/${encodeURIComponent(policyId)}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: scopedHeaders(buildMutationHeaders("")),
+    });
+    return parseResponse<{ deleted: boolean; id: string }>(response);
+  },
   proxmoxFleet: (params: { limit?: number } = {}) =>
     getJson<ProxmoxFleetResponse>(`/api/sources/proxmox-fleet${toQuery(params)}`),
   syncProxmoxFleet: () => postJson<ProxmoxFleetResponse>("/api/sources/proxmox-fleet/sync", {}),

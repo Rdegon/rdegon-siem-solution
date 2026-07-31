@@ -16,7 +16,28 @@ describe("BuildersPage correlation workspace", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/builders/drafts")) {
-        return jsonResponse({ items: [] });
+        return jsonResponse({
+          items: [{
+            id: "existing-flow",
+            title: "Existing production flow",
+            description: "Already persisted before the deep link is opened.",
+            kind: "detection",
+            status: "published",
+            blocks: [],
+          }],
+        });
+      }
+      if (url.includes("/api/integrations/catalog")) {
+        return jsonResponse({
+          items: [{
+            id: "rest-pull",
+            title: "REST pull source",
+            description: "Production REST collector template",
+            family: "source",
+            mode: "pull",
+            protocols: ["https"],
+          }],
+        });
       }
       if (url.includes("/api/correlation/packs/identity-access-v1")) {
         return jsonResponse({
@@ -78,5 +99,20 @@ describe("BuildersPage correlation workspace", () => {
     expect(screen.getAllByText("Validation and publish").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Identity access").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/identity-access-v1/i).length).toBeGreaterThan(0);
+  });
+
+  it("opens a real integration template from a deep link", async () => {
+    renderWithShell(
+      <MemoryRouter initialEntries={["/builders?kind=integration&template=rest-pull"]}>
+        <Routes>
+          <Route path="/builders" element={<BuildersPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("dialog", { name: "Flow window" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("REST pull source")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Production REST collector template")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Integration flow")).toBeInTheDocument();
   });
 });

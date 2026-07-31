@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SourcesPage } from "../pages/SourcesPage";
@@ -35,6 +35,37 @@ describe("SourcesPage", () => {
             ],
             jobs: [{ id: "job-1", status: "dry_run", transcript: ["connection ok"], artifacts: [{ name: "edge-sw-01.cfg" }] }],
             metrics: { binding_overrides_total: 1, binding_overrides_applied: 1, unmanaged_without_override: 0, total: 1 },
+          });
+        }
+        if (url.includes("/api/sources/policies")) {
+          return jsonResponse({
+            items: [
+              {
+                id: "windows-freshness",
+                type: "source_monitoring_policy",
+                name: "Windows telemetry freshness",
+                enabled: true,
+                source_pattern: "windows",
+                window_hours: 24,
+                min_events: 10,
+                max_events: 0,
+                stale_after_minutes: 30,
+                severity: "high",
+                notifications: ["telegram"],
+                owner: "siem-engineering",
+                matched_sources: 2,
+                violation_count: 1,
+                evaluation_status: "breached",
+                violations: [
+                  {
+                    source_name: "dc-01",
+                    events: 3,
+                    last_seen: "2026-07-31T11:00:00Z",
+                    reasons: ["below_min_events"],
+                  },
+                ],
+              },
+            ],
           });
         }
         if (url.includes("/api/sources")) {
@@ -80,6 +111,19 @@ describe("SourcesPage", () => {
     expect(screen.getByDisplayValue("asset-edge-sw-01")).toBeInTheDocument();
   });
 
+  it("opens the discovery workspace from the security navigation route", async () => {
+    renderWithShell(
+      <MemoryRouter initialEntries={["/security/discovery"]}>
+        <Routes>
+          <Route path="/security/discovery" element={<SourcesPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("LAN discovery and onboarding")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discovery" })).toHaveClass("active");
+  });
+
   it("shows source IPs in the source register", async () => {
     renderWithShell(
       <MemoryRouter initialEntries={["/sources"]}>
@@ -91,5 +135,22 @@ describe("SourcesPage", () => {
 
     expect(await screen.findByText("dc-01")).toBeInTheDocument();
     expect(screen.getAllByText("192.168.1.10").length).toBeGreaterThan(0);
+  });
+
+  it("evaluates persisted source policies against live inventory", async () => {
+    renderWithShell(
+      <MemoryRouter initialEntries={["/sources?view=policies"]}>
+        <Routes>
+          <Route path="/sources" element={<SourcesPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Windows telemetry freshness")).toBeInTheDocument();
+    expect(screen.getByText("windows")).toBeInTheDocument();
+    expect(screen.getAllByText("breached").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Windows telemetry freshness" }));
+    expect(await screen.findByText("Affected sources")).toBeInTheDocument();
+    expect(screen.getByText("below_min_events")).toBeInTheDocument();
   });
 });

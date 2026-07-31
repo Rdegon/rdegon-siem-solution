@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { AsyncGate } from "../async";
 import { t, useShellContext } from "../context";
@@ -17,6 +17,7 @@ import {
   StatusBadge,
 } from "../ui";
 import { NativeActionBar, NativePageHeader, NativePager } from "../native";
+import { SourcePoliciesWorkspace } from "./sources/SourcePoliciesWorkspace";
 import type {
   DiscoveryCandidate,
   DiscoveryJob,
@@ -30,7 +31,7 @@ import type {
   SourcesInventoryResponse,
 } from "../types";
 
-type SourceView = "register" | "freshness" | "integrations" | "discovery" | "fleet";
+type SourceView = "register" | "freshness" | "policies" | "integrations" | "discovery" | "fleet";
 
 function safeText(value: unknown, fallback = "n/a") {
   const text = String(value ?? "").trim();
@@ -109,6 +110,7 @@ export function SourcesPage() {
   const integrationsState = useAsyncData<IntegrationsCatalogResponse>(loadIntegrations);
   const fleetState = useAsyncData<ProxmoxFleetResponse>(loadFleet);
   const discoveryState = useAsyncData<SourceDiscoveryResponse>(loadDiscovery);
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [selectedSource, setSelectedSource] = useState<SourceInventoryRecord | null>(null);
@@ -116,7 +118,7 @@ export function SourcesPage() {
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<SourceView>("register");
-  const [scanCidr, setScanCidr] = useState("192.168.1.0/24");
+  const [scanCidr, setScanCidr] = useState("192.168.3.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24");
   const [scanBusy, setScanBusy] = useState(false);
   const [scanState, setScanState] = useState("");
   const [jobState, setJobState] = useState("");
@@ -259,8 +261,10 @@ export function SourcesPage() {
     if (searchParams.has("q")) {
       setQuery(nextQuery);
     }
-    if (nextView === "register" || nextView === "freshness" || nextView === "integrations" || nextView === "discovery" || nextView === "fleet") {
+    if (nextView === "register" || nextView === "freshness" || nextView === "policies" || nextView === "integrations" || nextView === "discovery" || nextView === "fleet") {
       setView(nextView as SourceView);
+    } else if (location.pathname === "/security/discovery") {
+      setView("discovery");
     }
     if (focus) {
       setSelectedSource((current: SourceInventoryRecord | null) => {
@@ -269,7 +273,7 @@ export function SourcesPage() {
         return row || current;
       });
     }
-  }, [searchParams, state.data]);
+  }, [location.pathname, searchParams, state.data]);
 
   useEffect(() => {
     const selectedStillVisible = selectedSource
@@ -515,6 +519,9 @@ export function SourcesPage() {
         <button type="button" className={view === "freshness" ? "active" : ""} onClick={() => setView("freshness")}>
           {t(lang, { en: "Freshness", ru: "Свежесть" })}
         </button>
+        <button type="button" className={view === "policies" ? "active" : ""} onClick={() => setView("policies")}>
+          {t(lang, { en: "Policies", ru: "Политики" })}
+        </button>
         <button type="button" className={view === "integrations" ? "active" : ""} onClick={() => setView("integrations")}>
           {t(lang, { en: "Integrations", ru: "Интеграции" })}
         </button>
@@ -750,6 +757,8 @@ export function SourcesPage() {
         </div>
       ) : null}
 
+      {view === "policies" ? <SourcePoliciesWorkspace /> : null}
+
       {view === "integrations" ? (
         <div className="react-grid react-grid-2">
           <section className="react-card">
@@ -860,7 +869,7 @@ export function SourcesPage() {
                     className="react-input"
                     value={scanCidr}
                     onChange={(event) => setScanCidr(event.target.value)}
-                    placeholder="192.168.1.0/24"
+                    placeholder="192.168.3.0/24,10.20.10.0/24"
                   />
                   <button type="button" className="react-primary-button" onClick={runDiscoveryScan} disabled={scanBusy}>
                     {scanBusy ? "Scanning..." : "Run discovery"}
