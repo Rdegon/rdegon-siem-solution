@@ -2508,6 +2508,7 @@ export type IncidentListResponse = {
   requested_limit?: number;
   available_count?: number;
   returned_count?: number;
+  include_terminal?: boolean;
   items: IncidentRecord[];
   metrics?: {
     agg_total?: number;

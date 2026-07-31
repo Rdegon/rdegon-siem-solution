@@ -686,7 +686,7 @@ export const api = {
       `/api/security-services/ips/${encodeURIComponent(operation)}`,
       body,
     ),
-  incidents: (params: { view?: string; q?: string; scope?: string; window?: string; limit?: number; from_ts?: string; to_ts?: string } = {}) =>
+  incidents: (params: { view?: string; q?: string; scope?: string; window?: string; limit?: number; from_ts?: string; to_ts?: string; include_terminal?: boolean } = {}) =>
     getJson<IncidentListResponse>(`/api/incidents${toQuery(params)}`),
   incidentDetail: (
     view: string,

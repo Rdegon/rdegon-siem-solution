@@ -123,6 +123,29 @@ _INGEST_SURFACE_CACHE = StaleRuntimeCache(
 )
 
 
+def _bounded_query_metadata(
+    *,
+    requested_limit: int,
+    applied_limit: int,
+    requested_hours: int | None = None,
+    applied_hours: int | None = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "requested_limit": requested_limit,
+        "applied_limit": applied_limit,
+        "limit_clamped": requested_limit != applied_limit,
+    }
+    if requested_hours is not None and applied_hours is not None:
+        metadata.update(
+            {
+                "requested_hours": requested_hours,
+                "applied_hours": applied_hours,
+                "hours_clamped": requested_hours != applied_hours,
+            }
+        )
+    return metadata
+
+
 def _read_sources_inventory_cache(cache_key: str) -> dict[str, Any] | None:
     if _SOURCES_INVENTORY_CACHE_TTL_SEC <= 0:
         return None
@@ -469,12 +492,24 @@ async def save_normalizer_rule_api(payload: dict = Body(default={}), user=Depend
 @router.get("/api/assets/inventory", response_class=JSONResponse)
 async def assets_inventory_api(
     hours: int = Query(24, ge=1, le=720),
-    limit: int = Query(200, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=5000),
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
-        items = await run_in_threadpool(fetch_assets, limit=limit, hours=hours)
-        return JSONResponse({"items": items})
+        safe_limit = min(limit, 500)
+        payload = await _ASSET_SURFACE_CACHE.get_or_refresh(
+            f"assets-inventory:{hours}:{safe_limit}",
+            lambda: {"items": fetch_assets(limit=safe_limit, hours=hours)},
+        )
+        return JSONResponse(
+            {
+                **payload,
+                "query": _bounded_query_metadata(
+                    requested_limit=limit,
+                    applied_limit=safe_limit,
+                ),
+            }
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -544,32 +579,55 @@ async def delete_asset_binding_override_api(
 @router.get("/api/sources", response_class=JSONResponse)
 async def sources_inventory_api(
     hours: int = Query(24, ge=1, le=720),
-    limit: int = Query(220, ge=1, le=500),
+    limit: int = Query(220, ge=1, le=5000),
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
-        cache_key = json.dumps([hours, limit], sort_keys=True)
+        safe_limit = min(limit, 500)
+        cache_key = json.dumps([hours, safe_limit], sort_keys=True)
         cached = _read_sources_inventory_cache(cache_key)
         if cached is not None:
-            return JSONResponse(cached)
+            return JSONResponse(
+                {
+                    **cached,
+                    "query": _bounded_query_metadata(
+                        requested_limit=limit,
+                        applied_limit=safe_limit,
+                    ),
+                }
+            )
         payload = {
             "items": await run_in_threadpool(
                 fetch_source_inventory,
-                limit=limit,
+                limit=safe_limit,
                 hours=hours,
-            )
+            ),
         }
         with _SOURCES_INVENTORY_CACHE_LOCK:
             _write_sources_inventory_cache(cache_key, payload)
-        return JSONResponse(payload)
+        return JSONResponse(
+            {
+                **payload,
+                "query": _bounded_query_metadata(
+                    requested_limit=limit,
+                    applied_limit=safe_limit,
+                ),
+            }
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
 
 @router.get("/api/sources/discovery", response_class=JSONResponse)
-async def sources_discovery_api(limit: int = Query(220, ge=1, le=500), user=Depends(require_permissions("assets:view"))) -> JSONResponse:
+async def sources_discovery_api(limit: int = Query(220, ge=1, le=5000), user=Depends(require_permissions("assets:view"))) -> JSONResponse:
     try:
-        return JSONResponse(list_source_discovery_candidates(limit=limit))
+        safe_limit = min(limit, 500)
+        payload = list_source_discovery_candidates(limit=safe_limit)
+        payload["query"] = _bounded_query_metadata(
+            requested_limit=limit,
+            applied_limit=safe_limit,
+        )
+        return JSONResponse(payload)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -684,19 +742,27 @@ async def geo_sources_api(hours: int = Query(24, ge=1, le=720), limit: int = Que
 @router.get("/api/topology/network", response_class=JSONResponse)
 async def network_topology_api(
     hours: int = Query(24, ge=1, le=720),
-    limit: int = Query(240, ge=20, le=600),
+    limit: int = Query(240, ge=20, le=5000),
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
+        safe_limit = min(limit, 600)
+        payload = await _ASSET_SURFACE_CACHE.get_or_refresh(
+            f"network-topology:{hours}:{safe_limit}",
+            partial(
+                build_network_topology,
+                hours=hours,
+                limit=safe_limit,
+            ),
+        )
         return JSONResponse(
-            await _ASSET_SURFACE_CACHE.get_or_refresh(
-                f"network-topology:{hours}:{limit}",
-                partial(
-                    build_network_topology,
-                    hours=hours,
-                    limit=limit,
+            {
+                **payload,
+                "query": _bounded_query_metadata(
+                    requested_limit=limit,
+                    applied_limit=safe_limit,
                 ),
-            )
+            }
         )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -819,19 +885,30 @@ async def geo_country_detail_api(
 @router.get("/api/threat-intel/overview", response_class=JSONResponse)
 async def threat_intel_overview_api(
     hours: int = Query(24, ge=1, le=720),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=5000),
     user=Depends(require_permissions("assets:view")),
 ) -> JSONResponse:
     try:
+        safe_hours = min(hours, 72)
+        safe_limit = min(limit, 100)
+        payload = await _ASSET_SURFACE_CACHE.get_or_refresh(
+            f"threat-intel:{safe_hours}:{safe_limit}",
+            partial(
+                fetch_threat_intel_overview,
+                limit=safe_limit,
+                hours=safe_hours,
+            ),
+        )
         return JSONResponse(
-            await _ASSET_SURFACE_CACHE.get_or_refresh(
-                f"threat-intel:{hours}:{limit}",
-                partial(
-                    fetch_threat_intel_overview,
-                    limit=limit,
-                    hours=hours,
+            {
+                **payload,
+                "query": _bounded_query_metadata(
+                    requested_limit=limit,
+                    applied_limit=safe_limit,
+                    requested_hours=hours,
+                    applied_hours=safe_hours,
                 ),
-            )
+            }
         )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)

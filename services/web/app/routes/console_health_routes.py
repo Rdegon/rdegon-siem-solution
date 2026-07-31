@@ -329,23 +329,34 @@ async def health_storage_ha_api(user=Depends(require_permissions("health:view"))
 @router.get("/api/health/hosts/runtime", response_class=JSONResponse)
 async def health_host_runtime_api(
     hours: int = Query(24, ge=1, le=168),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=2000),
     user=Depends(require_permissions("health:view")),
 ) -> JSONResponse:
     try:
-        cache_key = f"{hours}:{limit}"
+        safe_limit = min(limit, 200)
+        cache_key = f"{hours}:{safe_limit}"
         cached = _read_host_runtime_cache(cache_key)
         if cached is not None:
             updated_ts, payload = cached
             if time.time() - updated_ts > HOST_RUNTIME_CACHE_TTL_SEC:
-                _schedule_host_runtime_refresh(cache_key, hours, limit)
+                _schedule_host_runtime_refresh(cache_key, hours, safe_limit)
+            payload["query"] = {
+                "requested_limit": limit,
+                "applied_limit": safe_limit,
+                "limit_clamped": limit != safe_limit,
+            }
             return JSONResponse(payload)
         payload = await run_in_threadpool(
             _refresh_host_runtime,
             cache_key,
             hours,
-            limit,
+            safe_limit,
         )
+        payload["query"] = {
+            "requested_limit": limit,
+            "applied_limit": safe_limit,
+            "limit_clamped": limit != safe_limit,
+        }
         return JSONResponse(payload)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=500)

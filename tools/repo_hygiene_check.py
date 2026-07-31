@@ -75,7 +75,13 @@ def _is_forbidden_path(path: str) -> str | None:
     lowered = name.lower()
     if lowered in FORBIDDEN_BASENAMES or lowered.startswith(".env."):
         return "forbidden environment or token file"
-    if Path(path).suffix.lower() in FORBIDDEN_SUFFIXES:
+    suffix = Path(path).suffix.lower()
+    normalized = Path(path).as_posix()
+    if suffix == ".pem" and normalized.startswith("deploy/certs/"):
+        # Public trust anchors are source artifacts. Private key material is
+        # still rejected by the content scan below.
+        return None
+    if suffix in FORBIDDEN_SUFFIXES:
         return "forbidden generated/binary/secret suffix"
     if path.startswith("artifacts_") or "/artifacts_" in path.replace("\\", "/"):
         return "forbidden artifacts path"
@@ -102,12 +108,16 @@ def _scan_content(path: Path) -> str | None:
 def main() -> int:
     errors: list[str] = []
     for rel_path in _git_list_candidate_files():
+        path = ROOT / rel_path
+        # `git ls-files --cached` includes paths deleted in the working tree.
+        # Their removal must be allowed through the pre-commit hygiene gate.
+        if not path.exists():
+            continue
         reason = _is_forbidden_path(rel_path)
         if reason:
             errors.append(f"{rel_path}: {reason}")
             continue
-        path = ROOT / rel_path
-        if path.exists() and path.stat().st_size > MAX_TRACKED_FILE_BYTES:
+        if path.stat().st_size > MAX_TRACKED_FILE_BYTES:
             errors.append(f"{rel_path}: tracked file exceeds {MAX_TRACKED_FILE_BYTES} bytes")
         content_reason = _scan_content(path)
         if content_reason:

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { viewFromPath } from "../model";
 import { formatTime, number, severityTone, text } from "../runtime/query";
 import { api, setApiTenantScope } from "../runtime/api";
+import { incidentSla } from "../dashboard";
 
 describe("production UI routing", () => {
   it("maps deep links to the new workspace", () => {
@@ -17,6 +18,12 @@ describe("production data formatting", () => {
     expect(text(["192.168.3.1", "192.168.3.101"])).toBe("192.168.3.1, 192.168.3.101");
     expect(severityTone("critical")).toBe("critical");
     expect(formatTime("")).toBe("—");
+  });
+
+  it("calculates incident SLA from real first-seen timestamps and status", () => {
+    const now = new Date("2026-07-31T12:00:00Z").getTime();
+    expect(incidentSla({ severity_agg: "critical", status: "open", ts_first: "2026-07-31T11:30:00Z" }, now)).toMatchObject({ targetMinutes: 15, breached: true });
+    expect(incidentSla({ severity_agg: "high", status: "resolved", ts_first: "2026-07-30T10:00:00Z" }, now)).toMatchObject({ targetMinutes: 60, breached: false, terminal: true });
   });
 });
 

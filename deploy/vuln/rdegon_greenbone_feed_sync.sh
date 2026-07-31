@@ -4,6 +4,28 @@ set -euo pipefail
 container="${SIEM_GREENBONE_CONTAINER:-openvas}"
 state_dir="${SIEM_GREENBONE_FEED_STATE_DIR:-/var/lib/rdegon-greenbone}"
 lock_file="/run/lock/rdegon-greenbone-feed-sync.lock"
+sync_started=false
+
+stop_container_feed_sync() {
+  docker exec "${container}" sh -lc '
+    pids="$(pgrep -f "[g]reenbone-feed-sync --type all" || true)"
+    if [ -z "$pids" ]; then
+      exit 0
+    fi
+    kill -TERM $pids 2>/dev/null || true
+    sleep 5
+    pids="$(pgrep -f "[g]reenbone-feed-sync --type all" || true)"
+    [ -z "$pids" ] || kill -KILL $pids 2>/dev/null || true
+  '
+}
+
+cleanup_sync() {
+  if [[ "${sync_started}" == "true" ]]; then
+    stop_container_feed_sync >/dev/null 2>&1 || true
+  fi
+}
+
+trap cleanup_sync EXIT HUP INT TERM
 
 mkdir -p "${state_dir}"
 exec 9>"${lock_file}"
@@ -28,13 +50,25 @@ if docker exec "${container}" sh -lc "pgrep -af '[o]penvas --scan-start|[o]penva
 fi
 
 started_at="$(date --iso-8601=seconds)"
-docker exec "${container}" greenbone-feed-sync \
+stop_container_feed_sync
+sync_started=true
+set +e
+docker exec "${container}" timeout --foreground --kill-after=60s 5h greenbone-feed-sync \
   --type all \
   --fail-fast \
   --wait-interval 30 \
   --rsync-timeout 300 \
   --user gvm \
   --group gvm
+sync_status=$?
+set -e
+sync_started=false
+if (( sync_status != 0 )); then
+  failed_at="$(date --iso-8601=seconds)"
+  printf '{"status":"error","started_at":"%s","finished_at":"%s","container":"%s","exit_code":%d}\n' \
+    "${started_at}" "${failed_at}" "${container}" "${sync_status}" >"${state_dir}/state.json"
+  exit "${sync_status}"
+fi
 docker exec "${container}" greenbone-feed-sync --selftest --user gvm --group gvm
 finished_at="$(date --iso-8601=seconds)"
 

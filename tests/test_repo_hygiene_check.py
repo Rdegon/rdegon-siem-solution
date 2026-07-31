@@ -58,3 +58,21 @@ def test_private_key_marker_outside_detection_pack_is_rejected(
     assert "suspicious secret pattern" in str(
         repo_hygiene_check._scan_content(candidate)
     )
+
+
+def test_deleted_tracked_file_does_not_break_hygiene_gate(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(repo_hygiene_check, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        repo_hygiene_check,
+        "_git_list_candidate_files",
+        lambda: ["frontend-react/src/types/deleted.d.ts"],
+    )
+
+    assert repo_hygiene_check.main() == 0
+
+
+def test_public_ca_certificate_path_is_allowed() -> None:
+    assert repo_hygiene_check._is_forbidden_path("deploy/certs/public-ca.pem") is None
+    assert repo_hygiene_check._is_forbidden_path("access/private.pem") is not None

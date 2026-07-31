@@ -1,8 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { api } from "./runtime/api";
 import type { View } from "./model";
+import type { IncidentDetailResponse } from "./runtime/types";
 import { Badge, Button, DetailDrawer, EmptyState, ErrorState, IconButton, KeyValue, LoadingState, Modal, PageHeader, SearchField, StatusCell, Tabs } from "./ui";
 import { formatTime, number, severityTone, text, useQuery } from "./runtime/query";
+import { OverviewDashboard } from "./dashboard";
+import { EventDetailContent, IncidentDetailContent } from "./incident-details";
 
 type Notify = (message: string, tone?: string) => void;
 type Navigate = (view: View) => void;
@@ -22,7 +25,7 @@ function Metric({ label, value, detail, tone = "" }: { label: string; value: Rea
 
 function DataTable({ columns, rows, onOpen, empty = "Данные за выбранный период отсутствуют" }: { columns: Array<{ key: string; title: string; render?: (row: Row) => ReactNode }>; rows: Row[]; onOpen?: (row: Row) => void; empty?: string }) {
   if (!rows.length) return <EmptyState detail={empty} />;
-  return <div className="native-grid"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.title}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr className={onOpen ? "sentinel-clickable-row" : ""} key={text(row.id ?? row.alert_id ?? row.agg_id ?? row.name ?? row.title, String(index))} onClick={onOpen ? () => onOpen(row) : undefined}>{columns.map((column) => <td key={column.key}>{column.render ? column.render(row) : text(row[column.key])}</td>)}</tr>)}</tbody></table></div>;
+  return <div className="native-grid"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.title}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr className={onOpen ? "sentinel-clickable-row" : ""} key={text(row.id ?? row.alert_id ?? row.agg_id ?? row.name ?? row.title, String(index))} onClick={onOpen ? () => onOpen(row) : undefined} onKeyDown={onOpen ? (event) => { if (event.key === "Enter" || event.key === " ") onOpen(row); } : undefined} tabIndex={onOpen ? 0 : undefined}>{columns.map((column) => <td key={column.key}>{column.render ? column.render(row) : text(row[column.key])}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function QueryBoundary<T>({ state, children }: { state: { data?: T; error?: Error; loading: boolean; reload: () => void }; children: (data: T) => ReactNode }) {
@@ -37,41 +40,7 @@ function JsonDetails({ value }: { value: unknown }) {
 }
 
 export function OverviewView({ navigate }: { navigate: Navigate }) {
-  const state = useQuery("overview", async () => {
-    const [incidents, sources, runtime, security] = await Promise.all([
-      api.incidents({ view: "agg", window: "24h", limit: 12 }),
-      api.sourcesInventory({ hours: 24, limit: 500 }),
-      api.hostRuntimeOverview({ hours: 24, limit: 100 }),
-      api.securityServices(),
-    ]);
-    return { incidents, sources, runtime, security };
-  }, 30_000);
-  return <div className="native-page"><PageHeader title="Панель мониторинга" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} />
-    <QueryBoundary state={state}>{({ incidents, sources, runtime, security }) => {
-      const incidentRows = incidents.items as Row[];
-      const sourceRows = sources.items as Row[];
-      const unhealthy = sourceRows.filter((row) => !/active|healthy|online|норма/i.test(text(row.status, "")));
-      const events24h = sourceRows.reduce((sum, row) => sum + number(row.events), 0);
-      return <>
-        <section className="metric-grid">
-          <Metric detail="по активным источникам" label="События за 24 часа" value={events24h.toLocaleString("ru-RU")} />
-          <Metric detail="агрегированная очередь" label="Открытые инциденты" tone={number(incidents.metrics?.agg_open) ? "warning" : ""} value={number(incidents.metrics?.agg_open)} />
-          <Metric detail={`${unhealthy.length} требуют внимания`} label="Источники" value={sourceRows.length} />
-          <Metric detail="до агрегации" label="Сырые алерты" value={number(incidents.metrics?.raw_total)} />
-          <Metric detail={`${security.total} интеграций`} label="Средства защиты" value={security.healthy} />
-          <Metric detail="цели с устаревшими метриками" label="Runtime stale" tone={number(runtime.metrics?.stale_targets) ? "warning" : ""} value={number(runtime.metrics?.stale_targets)} />
-        </section>
-        <div className="sentinel-overview-grid">
-          <section className="panel panel-flush"><header className="panel-header"><div className="panel-title"><h2>Приоритетная очередь</h2><span>Реальные агрегированные инциденты</span></div><Button onClick={() => navigate("incidents")} tone="ghost">Открыть очередь</Button></header>
-            <DataTable columns={incidentColumns.slice(0, 5)} onOpen={() => navigate("incidents")} rows={incidentRows} />
-          </section>
-          <section className="panel panel-flush"><header className="panel-header"><div className="panel-title"><h2>Источники с отклонениями</h2><span>Состояние доставки за 24 часа</span></div><Button onClick={() => navigate("sources")} tone="ghost">Все источники</Button></header>
-            <DataTable columns={sourceColumns.slice(0, 4)} onOpen={() => navigate("sources")} rows={unhealthy.slice(0, 12)} />
-          </section>
-        </div>
-      </>;
-    }}</QueryBoundary>
-  </div>;
+  return <OverviewDashboard navigate={navigate} />;
 }
 
 const incidentColumns = [
@@ -91,10 +60,12 @@ function incidentId(row: Row) {
 
 export function IncidentsView({ mode, notify }: { mode: "agg" | "raw"; notify: Notify }) {
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState(mode === "agg" ? "active" : "all");
   const [selected, setSelected] = useState<Row | null>(null);
-  const [detail, setDetail] = useState<unknown>(null);
+  const [detail, setDetail] = useState<IncidentDetailResponse | null>(null);
   const [detailError, setDetailError] = useState("");
-  const state = useQuery(`incidents:${mode}:${query}`, () => api.incidents({ view: mode, q: query, window: "30d", limit: 300 }), 30_000);
+  const includeTerminal = mode === "agg" && statusFilter !== "active";
+  const state = useQuery(`incidents:${mode}:${statusFilter}:${query}`, () => api.incidents({ view: mode, q: query, window: "30d", limit: 500, include_terminal: includeTerminal }), 30_000);
   async function open(row: Row) {
     setSelected(row); setDetail(null); setDetailError("");
     try { setDetail(await api.incidentDetail(mode, incidentId(row), { window: "30d", event_limit: 100, alert_limit: 100, include_evidence: true })); }
@@ -105,11 +76,26 @@ export function IncidentsView({ mode, notify }: { mode: "agg" | "raw"; notify: N
     try { await api.updateIncident(mode, incidentId(selected), body); notify("Инцидент обновлен", "healthy"); setSelected(null); state.reload(); }
     catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); }
   }
+  const allRows = (state.data?.items ?? []) as Row[];
+  const activeStatuses = new Set(["new", "open", "assigned", "triaged", "reopened", "in_progress", "escalated"]);
+  const visibleRows = allRows.filter((row) => {
+    const status = text(row.status, "open").toLowerCase();
+    if (statusFilter === "active") return activeStatuses.has(status);
+    if (statusFilter === "resolved") return status === "closed" || status === "resolved";
+    if (statusFilter === "false_positive") return status === "false_positive" || status === "suppressed";
+    return true;
+  });
+  const critical = visibleRows.filter((row) => /critical|крит/i.test(text(row.severity_agg ?? row.severity))).length;
+  const selectedStatus = selected ? text(selected.status, "open").toLowerCase() : "";
+  const selectedIsActive = activeStatuses.has(selectedStatus);
+  const selectedIsTerminal = new Set(["closed", "resolved", "false_positive", "suppressed"]).has(selectedStatus);
   return <div className="native-page"><PageHeader title={mode === "agg" ? "Инциденты" : "Алерты"} actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} />
+    <section className="metric-grid sentinel-queue-metrics"><Metric label={mode === "agg" ? "В очереди" : "Срабатывания"} value={visibleRows.length} /><Metric label="Критические" tone={critical ? "warning" : ""} value={critical} /><Metric label="Открытые" value={visibleRows.filter((row) => activeStatuses.has(text(row.status, "open").toLowerCase())).length} /><Metric label="События" value={visibleRows.reduce((sum, row) => sum + number(row.raw_hits_total ?? row.hits), 0).toLocaleString("ru-RU")} /></section>
+    <Tabs items={[{ id: "active", label: "Открытые" }, { id: "all", label: "Все" }, { id: "resolved", label: "Закрытые" }, { id: "false_positive", label: "False positive" }]} label="Фильтр очереди" onChange={setStatusFilter} value={statusFilter} />
     <div className="kuma-list-search"><SearchField onChange={setQuery} placeholder="Правило, сущность, источник или исполнитель..." value={query} /></div>
-    <QueryBoundary state={state}>{(data) => <><div className="native-actionbar"><div><span>{mode === "agg" ? "Агрегированная очередь" : "Исходные срабатывания"}</span></div><div><span>Найдено: {data.returned_count ?? data.items.length}</span></div></div><DataTable columns={incidentColumns} onOpen={open} rows={data.items as Row[]} /></>}</QueryBoundary>
-    <DetailDrawer actions={selected ? <><Button icon="user" onClick={() => update({ assignee: "current_user" })}>Назначить мне</Button><Button icon="check" onClick={() => update({ status: "closed", note: "Closed from Sentinel UI" })} tone="primary">Закрыть</Button><Button onClick={() => update({ status: "false_positive", note: "Marked as false positive from Sentinel UI" })} tone="danger">False positive</Button></> : null} eyebrow={selected ? text(selected.severity_agg ?? selected.severity) : undefined} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.rule_name, incidentId(selected)) : "Детали инцидента"}>
-      {selected ? <div className="kuma-drawer"><section><h3>Карточка</h3><KeyValue rows={[["ID", incidentId(selected)], ["Статус", <StatusCell key="status" value={text(selected.status)} />], ["Сущность", text(selected.entity_key)], ["Источник", text(selected.source_summary ?? selected.source)], ["Исполнитель", text(selected.assignee)], ["Последнее событие", formatTime(selected.ts_last ?? selected.ts)]]} /></section>{detailError ? <ErrorState error={new Error(detailError)} retry={() => open(selected)} /> : detail ? <><section><h3>Evidence и контекст</h3><JsonDetails value={detail} /></section></> : <LoadingState label="Загрузка evidence..." />}</div> : null}
+    <QueryBoundary state={state}>{(data) => <><div className="native-actionbar"><div><span>{mode === "agg" ? "Агрегированная очередь" : "Исходные срабатывания"}</span></div><div><span>Показано: {visibleRows.length} · доступно: {data.available_count ?? data.items.length}</span></div></div><DataTable columns={incidentColumns} onOpen={open} rows={visibleRows} /></>}</QueryBoundary>
+    <DetailDrawer actions={selectedIsActive ? <><Button icon="user" onClick={() => update({ assignee: "current_user" })}>Назначить мне</Button><Button icon="check" onClick={() => update({ status: "closed", note: "Closed from Sentinel UI" })} tone="primary">Закрыть</Button><Button onClick={() => update({ status: "false_positive", note: "Marked as false positive from Sentinel UI" })} tone="danger">False positive</Button></> : selectedIsTerminal ? <Button icon="refresh" onClick={() => update({ status: "reopened", note: "Reopened from Sentinel UI" })} tone="primary">Вернуть в работу</Button> : null} eyebrow={selected ? text(selected.severity_agg ?? selected.severity) : undefined} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.rule_name, incidentId(selected)) : "Детали инцидента"}>
+      {selected ? detailError ? <ErrorState error={new Error(detailError)} retry={() => open(selected)} /> : detail ? <IncidentDetailContent detail={detail} /> : <LoadingState label="Загрузка evidence..." /> : null}
     </DetailDrawer>
   </div>;
 }
@@ -131,7 +117,7 @@ export function EventsView({ notify }: { notify: Notify }) {
   return <div className="native-page"><PageHeader title="Поиск событий" actions={<IconButton icon="refresh" label="Повторить запрос" onClick={state.reload} />} />
     <div className="kuma-query-console"><div className="kuma-query-toolbar"><SearchField onChange={setQuery} placeholder="Полнотекстовый запрос или выражение..." value={query} /><select aria-label="Временной диапазон" onChange={(event) => setWindowSize(event.target.value)} value={windowSize}><option value="1h">1 час</option><option value="24h">24 часа</option><option value="7d">7 дней</option><option value="30d">30 дней</option></select><Button icon="play" onClick={() => setSubmitted((value) => value + 1)} tone="primary">Выполнить</Button></div></div>
     <QueryBoundary state={state}>{(data) => <><div className="native-actionbar"><div><span>Production storage</span></div><div><span>{number(data.total_count ?? data.row_count).toLocaleString("ru-RU")} событий · {number(data.elapsed_ms)} мс</span></div></div><DataTable columns={columns} onOpen={setSelected} rows={data.rows as Row[]} /></>}</QueryBoundary>
-    <DetailDrawer actions={selected ? <Button onClick={() => { navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); notify("JSON события скопирован", "healthy"); }}>Копировать JSON</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? `${text(selected.log_source)} · ${formatTime(selected.ts)}` : "Событие"}>{selected ? <div className="kuma-drawer"><section><h3>Нормализованные поля</h3><KeyValue rows={[["Источник", text(selected.log_source)], ["Коллектор", text(selected.collector_profile ?? selected.observer_collector)], ["Категория", text(selected.category)], ["Важность", text(selected.severity)], ["Source IP", text(selected.src_ip)], ["Destination IP", text(selected.dst_ip)], ["Asset", text(selected.asset_id)], ["User", text(selected.user_name ?? selected.target_user)]]} /></section><section><h3>Полное событие</h3><JsonDetails value={selected} /></section></div> : null}</DetailDrawer>
+    <DetailDrawer actions={selected ? <Button onClick={() => { navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); notify("JSON события скопирован", "healthy"); }}>Копировать JSON</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? `${text(selected.log_source)} · ${formatTime(selected.ts)}` : "Событие"}>{selected ? <EventDetailContent event={selected} /> : null}</DetailDrawer>
   </div>;
 }
 
@@ -276,7 +262,7 @@ export function RulesView({ notify }: { notify: Notify }) {
 export function AssetsView() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Row | null>(null);
-  const state = useQuery("assets", () => api.assetInventory({ hours: 720, limit: 2000 }), 60_000);
+  const state = useQuery("assets", () => api.assetInventory({ hours: 720, limit: 500 }), 60_000);
   const rows = useMemo(() => asRows(state.data?.items).filter((row) => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())), [query, state.data]);
   return <div className="native-page"><PageHeader title="Активы" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><div className="kuma-list-search"><SearchField onChange={setQuery} placeholder="Имя, IP, сервис или владелец..." value={query} /></div><QueryBoundary state={state}>{() => <DataTable columns={[
     { key: "asset", title: "Актив", render: (row) => <strong>{text(row.asset)}</strong> }, { key: "cmdb_asset_id", title: "Asset ID" }, { key: "aliases", title: "IP и алиасы", render: (row) => text(row.aliases) },
@@ -343,7 +329,7 @@ export function TopologyView() {
 }
 
 export function DiscoveryView({ notify }: { notify: Notify }) {
-  const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("discovery", () => api.sourceDiscovery({ limit: 1000 }), 60_000);
+  const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("discovery", () => api.sourceDiscovery({ limit: 500 }), 60_000);
   async function scan() { try { await api.scanSourceDiscovery({ networks: ["192.168.3.0/24"], mode: "safe" }); notify("Безопасное обнаружение запущено", "healthy"); state.reload(); } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); } }
   return <div className="native-page"><PageHeader title="Обнаружение и агенты" actions={<><Button icon="search" onClick={scan} tone="primary">Запустить discovery</Button><IconButton icon="refresh" label="Обновить" onClick={state.reload} /></>} /><QueryBoundary state={state}>{(data) => <DataTable columns={[
     { key: "status", title: "Статус", render: (row) => <StatusCell value={text(row.status ?? row.monitoring_status)} /> }, { key: "ip", title: "IP", render: (row) => <strong>{text(row.ip)}</strong> }, { key: "hostname", title: "Hostname" }, { key: "os_family", title: "ОС" }, { key: "probable_role", title: "Роль" }, { key: "port_summary", title: "Порты" }, { key: "connected_source", title: "Источник SIEM" }, { key: "confidence", title: "Confidence" },
@@ -360,7 +346,7 @@ export function ResponseView({ notify }: { notify: Notify }) {
 }
 
 export function VulnerabilityView({ notify }: { notify: Notify }) {
-  const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("vuln", () => api.vulnWorkbench({ days: 30, limit: 1000 }), 60_000);
+  const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("vuln", () => api.vulnWorkbench({ days: 30, limit: 500 }), 60_000);
   async function sync() { try { await api.vulnSync({ source: "all", requested_by: "sentinel-ui" }); notify("Синхронизация уязвимостей запущена", "healthy"); state.reload(); } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); } }
   return <div className="native-page"><PageHeader title="Управление уязвимостями" actions={<><Button icon="refresh" onClick={sync} tone="primary">Синхронизировать</Button><IconButton icon="refresh" label="Обновить" onClick={state.reload} /></>} /><QueryBoundary state={state}>{(data) => <><section className="metric-grid"><Metric label="Находки" value={number(data.summary?.findings)} /><Metric label="Требуют действия" value={number(data.summary?.actionable)} /><Metric label="Срочные" tone={number(data.summary?.urgent) ? "warning" : ""} value={number(data.summary?.urgent)} /><Metric label="CISA KEV" tone={number(data.summary?.kev) ? "warning" : ""} value={number(data.summary?.kev)} /><Metric label="SLA нарушен" tone={number(data.summary?.sla_breached) ? "warning" : ""} value={number(data.summary?.sla_breached)} /></section><DataTable columns={[
     { key: "severity", title: "Важность", render: (row) => <Badge tone={severityTone(row.severity)}>{text(row.severity)}</Badge> }, { key: "title", title: "Уязвимость", render: (row) => <strong>{text(row.title)}</strong> }, { key: "asset_hostname", title: "Актив", render: (row) => text(row.asset_hostname ?? row.target) }, { key: "target_ip", title: "IP" }, { key: "cves", title: "CVE", render: (row) => text(row.cves) }, { key: "cvss_score", title: "CVSS" }, { key: "epss", title: "EPSS" }, { key: "priority_score", title: "Приоритет" }, { key: "due_ts", title: "SLA", render: (row) => formatTime(row.due_ts) },
@@ -368,8 +354,8 @@ export function VulnerabilityView({ notify }: { notify: Notify }) {
 }
 
 export function ThreatIntelView() {
-  const [tab, setTab] = useState("matches"); const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("intel", () => api.threatIntelOverview({ hours: 720, limit: 1000 }), 60_000);
-  return <div className="native-page"><PageHeader title="Threat Intelligence" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><QueryBoundary state={state}>{(data) => { const rows = tab === "matches" ? data.recent_matches : tab === "catalog" ? data.entries : data.malicious_sources; return <><section className="metric-grid"><Metric label="Индикаторы" value={number(data.summary?.indicators)} /><Metric label="Провайдеры" value={number(data.summary?.providers)} /><Metric label="Срабатывания 24ч" value={number(data.summary?.matches_24h)} /><Metric label="Вредоносные IP" value={number(data.summary?.malicious_ips)} /></section><Tabs items={[{ id: "matches", label: "Срабатывания", count: data.recent_matches?.length ?? 0 }, { id: "catalog", label: "Каталог IoC", count: data.entries?.length ?? 0 }, { id: "sources", label: "Источники атак", count: data.malicious_sources?.length ?? 0 }]} label="Threat intelligence" onChange={setTab} value={tab} /><DataTable columns={[
+  const [tab, setTab] = useState("matches"); const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("intel", () => api.threatIntelOverview({ hours: 72, limit: 100 }), 60_000);
+  return <div className="native-page"><PageHeader eyebrow="Оперативное окно: 72 часа" title="Threat Intelligence" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><QueryBoundary state={state}>{(data) => { const rows = tab === "matches" ? data.recent_matches : tab === "catalog" ? data.entries : data.malicious_sources; return <><section className="metric-grid"><Metric label="Индикаторы" value={number(data.summary?.indicators)} /><Metric label="Провайдеры" value={number(data.summary?.providers)} /><Metric label="Срабатывания 72ч" value={number(data.summary?.matches_24h)} /><Metric label="Вредоносные IP" value={number(data.summary?.malicious_ips)} /></section><Tabs items={[{ id: "matches", label: "Срабатывания", count: data.recent_matches?.length ?? 0 }, { id: "catalog", label: "Каталог IoC", count: data.entries?.length ?? 0 }, { id: "sources", label: "Источники атак", count: data.malicious_sources?.length ?? 0 }]} label="Threat intelligence" onChange={setTab} value={tab} /><DataTable columns={[
     { key: "severity", title: "Важность", render: (row) => <Badge tone={severityTone(row.severity ?? row.reputation)}>{text(row.severity ?? row.reputation)}</Badge> }, { key: "indicator", title: "Индикатор", render: (row) => <strong>{text(row.indicator ?? row.ip)}</strong> }, { key: "indicator_type", title: "Тип" }, { key: "provider", title: "Провайдер" }, { key: "country", title: "Страна" }, { key: "confidence", title: "Confidence" }, { key: "events", title: "События" }, { key: "last_seen", title: "Последнее наблюдение", render: (row) => formatTime(row.last_seen ?? row.updated_ts) },
   ]} onOpen={setSelected} rows={asRows(rows)} /></>; }}</QueryBoundary><DetailDrawer onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.indicator ?? selected.ip) : "Индикатор"}>{selected ? <JsonDetails value={selected} /> : null}</DetailDrawer></div>;
 }

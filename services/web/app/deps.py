@@ -6292,12 +6292,15 @@ def fetch_dashboard_snapshot(
             from_ts=from_ts,
             to_ts=to_ts,
         ),
-        "geo_vpn_destinations": lambda: _dashboard_geo_payload(
-            fetch_geo_vpn_destinations,
+        # VPN geography can fall back through several 30-day windows and perform DNS
+        # hydration. The dashboard only needs the current cached projection; the full
+        # resolver remains available through /api/geo/vpn without blocking every widget.
+        "geo_vpn_destinations": lambda: _fetch_geo_vpn_destinations_window(
             hours=effective_hours,
             limit=12,
             from_ts=from_ts,
             to_ts=to_ts,
+            allow_network=False,
         ),
         "threat_intel": lambda: fetch_threat_intel_overview(
             limit=12,
@@ -6314,7 +6317,13 @@ def fetch_dashboard_snapshot(
     with ThreadPoolExecutor(max_workers=min(4, len(dashboard_tasks)), thread_name_prefix="dashboard") as executor:
         futures = {executor.submit(task): name for name, task in dashboard_tasks.items()}
         for future in as_completed(futures):
-            payload[futures[future]] = future.result()
+            name = futures[future]
+            try:
+                payload[name] = future.result()
+            except Exception as exc:  # noqa: BLE001
+                # A dashboard is an operational summary. One unavailable integration
+                # must not turn the complete page into a 500 response.
+                payload[name] = {"items": [], "error": str(exc), "partial": True}
     payload.update({
         "timeline_window": {
             "window": safe_window,

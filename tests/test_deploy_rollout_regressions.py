@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import sys
 import tempfile
 import types
@@ -33,6 +34,61 @@ class _FakeClient:
 
 
 class DeployRolloutRegressionTests(unittest.TestCase):
+    def test_legacy_ui_query_limits_are_accepted_and_bounded(self) -> None:
+        assets_routes = (ROOT / "services" / "web" / "app" / "routes" / "console_assets_routes.py").read_text(
+            encoding="utf-8"
+        )
+        health_routes = (ROOT / "services" / "web" / "app" / "routes" / "console_health_routes.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertGreaterEqual(assets_routes.count("le=5000"), 5)
+        self.assertIn("safe_limit = min(limit, 500)", assets_routes)
+        self.assertIn("safe_limit = min(limit, 600)", assets_routes)
+        self.assertIn("safe_hours = min(hours, 72)", assets_routes)
+        self.assertIn('"limit_clamped": requested_limit != applied_limit', assets_routes)
+        self.assertIn("limit: int = Query(50, ge=1, le=2000)", health_routes)
+        self.assertIn("safe_limit = min(limit, 200)", health_routes)
+
+    def test_incident_mutations_invalidate_the_list_cache(self) -> None:
+        alerts_routes = (ROOT / "services" / "web" / "app" / "routes" / "alerts.py").read_text(encoding="utf-8")
+        mutation = re.search(
+            r"async def update_alert_api\([\s\S]+?return JSONResponse\(result\)",
+            alerts_routes,
+        )
+
+        self.assertIsNotNone(mutation)
+        self.assertIn("_INCIDENT_LIST_CACHE.clear()", mutation.group(0))
+
+    def test_sentinel_terminal_incidents_can_be_reopened(self) -> None:
+        incidents_view = (ROOT / "frontend-react" / "src" / "sentinel" / "Views.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('const selectedIsTerminal = new Set(["closed", "resolved", "false_positive", "suppressed"])', incidents_view)
+        self.assertIn('update({ status: "reopened", note: "Reopened from Sentinel UI" })', incidents_view)
+        self.assertIn("Вернуть в работу", incidents_view)
+
+    def test_sentinel_detail_drawer_stays_above_its_scrim(self) -> None:
+        styles = (ROOT / "frontend-react" / "src" / "sentinel" / "styles.css").read_text(encoding="utf-8")
+        drawer_blocks = re.findall(r"\.detail-drawer\s*\{([^}]*)\}", styles, flags=re.DOTALL)
+        drawer_z_indexes = [
+            int(match.group(1))
+            for block in drawer_blocks
+            if (match := re.search(r"z-index:\s*(\d+)", block))
+        ]
+        scrim_block = re.search(r"\.drawer-scrim\s*\{([^}]*)\}", styles, flags=re.DOTALL)
+        self.assertTrue(drawer_z_indexes)
+        self.assertIsNotNone(scrim_block)
+        scrim_z_index = int(re.search(r"z-index:\s*(\d+)", scrim_block.group(1)).group(1))
+        self.assertGreater(min(drawer_z_indexes), scrim_z_index)
+
+    def test_greenbone_feed_sync_is_bounded_inside_the_container(self) -> None:
+        script = (ROOT / "deploy" / "vuln" / "rdegon_greenbone_feed_sync.sh").read_text(encoding="utf-8")
+        unit = (ROOT / "deploy" / "vuln" / "systemd" / "rdegon-greenbone-feed-sync.service").read_text(encoding="utf-8")
+        self.assertIn("timeout --foreground --kill-after=60s 5h greenbone-feed-sync", script)
+        self.assertIn("stop_container_feed_sync", script)
+        self.assertIn("TimeoutStartSec=5h15m", unit)
+        self.assertIn("TimeoutStopSec=2m", unit)
+
     def test_vm4_deploy_rejects_wrong_ssh_target_hostname(self) -> None:
         import deploy.vm4_enterprise_foundation_deploy as vm4_deploy
 
@@ -430,8 +486,10 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         self.assertIn("services/web/app/routes/console_reporting_routes.py", release_files)
         self.assertIn("services/web/app/routes/console_source_policy_routes.py", release_files)
         self.assertIn("services/web/maintenance/report_scheduler.py", release_files)
-        self.assertIn("frontend-react/src/shell/pages/ReportsPage.tsx", release_files)
-        self.assertIn("frontend-react/src/shell/pages/sources/SourcePoliciesWorkspace.tsx", release_files)
+        self.assertIn("frontend-react/src/sentinel/Views.tsx", release_files)
+        self.assertIn("frontend-react/src/sentinel/dashboard.tsx", release_files)
+        self.assertIn("frontend-react/src/sentinel/incident-details.tsx", release_files)
+        self.assertNotIn("frontend-react/src/shell/pages/ReportsPage.tsx", release_files)
         self.assertIn("deploy/systemd/siem-report-scheduler.timer", release_files)
 
     def test_operational_rule_pack_publisher_avoids_clickhouse_mutations(self) -> None:

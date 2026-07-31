@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,6 +40,7 @@ def _tree_files(relative_root: str) -> tuple[str, ...]:
 
 
 BACKEND_AND_RUNTIME_FILES = (
+    "services/web/app/deps.py",
     "services/web/app/security.py",
     "services/web/app/control_plane_access_ops.py",
     "services/web/app/control_plane_report_ops.py",
@@ -45,6 +48,7 @@ BACKEND_AND_RUNTIME_FILES = (
     "services/web/app/host_runtime_runtime.py",
     "services/web/app/security_services_runtime.py",
     "services/web/app/routes/console_assets_routes.py",
+    "services/web/app/routes/alerts.py",
     "services/web/app/routes/console_reporting_routes.py",
     "services/web/app/routes/console_router_registry.py",
     "services/web/app/routes/console_source_policy_routes.py",
@@ -75,24 +79,28 @@ BACKEND_FILES = tuple(
 
 
 def main() -> int:
+    build_env = dict(os.environ)
+    build_env["SIEM_SHELL_SOURCEMAP"] = "false"
+    local_build = subprocess.run(
+        ["npm.cmd" if os.name == "nt" else "npm", "run", "build"],
+        cwd=ROOT / "frontend-react",
+        check=True,
+        capture_output=True,
+        env=build_env,
+        text=True,
+        shell=False,
+    )
+    release_files = tuple(dict.fromkeys((*RELEASE_FILES, *_tree_files("frontend-react/dist"))))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_root = f"/var/backups/siem/vm4-ui-functional-wave-{stamp}"
     with Proxmox() as pve:
-        for relative in RELEASE_FILES:
+        for relative in release_files:
             _push_file(pve, relative, backup_root=backup_root)
         compile_output = pve.guest_exec(
             VMID,
             f"{shlex.quote(WEB_PYTHON)} -m py_compile "
             + " ".join(shlex.quote(_remote_path(path)) for path in BACKEND_FILES),
             timeout=180,
-        )
-        build_output = pve.guest_exec(
-            VMID,
-            "set -euo pipefail; "
-            f"chmod o+x {shlex.quote(REMOTE_ROOT)}; "
-            f"cd {shlex.quote(REMOTE_ROOT + '/services/web/frontend-react')}; "
-            "runuser -u rdegon -- npm run build",
-            timeout=600,
         )
         state_output = pve.guest_exec(
             VMID,
@@ -116,10 +124,10 @@ def main() -> int:
         json.dumps(
             {
                 "vmid": VMID,
-                "files": len(RELEASE_FILES),
+                "files": len(release_files),
                 "backup": backup_root,
                 "compile": compile_output.strip() or "ok",
-                "frontend": build_output.strip().splitlines()[-1:] or ["ok"],
+                "frontend": local_build.stdout.strip().splitlines()[-1:] or ["ok"],
                 "services": state_output.strip().splitlines(),
             },
             indent=2,

@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from .auth import canonical_ui_redirect_path, get_current_user
+from .. import deps as deps_module
 from ..security import require_permissions
 from ..deps import (
     INCIDENT_STATUS_TRANSITIONS,
@@ -313,6 +314,7 @@ async def incidents_api(
     from_ts: str = Query(''),
     to_ts: str = Query(''),
     limit: int = Query(200, ge=1, le=1000),
+    include_terminal: bool = Query(False),
     user=Depends(get_current_user),
 ) -> JSONResponse:
     safe_view = 'raw' if view == 'raw' else 'agg'
@@ -320,7 +322,7 @@ async def incidents_api(
     safe_limit = max(10, min(int(limit or 200), 1000))
     fetch_limit = min(1200, max(safe_limit * 2, 200))
     cache_key = json.dumps(
-        [safe_view, safe_scope, q, window, from_ts, to_ts, safe_limit],
+        [safe_view, safe_scope, q, window, from_ts, to_ts, safe_limit, include_terminal],
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -329,7 +331,13 @@ async def incidents_api(
     if cached and now_ts - cached[0] < INCIDENT_LIST_CACHE_TTL_SECONDS:
         return JSONResponse(cached[1])
     try:
-        fetcher = fetch_alerts_raw if safe_view == 'raw' else fetch_alerts_agg
+        fetcher = (
+            fetch_alerts_raw
+            if safe_view == 'raw'
+            else deps_module._fetch_alerts_agg_from_raw_scan
+            if include_terminal
+            else fetch_alerts_agg
+        )
         rows = await run_in_threadpool(
             fetcher,
             limit=fetch_limit,
@@ -365,6 +373,7 @@ async def incidents_api(
             'to_ts': to_ts,
             'limit': safe_limit,
             'requested_limit': safe_limit,
+            'include_terminal': include_terminal,
             'available_count': len(filtered_rows),
             'returned_count': len(items),
             'items': items,
@@ -474,14 +483,18 @@ async def update_alert_api(
     if view not in {'raw', 'agg'}:
         return JSONResponse({'error': 'Unsupported alert view'}, status_code=400)
     try:
+        requested_assignee = str(payload.get('assignee', '') or '')
+        if requested_assignee in {'current_user', 'me'}:
+            requested_assignee = str(getattr(user, 'username', 'web') or 'web')
         result = update_alert_assignment(
             view,
             record_id,
             status=str(payload.get('status', 'new') or 'new'),
-            assignee=str(payload.get('assignee', '') or ''),
+            assignee=requested_assignee,
             changed_by=str(getattr(user, 'username', 'web') or 'web'),
             note=str(payload.get('note', '') or ''),
         )
+        _INCIDENT_LIST_CACHE.clear()
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({'error': str(exc)}, status_code=400)
     return JSONResponse(result)

@@ -10,4 +10,6 @@ ExecStart=/usr/local/sbin/rdegon-greenbone-feed-sync
 Nice=15
 IOSchedulingClass=idle
 CPUQuota=200%
-TimeoutStartSec=6h
+KillMode=control-group
+TimeoutStartSec=5h15m
+TimeoutStopSec=2m
