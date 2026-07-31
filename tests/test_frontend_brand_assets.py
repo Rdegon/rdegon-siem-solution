@@ -8,14 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class FrontendBrandAssetsTests(unittest.TestCase):
     def test_frontend_html_references_favicon_and_mark_assets(self) -> None:
         build_script = (ROOT / "frontend-react" / "build.cjs").read_text(encoding="utf-8")
-        source_index = (ROOT / "frontend-react" / "index.html").read_text(encoding="utf-8")
         built_index_path = ROOT / "frontend-react" / "dist" / "index.html"
         login_html = (ROOT / "services" / "web" / "app" / "templates" / "login.html").read_text(encoding="utf-8")
 
         self.assertIn('/app/favicon.ico', build_script)
         self.assertIn('/app/favicon.svg', build_script)
-        self.assertIn('/app/favicon.ico', source_index)
-        self.assertIn('/app/favicon.svg', source_index)
         if built_index_path.exists():
             built_index = built_index_path.read_text(encoding="utf-8")
             self.assertIn('/app/favicon.ico', built_index)

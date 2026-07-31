@@ -6,6 +6,7 @@ import { Badge, Button, DetailDrawer, EmptyState, ErrorState, IconButton, KeyVal
 import { formatTime, number, severityTone, text, useQuery } from "./runtime/query";
 import { OverviewDashboard } from "./dashboard";
 import { EventDetailContent, IncidentDetailContent } from "./incident-details";
+import { EventsQueryWorkspace, IncidentQueueWorkspace, ResourcesWorkspace, RulesWorkspace } from "./kuma-workspaces";
 
 type Notify = (message: string, tone?: string) => void;
 type Navigate = (view: View) => void;
@@ -405,15 +406,15 @@ export function SecurityServiceView({ view, notify }: { view: View; notify: Noti
 export function PrimaryView({ view, navigate, notify }: { view: View; navigate: Navigate; notify: Notify }) {
   switch (view) {
     case "overview": return <OverviewView navigate={navigate} />;
-    case "alerts": return <IncidentsView mode="raw" notify={notify} />;
-    case "incidents": return <IncidentsView mode="agg" notify={notify} />;
-    case "events": return <EventsView notify={notify} />;
+    case "alerts": return <IncidentQueueWorkspace mode="raw" notify={notify} />;
+    case "incidents": return <IncidentQueueWorkspace mode="agg" notify={notify} />;
+    case "events": return <EventsQueryWorkspace notify={notify} />;
     case "cases": return <CasesView notify={notify} />;
     case "assets": return <AssetsView />;
     case "reports": return <ReportsView notify={notify} />;
-    case "resources": return <ResourcesView notify={notify} />;
+    case "resources": return <ResourcesWorkspace notify={notify} />;
     case "sources": return <SourcesView notify={notify} />;
-    case "rules": return <RulesView notify={notify} />;
+    case "rules": return <RulesWorkspace notify={notify} />;
     case "runtime": return <RuntimeView />;
     case "access": return <AccessView notify={notify} />;
     case "coverage": return <CoverageView />;

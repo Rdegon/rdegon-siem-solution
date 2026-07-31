@@ -24,7 +24,7 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
   return <>
     {mobileOpen ? <button aria-label="Закрыть меню" className="mobile-sidebar-scrim" onClick={() => setMobileOpen(false)} type="button" /> : null}
     <aside className={`app-sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}>
-      <div className="brand"><BrandMark />{!collapsed ? <div><strong>RDEGON SENTINEL</strong><span>Security operations platform</span></div> : null}</div>
+      <div className="brand"><div className="brand-identity"><BrandMark />{!collapsed ? <div><strong>RDEGON SENTINEL</strong><span>Security operations platform</span></div> : null}</div></div>
       <div className="scope-shell">
         <button className="scope-switcher" onClick={() => setScopeOpen((value) => !value)} title="Область данных" type="button"><Icon name="server" size={16} />{!collapsed ? <span><strong>{scopeLabel}</strong><small>{selected.reduce((sum, item) => sum + item.source_count, 0)} источников · {selected.reduce((sum, item) => sum + item.incident_count, 0)} инцидентов</small></span> : null}</button>
         {scopeOpen && !collapsed ? <div className="scope-popover"><header><strong>Область данных</strong><small>Scope передается серверу в каждом API-запросе.</small></header>{tenants.available.map((tenant) => <label key={tenant.id}><input checked={selectedTenants.includes(tenant.id)} onChange={(event) => { const next = event.target.checked ? [...selectedTenants, tenant.id] : selectedTenants.filter((id) => id !== tenant.id); if (next.length) onTenantChange(next); }} type="checkbox" /><span><strong>{tenant.name}</strong><small>{tenant.description || `${tenant.source_count} источников`}</small></span><b>{tenant.incident_count}</b></label>)}</div> : null}
@@ -51,7 +51,7 @@ export function App() {
   const view = viewFromPath(pathname);
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null); const [tenants, setTenants] = useState<TenantScopeResponse | null>(null); const [fatal, setFatal] = useState("");
   const [selectedTenants, setSelectedTenants] = useState<string[]>([]); const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sentinel-sidebar") === "collapsed");
-  const [mobileOpen, setMobileOpen] = useState(false); const [darkTheme, setDarkTheme] = useState(() => localStorage.getItem("sentinel-theme") !== "light");
+  const [mobileOpen, setMobileOpen] = useState(false); const [darkTheme, setDarkTheme] = useState(() => localStorage.getItem("sentinel-theme") === "dark");
   const [commandOpen, setCommandOpen] = useState(false); const [toasts, setToasts] = useState<Toast[]>([]);
   const notify = useCallback((message: string, tone = "info") => { const id = Date.now(); setToasts((items) => [...items, { id, message, tone }]); window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 5000); }, []);
   const navigate = useCallback((next: View) => {
