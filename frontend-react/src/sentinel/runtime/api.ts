@@ -22,6 +22,7 @@ import type {
   CaseRecord,
   CasesResponse,
   CollectorsInventoryResponse,
+  CollectorDeploymentResponse,
   ConnectorDetailResponse,
   ConnectorListResponse,
   ConnectorRecord,
@@ -85,6 +86,8 @@ import type {
   ResourceCatalogResponse,
   ResourcePublishResponse,
   ResourceValidationResponse,
+  RemoteAccessProfileRecord,
+  RemoteAccessStateResponse,
   ReportTemplateRecord,
   ReportTemplatesResponse,
   ResponseAnalyticsResponse,
@@ -307,6 +310,8 @@ export const api = {
     postJson<ResourceValidationResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/validate`, {}),
   publishResource: (resourceId: string) =>
     postJson<ResourcePublishResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/publish`, {}),
+  resourceDeployment: (resourceId: string) =>
+    getJson<CollectorDeploymentResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/deployment`),
   kumaStatus: () => getJson<KumaStatusResponse>("/api/integrations/kuma/status"),
   kumaResources: (params: { page?: number; kind?: string[]; tenant_id?: string; name?: string } = {}) => {
     const search = new URLSearchParams();
@@ -686,6 +691,12 @@ export const api = {
       `/api/security-services/ips/${encodeURIComponent(operation)}`,
       body,
     ),
+  remoteAccessState: () => getJson<RemoteAccessStateResponse>("/api/security-services/vpn/remote-access"),
+  saveRemoteAccessProfile: (body: Record<string, unknown>) => postJson<RemoteAccessProfileRecord>("/api/security-services/vpn/remote-access", body),
+  deleteRemoteAccessProfile: async (profileId: string) => {
+    const response = await fetch(`/api/security-services/vpn/remote-access/${encodeURIComponent(profileId)}`, { method: "DELETE", credentials: "include", headers: scopedHeaders(buildMutationHeaders("")) });
+    return parseResponse<{ deleted: boolean; id: string }>(response);
+  },
   incidents: (params: { view?: string; q?: string; scope?: string; window?: string; limit?: number; from_ts?: string; to_ts?: string; include_terminal?: boolean } = {}) =>
     getJson<IncidentListResponse>(`/api/incidents${toQuery(params)}`),
   incidentDetail: (

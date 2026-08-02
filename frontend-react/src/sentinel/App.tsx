@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, setApiTenantScope, type BootstrapResponse, type TenantScopeResponse } from "./runtime/api";
 import {
   commandHints, mainNavigation, platformNavigation, securityNavigation, securityNavigationGroups,
@@ -35,6 +35,7 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
   const [tenantMenuOpen, setTenantMenuOpen] = useState(false);
   const [securityMenuOpen, setSecurityMenuOpen] = useState(() => viewMeta[current].group === "security");
   const [tenantDraft, setTenantDraft] = useState(selectedTenants);
+  const navigationRef = useRef<HTMLElement | null>(null);
   const securityActive = securityNavigation.includes(current);
   const selected = tenants.available.filter((tenant) => selectedTenants.includes(tenant.id));
   const draft = tenants.available.filter((tenant) => tenantDraft.includes(tenant.id));
@@ -52,6 +53,12 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
     window.addEventListener("keydown", closeTransientNavigation);
     return () => window.removeEventListener("keydown", closeTransientNavigation);
   }, []);
+
+  useEffect(() => {
+    if (!securityMenuOpen) return;
+    const frame = window.requestAnimationFrame(() => navigationRef.current?.scrollTo({ top: 0, behavior: "auto" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [securityMenuOpen]);
 
   function open(view: View) {
     navigate(view);
@@ -142,7 +149,7 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
         </footer>
       </section> : null}
 
-      <nav aria-label="Основная навигация" className="app-navigation">
+      <nav aria-label="Основная навигация" className="app-navigation" ref={navigationRef}>
         {securityMenuOpen ? <div className="security-nav-subsection" id="security-systems-navigation">
           <header>
             <button aria-label="Вернуться в основную навигацию" className="security-nav-back" onClick={() => setSecurityMenuOpen(false)} type="button"><Icon name="next" size={15} /><span>Основная навигация</span></button>

@@ -314,6 +314,14 @@ def validate_resource_payload(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append("expr is required")
         if str(config.get("action") or "") not in {"drop", "tag", "pass"}:
             errors.append("filter action must be drop, tag or pass")
+    elif kind == "activeList":
+        if str(config.get("list_kind") or "watch") not in {"watch", "allow", "deny"}:
+            errors.append("active list kind must be watch, allow or deny")
+        if int(config.get("ttl_seconds") or 0) < 0:
+            errors.append("active list ttl_seconds cannot be negative")
+        key_fields = config.get("key_fields") or []
+        if not isinstance(key_fields, list) or not [item for item in key_fields if str(item).strip()]:
+            errors.append("active list key_fields requires at least one key field")
     return {"valid": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -403,6 +411,100 @@ def _publish_correlation_rule(resource: dict[str, Any], *, actor: str) -> dict[s
     return publish_correlation_pack(pack_id)
 
 
+def _collector_endpoint() -> str:
+    return str(
+        os.getenv("SIEM_PUBLIC_INGEST_BASE_URL")
+        or os.getenv("SIEM_INGEST_BASE_URL")
+        or "https://192.168.3.102:8443"
+    ).rstrip("/")
+
+
+def build_collector_deployment(resource_id: str) -> dict[str, Any]:
+    resource = get_resource(resource_id)
+    if str(resource.get("kind") or "") != "collector":
+        raise ValueError("Deployment commands are available only for collector resources")
+    config = dict(resource.get("config") or {})
+    profile = re.sub(r"[^a-zA-Z0-9_.-]+", "-", str(config.get("collector_profile") or "").strip()).strip("-")
+    if not profile:
+        raise ValueError("collector_profile is required")
+    base_url = _collector_endpoint()
+    syslog_host = str(os.getenv("SIEM_PUBLIC_INGEST_FORWARD_HOST") or "192.168.3.102").strip()
+    syslog_port = max(1, min(65535, int(os.getenv("SIEM_INGEST_FORWARD_PORT") or 1514)))
+    transport = str(config.get("transport") or "http")
+    linux_config = (
+        "*.* action(type=\"omfwd\" "
+        f"target=\"{syslog_host}\" port=\"{syslog_port}\" protocol=\"tcp\" "
+        "template=\"RSYSLOG_SyslogProtocol23Format\" action.resumeRetryCount=\"-1\" "
+        f"queue.type=\"linkedList\" queue.filename=\"sentinel-{profile}\")"
+    )
+    linux_commands = [
+        "sudo install -d -m 0755 /etc/rsyslog.d",
+        "sudo tee /etc/rsyslog.d/90-rdegon-sentinel.conf >/dev/null <<'EOF'\n" + linux_config + "\nEOF",
+        "sudo rsyslogd -N1 && sudo systemctl restart rsyslog",
+        f"logger -t sentinel-onboarding 'collector={profile} onboarding verification'",
+    ]
+    http_example = (
+        f"curl --fail-with-body -X POST '{base_url}/ingest/http' "
+        "-H 'Content-Type: application/json' -H 'X-SIEM-Shared-Secret: <secret>' "
+        f"--data '{{\"collector\":\"{profile}\",\"collector_profile\":\"{profile}\","
+        "\"source\":\"<hostname>\",\"message\":\"application onboarding verification\"}}'"
+    )
+    docker_daemon = json.dumps(
+        {
+            "log-driver": "syslog",
+            "log-opts": {
+                "syslog-address": f"tcp://{syslog_host}:{syslog_port}",
+                "tag": "{{.Name}}/{{.ID}}",
+            },
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    return {
+        "resource_id": resource_id,
+        "collector_profile": profile,
+        "transport": transport,
+        "ingest_base_url": base_url,
+        "variants": [
+            {
+                "id": "linux",
+                "title": "Linux host / VM / LXC",
+                "description": "OS journals through persistent TCP syslog with disk-backed retry queue.",
+                "commands": linux_commands,
+                "verification": f"Search events by collector_profile={profile} and source hostname.",
+            },
+            {
+                "id": "windows",
+                "title": "Windows host",
+                "description": "Generate the signed native-agent package from Discovery and install it elevated.",
+                "commands": [
+                    "Open Discovery, select the Windows host and choose Prepare onboarding",
+                    "Download the generated Windows native-agent package",
+                    "Run install-native-agent.cmd <shared-secret> from an elevated terminal",
+                ],
+                "verification": "Run get-windows-event-agent-status.ps1 -Detailed, then search Windows events by hostname.",
+            },
+            {
+                "id": "container",
+                "title": "Docker / container host",
+                "description": "Forward container stdout/stderr with the Docker syslog driver.",
+                "commands": [
+                    "sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'\n" + docker_daemon + "\nEOF",
+                    "sudo systemctl restart docker",
+                ],
+                "verification": "Start a test container that writes one log line and search it by container name.",
+            },
+            {
+                "id": "application",
+                "title": "Application / webhook",
+                "description": "Send structured application audit records through the production HTTP ingest endpoint.",
+                "commands": [http_example],
+                "verification": f"Search events by collector_profile={profile}.",
+            },
+        ],
+    }
+
+
 def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
     resource = get_resource(resource_id)
     if bool(resource.get("read_only")):
@@ -436,6 +538,17 @@ def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
                 "http_endpoint": "/ingest/http",
                 "required_fields": {"collector_profile": profile, "collector": profile},
             },
+        }
+    elif kind == "activeList":
+        _deps().ensure_active_list_support()
+        activation = {
+            "table": str(getattr(_deps(), "ACTIVE_LIST_TABLE", "siem.active_list_items")),
+            "list_name": str(resource.get("name") or ""),
+            "list_kind": str(config.get("list_kind") or "watch"),
+            "key_fields": [str(item) for item in list(config.get("key_fields") or []) if str(item).strip()],
+            "context_fields": [str(item) for item in list(config.get("context_fields") or []) if str(item).strip()],
+            "ttl_seconds": max(0, int(config.get("ttl_seconds") or 0)),
+            "runtime": "correlation and enrichment",
         }
     elif kind == "correlator":
         activation = {

@@ -15,6 +15,7 @@ from ..kuma_integration_runtime import (
     list_kuma_resources,
 )
 from ..resource_catalog_runtime import (
+    build_collector_deployment,
     get_resource,
     list_resources,
     publish_resource,
@@ -79,6 +80,17 @@ async def publish_resource_api(
 ) -> JSONResponse:
     try:
         return JSONResponse(jsonable_encoder(publish_resource(resource_id, actor=_actor(user))))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.get("/api/resources/catalog/{resource_id}/deployment", response_class=JSONResponse)
+async def resource_deployment_api(
+    resource_id: str,
+    user=Depends(require_permissions("resources:view")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(jsonable_encoder(build_collector_deployment(resource_id)))
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 

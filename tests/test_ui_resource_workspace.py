@@ -78,6 +78,11 @@ def test_managed_resource_is_versioned_validated_and_published(
     assert published["activation"]["collector_profile"] == "production-http"
     assert published["activation"]["ingest_contract"]["http_endpoint"] == "/ingest/http"
 
+    deployment = resource_catalog_runtime.build_collector_deployment(second["id"])
+    assert deployment["collector_profile"] == "production-http"
+    assert {item["id"] for item in deployment["variants"]} == {"linux", "windows", "container", "application"}
+    assert any("rsyslog" in command for command in deployment["variants"][0]["commands"])
+
 
 def test_kuma_package_workflows_follow_supported_api_sequence(
     monkeypatch: pytest.MonkeyPatch,
@@ -146,6 +151,7 @@ def test_kuma_deployment_uses_vault_reference_and_trusted_ca() -> None:
             "expr or sigma_yaml",
         ),
         ("filter", {"expr": "true", "action": "delete"}, "filter action"),
+        ("activeList", {"list_kind": "allow", "key_fields": []}, "key_fields"),
     ],
 )
 def test_resource_validation_rejects_non_publishable_configs(

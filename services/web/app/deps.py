@@ -242,6 +242,9 @@ DEFAULT_DASHBOARDS: List[Dict[str, Any]] = [
             "geo_vpn_destinations",
             "threat_intel",
             "sources",
+            "source_health",
+            "security_coverage",
+            "alert_status",
             "ports",
             "categories",
             "incidents_preview",
@@ -259,6 +262,7 @@ DEFAULT_DASHBOARDS: List[Dict[str, Any]] = [
             "geo_sources",
             "threat_intel",
             "sources",
+            "source_health",
             "ports",
             "vpn_sites",
             "categories",
@@ -272,6 +276,7 @@ DEFAULT_DASHBOARDS: List[Dict[str, Any]] = [
         "widgets": [
             "kpis",
             "severity_breakdown",
+            "alert_status",
             "incidents_preview",
             "incident_queue",
         ],
@@ -351,6 +356,24 @@ WIDGET_CATALOG: List[Dict[str, Any]] = [
         "title": "Incident queue",
         "description": "Analyst-facing queue widget with current open incidents.",
         "default_span": 2,
+    },
+    {
+        "id": "source_health",
+        "title": "Source health",
+        "description": "Operational status of log-producing hosts, containers and collectors.",
+        "default_span": 1,
+    },
+    {
+        "id": "security_coverage",
+        "title": "Security controls",
+        "description": "Live health and coverage of connected security services.",
+        "default_span": 1,
+    },
+    {
+        "id": "alert_status",
+        "title": "Alert workflow",
+        "description": "Current alert and incident status distribution.",
+        "default_span": 1,
     },
 ]
 
@@ -6538,16 +6561,42 @@ def _widget_catalog_index() -> Dict[str, Dict[str, Any]]:
 def _default_dashboard_layout(widgets: List[str]) -> List[Dict[str, Any]]:
     catalog = _widget_catalog_index()
     layout = []
+    cursor_x = 0
+    cursor_y = 0
+    row_height = 0
+    preferred_heights = {
+        "kpis": 4,
+        "timelines": 8,
+        "geo_sources": 11,
+        "geo_vpn_destinations": 11,
+        "incidents_preview": 9,
+        "incident_queue": 8,
+    }
     for widget_id in widgets:
         spec = catalog.get(str(widget_id))
         if not spec:
             continue
+        span = int(spec.get("default_span") or 1)
+        width = 12 if widget_id == "kpis" else (8 if span >= 2 else 4)
+        height = int(preferred_heights.get(widget_id, 7))
+        if cursor_x + width > 12:
+            cursor_x = 0
+            cursor_y += max(1, row_height)
+            row_height = 0
         layout.append(
             {
                 "widget": str(widget_id),
-                "span": int(spec.get("default_span") or 1),
+                "span": span,
+                "x": cursor_x,
+                "y": cursor_y,
+                "w": width,
+                "h": height,
+                "minW": 3,
+                "minH": 4,
             }
         )
+        cursor_x += width
+        row_height = max(row_height, height)
     return layout
 
 
@@ -6564,11 +6613,27 @@ def _coerce_dashboard_layout(raw_layout: Any, widgets: List[str]) -> List[Dict[s
                 continue
             span = 2 if int(item.get("span") or 1) >= 2 else 1
             if widget_id not in {row["widget"] for row in layout}:
-                layout.append({"widget": widget_id, "span": span})
+                defaults = next(
+                    (row for row in _default_dashboard_layout([widget_id]) if row["widget"] == widget_id),
+                    {"x": 0, "y": len(layout) * 7, "w": 8 if span == 2 else 4, "h": 7, "minW": 3, "minH": 4},
+                )
+                layout.append(
+                    {
+                        "widget": widget_id,
+                        "span": span,
+                        "x": max(0, min(11, int(item.get("x", defaults["x"]) or 0))),
+                        "y": max(0, int(item.get("y", defaults["y"]) or 0)),
+                        "w": max(3, min(12, int(item.get("w", defaults["w"]) or defaults["w"]))),
+                        "h": max(4, min(30, int(item.get("h", defaults["h"]) or defaults["h"]))),
+                        "minW": max(2, min(12, int(item.get("minW", 3) or 3))),
+                        "minH": max(2, min(30, int(item.get("minH", 4) or 4))),
+                    }
+                )
     for widget_id in widgets:
         if widget_id not in {row["widget"] for row in layout}:
-            spec = catalog.get(widget_id) or {}
-            layout.append({"widget": widget_id, "span": int(spec.get("default_span") or 1)})
+            default_item = _default_dashboard_layout([widget_id])[0]
+            default_item["y"] = max((int(row.get("y", 0)) + int(row.get("h", 7)) for row in layout), default=0)
+            layout.append(default_item)
     return layout
 
 

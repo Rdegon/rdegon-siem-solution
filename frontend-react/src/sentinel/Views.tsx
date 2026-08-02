@@ -9,6 +9,9 @@ import { EventDetailContent, IncidentDetailContent } from "./incident-details";
 import { EventsQueryWorkspace, IncidentQueueWorkspace, ResourcesWorkspace, RulesWorkspace } from "./kuma-workspaces";
 import { RecordDetails, RuntimeOverviewCards } from "./record-details";
 import { TaskDispatcherView } from "./task-dispatcher";
+import { TopologyWorkbench } from "./topology-workbench";
+import { DiscoveryWorkspace } from "./discovery-workspace";
+import { SecurityOperationsWorkspace } from "./security-workspaces";
 
 type Notify = (message: string, tone?: string) => void;
 type Navigate = (view: View) => void;
@@ -330,16 +333,13 @@ export function CoverageView() {
 }
 
 export function TopologyView() {
-  const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("topology", () => api.networkTopology({ hours: 24, limit: 600 }), 60_000);
-  return <div className="native-page"><PageHeader title="Топология сети" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><QueryBoundary state={state}>{(data) => { const nodes = data.nodes as unknown as Row[]; const groups = new Map<string, Row[]>(); for (const node of nodes) { const segment = text(node.segment ?? node.layer ?? node.type, "Прочее"); groups.set(segment, [...(groups.get(segment) ?? []), node]); } return <><section className="metric-grid"><Metric label="Узлы" value={nodes.length} /><Metric label="Связи" value={data.edges.length} /><Metric label="Потоки" value={data.packet_flows?.length ?? 0} /><Metric label="Проблемы" tone={data.issues?.length ? "warning" : ""} value={data.issues?.length ?? 0} /></section><div className="sentinel-topology">{[...groups.entries()].map(([segment, items]) => <section className="sentinel-segment" key={segment}><header><strong>{segment}</strong><span>{items.length}</span></header><div>{items.map((node) => <button key={text(node.id)} onClick={() => setSelected(node)} type="button"><span className={`sentinel-node-state state-${text(node.status, "unknown").toLowerCase()}`} /><strong>{text(node.label)}</strong><small>{text(node.ip ?? node.role)}</small></button>)}</div></section>)}</div><section className="panel panel-flush"><header className="panel-header"><div className="panel-title"><h2>Наблюдаемые связи</h2><span>События за 24 часа</span></div></header><DataTable columns={[{ key: "source", title: "Откуда" }, { key: "target", title: "Куда" }, { key: "type", title: "Тип" }, { key: "label", title: "Описание" }, { key: "events", title: "События" }]} rows={data.edges as unknown as Row[]} /></section></>; }}</QueryBoundary><DetailDrawer onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.label) : "Узел"}>{selected ? <RecordDetails kind="node" value={selected} /> : null}</DetailDrawer></div>;
+  const [selected, setSelected] = useState<Row | null>(null);
+  const state = useQuery("topology", async () => { const [network, layout] = await Promise.all([api.networkTopology({ hours: 24, limit: 600 }), api.topologyLayout("network")]); return { network, layout }; }, 60_000);
+  return <div className="native-page topology-page"><PageHeader eyebrow="Сегменты, активы и наблюдаемые потоки" title="Топология сети" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><QueryBoundary state={state}>{({ network, layout }) => <><section className="metric-grid"><Metric label="Узлы" value={network.nodes.length} /><Metric label="Связи" value={network.edges.length} /><Metric label="Потоки" value={network.packet_flows?.length ?? 0} /><Metric label="Проблемы" tone={network.issues?.length ? "warning" : ""} value={network.issues?.length ?? 0} /></section><TopologyWorkbench data={network} onSave={async (positions) => { await api.saveTopologyLayout({ workspace: "network", expected_version: layout.version, positions }); state.reload(); }} onSelect={(node) => setSelected(node as unknown as Row)} saved={layout} /></>}</QueryBoundary><DetailDrawer onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.label) : "Узел"}>{selected ? <RecordDetails kind="node" value={selected} /> : null}</DetailDrawer></div>;
 }
 
 export function DiscoveryView({ notify }: { notify: Notify }) {
-  const [selected, setSelected] = useState<Row | null>(null); const state = useQuery("discovery", () => api.sourceDiscovery({ limit: 500 }), 60_000);
-  async function scan() { try { await api.scanSourceDiscovery({ networks: ["192.168.3.0/24"], mode: "safe" }); notify("Безопасное обнаружение запущено", "healthy"); state.reload(); } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); } }
-  return <div className="native-page"><PageHeader title="Обнаружение и агенты" actions={<><Button icon="search" onClick={scan} tone="primary">Запустить discovery</Button><IconButton icon="refresh" label="Обновить" onClick={state.reload} /></>} /><QueryBoundary state={state}>{(data) => <DataTable columns={[
-    { key: "status", title: "Статус", render: (row) => <StatusCell value={text(row.status ?? row.monitoring_status)} /> }, { key: "ip", title: "IP", render: (row) => <strong>{text(row.ip)}</strong> }, { key: "hostname", title: "Hostname" }, { key: "os_family", title: "ОС" }, { key: "probable_role", title: "Роль" }, { key: "port_summary", title: "Порты" }, { key: "connected_source", title: "Источник SIEM" }, { key: "confidence", title: "Confidence" },
-  ]} onOpen={setSelected} rows={data.items as unknown as Row[]} />}</QueryBoundary><DetailDrawer actions={selected && !selected.connected ? <Button onClick={async () => { try { await api.prepareSourceOnboarding(text(selected.id)); notify("Onboarding job подготовлен", "healthy"); } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); } }} tone="primary">Подготовить onboarding</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.hostname ?? selected.ip) : "Узел"}>{selected ? <RecordDetails kind="discovery" value={selected} /> : null}</DetailDrawer></div>;
+  return <DiscoveryWorkspace notify={notify} />;
 }
 
 export function ResponseView({ notify }: { notify: Notify }) {
@@ -430,6 +430,13 @@ export function PrimaryView({ view, navigate, notify }: { view: View; navigate: 
     case "exposure": return <VulnerabilityView notify={notify} />;
     case "intel": return <ThreatIntelView />;
     case "identity": return <IdentityView />;
+    case "ndr":
+    case "container":
+    case "vpn":
+    case "dfir":
+    case "analysis":
+    case "evidence":
+    case "pki": return <SecurityOperationsWorkspace notify={notify} view={view} />;
     default: return <SecurityServiceView notify={notify} view={view} />;
   }
 }

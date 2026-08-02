@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } f
 import {
   Activity, AlertTriangle, Archive, BarChart3, Boxes, Braces, Check, ChevronLeft, ChevronRight,
   CircleHelp, ClipboardList, Database, FileChartColumn, FileSearch, Filter, Fingerprint, Gauge,
-  Globe2, KeyRound, Layers3, LayoutDashboard, Link2, ListChecks, ListTodo, LockKeyhole, Menu, Network, PanelLeftClose,
+  Copy, Globe2, GripVertical, KeyRound, Layers3, LayoutDashboard, Link2, ListChecks, ListTodo, LockKeyhole, Menu, Network, PanelLeftClose,
   PanelLeftOpen, Play, Plus, RadioTower, RefreshCw, Search, Server, Settings2, Shield, ShieldAlert,
   ShieldCheck, TerminalSquare, Trash2, UserRound, UsersRound, X, Zap,
   type LucideIcon,
@@ -19,6 +19,7 @@ const icons: Record<string, LucideIcon> = {
   check: Check, play: Play, delete: Trash2, user: UserRound, users: UsersRound, server: Server, layers: Layers3,
   chart: BarChart3, help: CircleHelp, previous: ChevronLeft, next: ChevronRight, list: ListChecks,
   warning: AlertTriangle,
+  copy: Copy, move: GripVertical,
 };
 
 export function Icon({ name, size = 16, className = "" }: { name: string; size?: number; className?: string }) {

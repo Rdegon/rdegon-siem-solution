@@ -41,6 +41,22 @@ export type ResourcePublishResponse = {
   validation: ResourceValidationResponse;
 };
 
+export type CollectorDeploymentVariant = {
+  id: string;
+  title: string;
+  description: string;
+  commands: string[];
+  verification: string;
+};
+
+export type CollectorDeploymentResponse = {
+  resource_id: string;
+  collector_profile: string;
+  transport: string;
+  ingest_base_url: string;
+  variants: CollectorDeploymentVariant[];
+};
+
 export type KumaStatusResponse = {
   configured: boolean;
   healthy: boolean;
@@ -327,6 +343,12 @@ export type DashboardSummaryResponse = RuntimeBlob & {
 export type DashboardLayoutItemRecord = {
   widget: string;
   span?: number;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  minW?: number;
+  minH?: number;
 };
 
 export type DashboardDefinition = {
@@ -1036,6 +1058,12 @@ export type DiscoveryCandidate = {
   last_seen_ts?: string;
   source_family?: string;
   confidence?: number;
+  lifecycle_state?: "new" | "known" | "connected" | "stale" | string;
+  log_capable?: boolean;
+  relevance_score?: number;
+  relevance_reason?: string;
+  first_seen_ts?: string;
+  seen_count?: number;
   open_ports?: DiscoveryOpenPort[];
   binding_target?: string;
   binding_override_id?: string;
@@ -1073,6 +1101,11 @@ export type DiscoveryMetrics = {
   binding_overrides_total?: number;
   binding_overrides_applied?: number;
   unmanaged_without_override?: number;
+  log_capable?: number;
+  new?: number;
+  known?: number;
+  connected?: number;
+  stale?: number;
   [key: string]: unknown;
 };
 
@@ -2489,6 +2522,25 @@ export type SecurityServiceControlResponse = {
     rulesets?: IdsRulesetRecord[];
   };
   system?: RuntimeBlob;
+};
+
+export type RemoteAccessProfileRecord = RuntimeBlob & {
+  id: string;
+  name: string;
+  provider: "openvpn" | "vless" | string;
+  route_preset: string;
+  routes: string[];
+  status: string;
+  created_at?: string;
+  created_by?: string;
+};
+
+export type RemoteAccessStateResponse = {
+  generated_at?: string;
+  profiles: RemoteAccessProfileRecord[];
+  route_presets: Array<{ id: string; routes: string[] }>;
+  controllers: Array<{ provider: string; configured: boolean; mode: string; url_configured?: boolean; credential_configured?: boolean }>;
+  issues: string[];
 };
 
 export type SecurityControlMutationResponse = RuntimeBlob & {

@@ -16365,6 +16365,126 @@ code,
   }
 }
 
+/* Interactive SOC workspaces. */
+.security-nav-subsection { min-height: auto; }
+
+.app-main { max-width: calc(100vw - var(--sidebar-width)); width: calc(100% - var(--sidebar-width)); }
+.app-main.sidebar-collapsed { max-width: calc(100vw - var(--sidebar-collapsed)); width: calc(100% - var(--sidebar-collapsed)); }
+.dashboard-grid-workspace { min-height: 360px; min-width: 0; overflow-x: hidden; width: 100%; }
+.dashboard-grid-workspace.editing { background: color-mix(in srgb, var(--teal-soft) 35%, transparent); border: 1px dashed var(--teal); border-radius: 8px; padding: 8px; }
+.dashboard-grid-item { min-height: 0; }
+.dashboard-grid-item > .panel,
+.dashboard-grid-item > .metric-grid { height: 100%; margin: 0; }
+.dashboard-grid-item > .metric-grid { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 0; grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: hidden; }
+.dashboard-grid-item > .metric-grid .metric { border-bottom: 0; border-right: 1px solid var(--line); min-height: 0; padding: 13px 14px; }
+.dashboard-grid-item > .metric-grid .metric:last-child { border-right: 0; }
+.dashboard-grid-item > .metric-grid .metric > strong { font-size: 22px; line-height: 28px; }
+.dashboard-grid-item > .panel { display: flex; flex-direction: column; overflow: hidden; }
+.dashboard-grid-item > .panel > .panel-header { cursor: default; flex: 0 0 auto; }
+.dashboard-grid-workspace.editing .dashboard-grid-item > .panel > .panel-header { cursor: grab; }
+.dashboard-grid-workspace.editing .dashboard-grid-item > .panel > .panel-header:active { cursor: grabbing; }
+.dashboard-grid-item .sentinel-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.dashboard-grid-workspace .react-grid-item { transition: transform 160ms ease, width 160ms ease, height 160ms ease; }
+.dashboard-grid-workspace .react-grid-item.react-grid-placeholder { background: var(--teal); border-radius: 8px; opacity: .16; }
+.dashboard-grid-workspace .react-resizable-handle { opacity: 0; }
+.dashboard-grid-workspace.editing .react-resizable-handle { opacity: 1; }
+.dashboard-layout-hint { align-items: center; background: var(--teal-soft); border: 1px solid color-mix(in srgb, var(--teal) 42%, var(--line)); border-radius: 6px; color: var(--text); display: flex; gap: 8px; margin-bottom: 10px; padding: 9px 12px; }
+.dashboard-split-bars { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.topology-workbench { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.topology-toolbar { align-items: center; background: var(--surface-raised); border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto minmax(220px, 1fr) auto; padding: 10px 12px; }
+.topology-toolbar > div:last-child { align-items: center; color: var(--muted); display: flex; gap: 10px; justify-content: flex-end; }
+.topology-canvas { background: var(--surface-muted); height: clamp(560px, 68vh, 820px); }
+.topology-canvas .react-flow__node-group { border: 1px solid color-mix(in srgb, var(--teal) 34%, var(--line)); border-radius: 8px; }
+.topology-segment-node { align-items: center; color: var(--text); display: flex; font-size: 12px; font-weight: 700; justify-content: space-between; padding: 12px 14px; width: 100%; }
+.topology-asset-node { align-items: center; background: var(--surface-raised); border: 1px solid var(--line-strong); border-left: 3px solid var(--muted-2); border-radius: 6px; box-shadow: var(--shadow); color: var(--text); display: grid; gap: 8px; grid-template-columns: 30px minmax(0, 1fr) 7px; height: 70px; padding: 8px; width: 168px; }
+.topology-asset-node.state-healthy { border-left-color: var(--green); }
+.topology-asset-node.state-warning { border-left-color: var(--orange); }
+.topology-asset-node.state-critical { border-left-color: var(--red); }
+.topology-asset-node.selected { border-color: var(--teal); box-shadow: 0 0 0 2px color-mix(in srgb, var(--teal) 22%, transparent); }
+.topology-asset-icon { align-items: center; background: var(--surface-strong); border-radius: 5px; display: flex; height: 30px; justify-content: center; width: 30px; }
+.topology-asset-node strong,.topology-asset-node small { display: block; overflow: hidden; text-overflow: ellipsis; }
+.topology-asset-node strong { display: -webkit-box; font-size: 10px; line-height: 1.25; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+.topology-asset-node small { color: var(--muted); font: 9px/1.4 "IBM Plex Mono", monospace; margin-top: 3px; }
+.topology-node-status { background: var(--muted-2); border-radius: 50%; height: 7px; width: 7px; }
+.state-healthy .topology-node-status { background: var(--green); }
+.state-warning .topology-node-status { background: var(--orange); }
+.state-critical .topology-node-status { background: var(--red); }
+.topology-legend { align-items: center; background: var(--surface-raised); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 18px; padding: 9px 12px; }
+.topology-legend > span { align-items: center; color: var(--muted); display: inline-flex; font-size: 11px; gap: 6px; }
+.topology-legend > span > i { background: var(--muted-2); border-radius: 50%; height: 7px; width: 7px; }
+.topology-legend i.healthy { background: var(--green); }
+.topology-legend i.warning { background: var(--orange); }
+.topology-legend i.critical { background: var(--red); }
+
+.discovery-scanbar { align-items: end; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 10px 18px; grid-template-columns: minmax(0, 1fr) minmax(300px, .65fr); margin-bottom: 12px; padding: 12px; }
+.discovery-scanbar label { display: grid; gap: 5px; }
+.discovery-scanbar label span { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.discovery-scanbar small { color: var(--muted); line-height: 1.5; }
+.discovery-filterbar { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin: 14px 0 10px; }
+.discovery-filterbar .native-tabs { flex: 1 1 auto; margin: 0; }
+.discovery-filterbar .kuma-search-field { flex: 0 1 360px; }
+.discovery-grid td > small { color: var(--muted); display: block; font-size: 10px; margin-top: 4px; }
+.discovery-detail { display: grid; gap: 14px; }
+.discovery-detail-summary { background: var(--surface-muted); border: 1px solid var(--line); border-radius: 6px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.discovery-detail-summary > div { border-bottom: 1px solid var(--line); display: grid; gap: 4px; padding: 11px; }
+.discovery-detail-summary > div:nth-child(odd) { border-right: 1px solid var(--line); }
+.discovery-detail-summary > div:nth-last-child(-n+2) { border-bottom: 0; }
+.discovery-detail-summary span { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.discovery-onboarding { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.discovery-onboarding-head { align-items: center; background: var(--surface-muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 12px; }
+.discovery-onboarding-head > div { display: grid; gap: 3px; }
+.discovery-onboarding-head span,.discovery-job-summary small { color: var(--muted); font-size: 10px; }
+.discovery-job-summary { align-items: center; display: grid; gap: 8px; grid-template-columns: auto minmax(0, 1fr) auto; padding: 12px; }
+.discovery-telemetry { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 12px; }
+.command-preview { border-top: 1px solid var(--line); padding: 12px; }
+.command-preview > header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 8px; }
+.command-preview pre,.collector-deployment-grid pre { background: #13181d; border: 1px solid #2c3841; border-radius: 5px; color: #d8e6e5; font: 11px/1.55 "IBM Plex Mono", monospace; overflow: auto; padding: 10px; white-space: pre-wrap; }
+.discovery-execution-actions { align-items: center; border-top: 1px solid var(--line); display: flex; gap: 9px; padding: 12px; }
+.operation-result { align-items: center; background: var(--green-soft); border-top: 1px solid var(--line); display: flex; gap: 10px; padding: 12px; }
+.operation-result > div { display: grid; gap: 3px; }
+.collector-deployment-grid { display: grid; gap: 12px; margin-top: 16px; text-align: left; width: 100%; }
+.collector-deployment-grid article { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.collector-deployment-grid article > header { align-items: start; display: flex; justify-content: space-between; }
+.collector-deployment-grid article > header > div { display: grid; gap: 3px; }
+.collector-deployment-grid article small,.collector-deployment-grid article p { color: var(--muted); }
+
+.app-shell[data-theme="dark"] :is(.modal,.detail-drawer,.kuma-full-editor,.kuma-full-editor > header,.kuma-full-editor > footer,.kuma-editor-body > main,.kuma-editor-body > aside,.dashboard-editor-form,.discovery-onboarding,.collector-deployment-grid article) { background: var(--surface); border-color: var(--line); color: var(--text); }
+.app-shell[data-theme="dark"] :is(input,select,textarea,.kuma-search-field,.button,.icon-button) { border-color: var(--line-strong); }
+.app-shell[data-theme="dark"] :is(input,select,textarea) { background: var(--surface-muted); color: var(--text); }
+.app-shell[data-theme="dark"] :is(.native-grid th,.record-mini-table th,.kuma-editor-section-head,.kuma-editor-body > aside,.dashboard-toolbar,.native-tabs) { background: var(--surface-muted); color: var(--muted); }
+.app-shell[data-theme="dark"] :is(.native-grid td,.native-grid th,.panel,.metric,.kuma-resource-tiles button,.kuma-widget-catalog button,.kuma-active-list-editor) { border-color: var(--line); color: var(--text); }
+.app-shell[data-theme="dark"] .react-flow__controls button { background: var(--surface-raised); border-color: var(--line); color: var(--text); fill: var(--text); }
+.app-shell[data-theme="dark"] .react-flow__minimap { background: #111419; }
+
+@media (max-width: 900px) {
+  .topology-toolbar,.discovery-scanbar { grid-template-columns: minmax(0, 1fr); }
+  .discovery-filterbar { align-items: stretch; flex-direction: column; }
+  .discovery-filterbar .kuma-search-field { flex-basis: auto; }
+  .dashboard-split-bars { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 820px) {
+  .app-main,.app-main.sidebar-collapsed { max-width: 100vw; width: 100%; }
+}
+
+.security-workspace-grid { min-height: 260px; }
+.security-workspace-grid td { max-width: 360px; }
+.security-operations-page .native-tabs { margin: 14px 0 10px; }
+.metric-time { font-size: 13px !important; line-height: 1.35; }
+.security-detail-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.security-detail-cards > div { border-bottom: 1px solid var(--line); display: grid; gap: 4px; min-width: 0; padding: 11px; }
+.security-detail-cards > div:nth-child(odd) { border-right: 1px solid var(--line); }
+.security-detail-cards span { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.security-detail-cards strong { font-size: 12px; overflow-wrap: anywhere; }
+.security-form-note { background: var(--surface-muted); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); line-height: 1.5; margin: 0; padding: 10px; }
+.app-shell[data-theme="dark"] :is(.security-detail-cards,.security-form-note,.security-workspace-grid) { background: var(--surface); color: var(--text); }
+
+@media (max-width: 620px) {
+  .security-detail-cards,.discovery-detail-summary { grid-template-columns: minmax(0, 1fr); }
+  .security-detail-cards > div:nth-child(odd),.discovery-detail-summary > div:nth-child(odd) { border-right: 0; }
+}
+
 /* Structured operational cards replace raw runtime payloads in drawers. */
 .record-details {
   color: var(--text);

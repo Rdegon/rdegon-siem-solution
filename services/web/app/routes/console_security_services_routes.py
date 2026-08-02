@@ -14,10 +14,40 @@ from ..opnsense_control_runtime import (
     mutate_firewall,
     mutate_ids,
 )
+from ..remote_access_runtime import create_remote_access_profile, delete_remote_access_profile, remote_access_state
 
 
 router = APIRouter()
 logger = logging.getLogger("siem_web.security_services")
+
+
+@router.get("/api/security-services/vpn/remote-access", response_class=JSONResponse)
+async def remote_access_state_api(user=Depends(require_permissions("health:view"))) -> JSONResponse:
+    return JSONResponse(await run_in_threadpool(remote_access_state))
+
+
+@router.post("/api/security-services/vpn/remote-access", response_class=JSONResponse)
+async def create_remote_access_profile_api(
+    payload: dict = Body(default={}),
+    user=Depends(require_permissions("response:run")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(await run_in_threadpool(create_remote_access_profile, payload, actor=str(getattr(user, "username", "web") or "web")))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(_error_payload("Remote access profile", exc), status_code=502)
+
+
+@router.delete("/api/security-services/vpn/remote-access/{profile_id}", response_class=JSONResponse)
+async def delete_remote_access_profile_api(
+    profile_id: str,
+    user=Depends(require_permissions("response:run")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(await run_in_threadpool(delete_remote_access_profile, profile_id))
+    except KeyError:
+        return JSONResponse({"error": "Remote access profile not found"}, status_code=404)
 
 
 def _error_payload(label: str, exc: Exception) -> dict[str, str]:

@@ -53,8 +53,8 @@ except ImportError:  # pragma: no cover - local test fallback
 
 DISCOVERY_CANDIDATES_COLLECTION = "source_discovery_candidates"
 DISCOVERY_JOBS_COLLECTION = "source_discovery_jobs"
-DEFAULT_DISCOVERY_CIDRS = "192.168.1.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24"
-DEFAULT_SCAN_PORTS = (22, 80, 135, 139, 161, 389, 443, 445, 514, 1514, 3389, 5985, 5986, 8006, 8080, 8443)
+DEFAULT_DISCOVERY_CIDRS = "192.168.3.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24,10.20.40.0/24"
+DEFAULT_SCAN_PORTS = (22, 80, 135, 139, 161, 389, 443, 445, 514, 1514, 2375, 2376, 3389, 5985, 5986, 6443, 8006, 8080, 8443)
 CONNECTED_SOURCE_CACHE_TTL_SECONDS = 30.0
 PORT_HINTS = {
     22: "ssh",
@@ -67,9 +67,12 @@ PORT_HINTS = {
     445: "smb",
     514: "syslog",
     1514: "syslog-tcp",
+    2375: "docker",
+    2376: "docker-tls",
     3389: "rdp",
     5985: "winrm-http",
     5986: "winrm-https",
+    6443: "kubernetes-api",
     8006: "proxmox",
     8080: "http-alt",
     8443: "https-alt",
@@ -81,6 +84,26 @@ DEFAULT_TELEMETRY_SELECTION = {
     "network": ["network_syslog", "netflow", "config_backup"],
     "application": ["app_json", "http_access", "api_audit"],
     "unknown": ["syslog", "service_probe"],
+}
+LOG_CAPABLE_PORTS = {22, 135, 139, 161, 389, 445, 514, 1514, 2375, 2376, 3389, 5985, 5986, 6443, 8006}
+APPLICATION_SOURCE_HINTS = {
+    "arkime",
+    "docker",
+    "falco",
+    "gitea",
+    "greenbone",
+    "keycloak",
+    "kubernetes",
+    "minecraft",
+    "minio",
+    "misp",
+    "navidrome",
+    "nextcloud",
+    "opnsense",
+    "pterodactyl",
+    "velociraptor",
+    "wings",
+    "zeek",
 }
 
 _CONNECTED_SOURCE_CACHE: list[dict[str, Any]] = []
@@ -302,11 +325,23 @@ def _classify_candidate(ip_text: str, hostname: str, open_ports: list[dict[str, 
         source_family = "application_service"
         confidence = 0.67
     recommendation = _recommended_onboarding(os_family, probable_role, open_ports)
+    application_signal = any(token in evidence for token in APPLICATION_SOURCE_HINTS)
+    log_capable = bool(port_set & LOG_CAPABLE_PORTS) or application_signal
+    relevance_score = 100 if probable_role == "proxmox" else 90 if os_family in {"windows", "linux", "network"} else 72 if application_signal else 20
     return {
         "os_family": os_family,
         "probable_role": probable_role,
         "source_family": source_family,
         "confidence": confidence,
+        "log_capable": log_capable,
+        "relevance_score": relevance_score,
+        "relevance_reason": (
+            "Узел поддерживает управляемый сбор ОС/сетевой телеметрии"
+            if bool(port_set & LOG_CAPABLE_PORTS)
+            else "Распознано приложение с собственным журналом"
+            if application_signal
+            else "Найдены только пользовательские web-сервисы"
+        ),
         "recommendation": recommendation,
     }
 
@@ -522,6 +557,7 @@ def _merge_candidate(existing: dict[str, Any] | None, fresh: dict[str, Any]) -> 
     row = dict(existing or {})
     row.update(fresh)
     row["first_seen_ts"] = str(existing.get("first_seen_ts") if existing else fresh.get("discovered_ts") or _now_iso())
+    row["seen_count"] = max(1, _safe_int((existing or {}).get("seen_count"), 0) + 1)
     row["last_job_id"] = str(row.get("last_job_id") or (existing or {}).get("last_job_id") or "")
     if fresh.get("connected"):
         row["connected_source"] = str(fresh.get("connected_source") or row.get("connected_source") or "")
@@ -532,6 +568,30 @@ def _merge_candidate(existing: dict[str, Any] | None, fresh: dict[str, Any]) -> 
             row["monitoring_status"] = str((existing or {}).get("monitoring_status") or row.get("monitoring_status") or "prepared")
     row["auto_monitoring_ready"] = bool(row.get("recommendation", {}).get("auto_monitoring_supported"))
     return row
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _candidate_lifecycle(item: dict[str, Any], *, now: datetime | None = None) -> str:
+    if bool(item.get("connected")):
+        return "connected"
+    observed_now = now or _now()
+    last_seen = _parse_timestamp(item.get("last_seen_ts"))
+    first_seen = _parse_timestamp(item.get("first_seen_ts") or item.get("discovered_ts"))
+    if not last_seen or (observed_now - last_seen).total_seconds() > 7 * 86400:
+        return "stale"
+    if first_seen and (observed_now - first_seen).total_seconds() <= 48 * 3600 and _safe_int(item.get("seen_count"), 1) <= 2:
+        return "new"
+    return "known"
 
 
 def _supersede_jobs_for_connected_candidate(candidate: dict[str, Any], jobs: list[dict[str, Any]], *, actor: str) -> bool:
@@ -592,6 +652,17 @@ def list_source_discovery_candidates(
     overridden_total = 0
     for item in rows:
         enriched = dict(item)
+        enriched["lifecycle_state"] = _candidate_lifecycle(enriched)
+        if "log_capable" not in enriched:
+            classification = _classify_candidate(
+                _string(enriched.get("ip")),
+                _string(enriched.get("hostname")),
+                list(enriched.get("open_ports") or []),
+            )
+            enriched.update({
+                key: classification[key]
+                for key in ("log_capable", "relevance_score", "relevance_reason")
+            })
         match = _candidate_override_match(enriched, overrides)
         if match is not None:
             enriched["binding_override"] = match
@@ -607,6 +678,10 @@ def list_source_discovery_candidates(
     connected_total = sum(1 for item in rows if bool(item.get("connected")))
     auto_ready = sum(1 for item in rows if bool(item.get("auto_monitoring_ready")) and not bool(item.get("connected")))
     last_scan_ts = max((str(item.get("last_seen_ts") or "") for item in rows), default="")
+    lifecycle_counts = {
+        state: sum(1 for item in enriched_rows if item.get("lifecycle_state") == state)
+        for state in ("new", "known", "connected", "stale")
+    }
     return {
         "items": items,
         "jobs": jobs[:50],
@@ -615,6 +690,8 @@ def list_source_discovery_candidates(
             "connected": connected_total,
             "unmanaged": max(0, len(rows) - connected_total),
             "auto_ready": auto_ready,
+            "log_capable": sum(1 for item in enriched_rows if bool(item.get("log_capable"))),
+            **lifecycle_counts,
             "binding_overrides_total": len(overrides),
             "binding_overrides_applied": overridden_total,
             "unmanaged_without_override": sum(
