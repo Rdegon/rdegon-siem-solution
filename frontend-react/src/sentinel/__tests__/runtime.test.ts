@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import { viewFromPath } from "../model";
 import { formatTime, number, severityTone, text } from "../runtime/query";
 import { api, setApiTenantScope } from "../runtime/api";
 import { incidentSla } from "../dashboard";
 import { buildRuleBlocks, DEFAULT_EVENT_QUERY, RESOURCE_DEFINITIONS } from "../kuma-workspaces";
+import { RecordDetails } from "../record-details";
 
 describe("production UI routing", () => {
   it("maps deep links to the new workspace", () => {
@@ -53,6 +56,23 @@ describe("KUMA-compatible workspaces", () => {
     expect(DEFAULT_EVENT_QUERY).toContain("FROM events_view");
     expect(new Set(RESOURCE_DEFINITIONS.map((item) => item.kind)).size).toBe(RESOURCE_DEFINITIONS.length);
     expect(RESOURCE_DEFINITIONS.map((item) => item.kind)).toContain("correlationRule");
+  });
+
+  it("renders runtime records as operational cards instead of a JSON dump", () => {
+    const { container } = render(createElement(RecordDetails, { kind: "service", value: {
+      service_id: "ndr",
+      title: "Network Detection",
+      telemetry_state: "healthy",
+      host_name: "soc-ndr-01",
+      address: "10.20.10.127",
+      events_24h: 4312,
+      workspaces: [{ label: "Arkime", href: "https://siem.example:8005", external: true }],
+    } }));
+
+    expect(screen.getByText("Основные сведения")).toBeInTheDocument();
+    expect(screen.getByText("Сеть и размещение")).toBeInTheDocument();
+    expect(screen.getByText("4 312")).toBeInTheDocument();
+    expect(container.querySelector("pre.sentinel-json")).not.toBeInTheDocument();
   });
 });
 
