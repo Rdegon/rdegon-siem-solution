@@ -4,7 +4,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Body, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from ..security import require_permissions
@@ -14,7 +14,12 @@ from ..opnsense_control_runtime import (
     mutate_firewall,
     mutate_ids,
 )
-from ..remote_access_runtime import create_remote_access_profile, delete_remote_access_profile, remote_access_state
+from ..remote_access_runtime import (
+    create_remote_access_profile,
+    delete_remote_access_profile,
+    remote_access_profile_artifact,
+    remote_access_state,
+)
 
 
 router = APIRouter()
@@ -48,6 +53,27 @@ async def delete_remote_access_profile_api(
         return JSONResponse(await run_in_threadpool(delete_remote_access_profile, profile_id))
     except KeyError:
         return JSONResponse({"error": "Remote access profile not found"}, status_code=404)
+
+
+@router.get(
+    "/api/security-services/vpn/remote-access/{profile_id}/download",
+    response_model=None,
+)
+async def download_remote_access_profile_api(
+    profile_id: str,
+    user=Depends(require_permissions("response:run")),
+) -> Response:
+    try:
+        artifact, filename = await run_in_threadpool(remote_access_profile_artifact, profile_id)
+        return FileResponse(
+            artifact,
+            media_type="application/x-openvpn-profile",
+            filename=filename,
+        )
+    except KeyError:
+        return JSONResponse({"error": "Remote access profile not found"}, status_code=404)
+    except FileNotFoundError:
+        return JSONResponse({"error": "Remote access profile is not ready for download"}, status_code=409)
 
 
 def _error_payload(label: str, exc: Exception) -> dict[str, str]:

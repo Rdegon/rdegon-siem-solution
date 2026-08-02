@@ -1082,7 +1082,11 @@ export type DiscoveryJob = {
   updated_ts?: string;
   created_ts?: string;
   execution_supported?: boolean;
-  credential_requirements?: Array<{ id?: string; label?: string; required?: boolean }>;
+  credential_requirements?: Array<{
+    id?: string;
+    label?: string;
+    required?: boolean;
+  }>;
   requested_telemetry?: string[];
   telemetry_selection?: string[];
   command_preview?: string[];
@@ -1435,9 +1439,17 @@ export type ThreatIntelOverviewResponse = {
     matches_24h?: number;
     malicious_ips?: number;
   };
-  providers?: Array<{ provider?: string; count?: number; [key: string]: unknown }>;
+  providers?: Array<{
+    provider?: string;
+    count?: number;
+    [key: string]: unknown;
+  }>;
   severity?: BreakdownRecord[];
-  countries?: Array<{ country?: string; events?: number; [key: string]: unknown }>;
+  countries?: Array<{
+    country?: string;
+    events?: number;
+    [key: string]: unknown;
+  }>;
   recent_matches?: ThreatIntelMatchRecord[];
   entries?: ThreatIntelCatalogEntry[];
   malicious_sources?: ThreatIntelMaliciousSource[];
@@ -2367,11 +2379,14 @@ export type HostRuntimeOverviewResponse = {
     version?: string;
     loaded?: boolean;
     load_error?: string;
-    event_overrides?: Record<string, {
-      suppression_seconds?: number;
-      escalate_after?: number;
-      severity?: string;
-    }>;
+    event_overrides?: Record<
+      string,
+      {
+        suppression_seconds?: number;
+        escalate_after?: number;
+        severity?: string;
+      }
+    >;
     thresholds?: Record<string, number>;
   };
 };
@@ -2533,13 +2548,33 @@ export type RemoteAccessProfileRecord = RuntimeBlob & {
   status: string;
   created_at?: string;
   created_by?: string;
+  download_url?: string;
 };
 
 export type RemoteAccessStateResponse = {
   generated_at?: string;
   profiles: RemoteAccessProfileRecord[];
   route_presets: Array<{ id: string; routes: string[] }>;
-  controllers: Array<{ provider: string; configured: boolean; mode: string; url_configured?: boolean; credential_configured?: boolean }>;
+  controllers: Array<{
+    provider: string;
+    configured: boolean;
+    mode: string;
+    url_configured?: boolean;
+    credential_configured?: boolean;
+    local_controller?: boolean;
+  }>;
+  access_planes: Array<{
+    provider: string;
+    role: string;
+    status: string;
+    endpoint: string;
+    interface?: string;
+    address?: string;
+    service_state?: string;
+    tunnel_state?: string;
+    jump_host_reachable?: boolean;
+    managed_profile_issuance?: boolean;
+  }>;
   issues: string[];
 };
 
