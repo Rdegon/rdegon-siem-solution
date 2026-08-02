@@ -1,8 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import {
   Activity, AlertTriangle, Archive, BarChart3, Boxes, Braces, Check, ChevronLeft, ChevronRight,
   CircleHelp, ClipboardList, Database, FileChartColumn, FileSearch, Filter, Fingerprint, Gauge,
-  Globe2, KeyRound, LayoutDashboard, Link2, ListChecks, LockKeyhole, Menu, Network, PanelLeftClose,
+  Globe2, KeyRound, Layers3, LayoutDashboard, Link2, ListChecks, ListTodo, LockKeyhole, Menu, Network, PanelLeftClose,
   PanelLeftOpen, Play, Plus, RadioTower, RefreshCw, Search, Server, Settings2, Shield, ShieldAlert,
   ShieldCheck, TerminalSquare, Trash2, UserRound, UsersRound, X, Zap,
   type LucideIcon,
@@ -10,13 +10,13 @@ import {
 
 const icons: Record<string, LucideIcon> = {
   overview: LayoutDashboard, alerts: ShieldAlert, incidents: AlertTriangle, events: FileSearch,
-  cases: ClipboardList, assets: Boxes, reports: FileChartColumn, resources: Database, sources: RadioTower,
+  cases: ClipboardList, assets: Boxes, reports: FileChartColumn, resources: Database, sources: RadioTower, tasks: ListTodo,
   rules: Braces, runtime: Gauge, access: KeyRound, coverage: ShieldCheck, topology: Network,
   discovery: Search, response: Zap, exposure: AlertTriangle, intel: Globe2, identity: Fingerprint,
   container: Boxes, ngfw: Shield, ndr: Activity, ids: ShieldAlert, dfir: FileSearch, analysis: TerminalSquare,
   pki: LockKeyhole, evidence: Archive, vpn: Link2, search: Search, refresh: RefreshCw, filter: Filter,
   settings: Settings2, close: X, plus: Plus, menu: Menu, collapse: PanelLeftClose, expand: PanelLeftOpen,
-  check: Check, play: Play, delete: Trash2, user: UserRound, users: UsersRound, server: Server,
+  check: Check, play: Play, delete: Trash2, user: UserRound, users: UsersRound, server: Server, layers: Layers3,
   chart: BarChart3, help: CircleHelp, previous: ChevronLeft, next: ChevronRight, list: ListChecks,
   warning: AlertTriangle,
 };
@@ -58,14 +58,44 @@ export function SearchField({ value, onChange, placeholder = "Поиск..." }: 
   return <label className="kuma-search-field"><Icon name="search" /><input aria-label={placeholder} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} value={value} />{value ? <button aria-label="Очистить" onClick={() => onChange("")} type="button"><Icon name="close" size={14} /></button> : null}</label>;
 }
 
+function useDialogFocus<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const root = useRef<T | null>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!open || !root.current) return undefined;
+    const dialog = root.current;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector = "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusable = () => [...dialog.querySelectorAll<HTMLElement>(focusableSelector)].filter((item) => !item.hidden && item.getAttribute("aria-hidden") !== "true");
+    window.requestAnimationFrame(() => (focusable()[0] ?? dialog).focus());
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); close.current(); return; }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = items[0]; const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => { document.removeEventListener("keydown", handleKey); previous?.focus(); };
+  }, [open]);
+  return root;
+}
+
 export function DetailDrawer({ open, title, eyebrow, actions, onClose, children }: { open: boolean; title: string; eyebrow?: string; actions?: ReactNode; onClose: () => void; children: ReactNode }) {
+  const titleId = useId();
+  const drawer = useDialogFocus<HTMLElement>(open, onClose);
   if (!open) return null;
-  return <><button aria-label="Закрыть окно деталей" className="drawer-scrim" onClick={onClose} type="button" /><aside aria-modal="true" className="detail-drawer open" role="dialog"><header className="detail-drawer-header"><div className="detail-drawer-title">{eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}<h2>{title}</h2></div><button aria-label="Закрыть" className="icon-button" onClick={onClose} type="button"><Icon name="close" /></button></header>{actions ? <div className="detail-drawer-actionbar">{actions}</div> : null}<div className="detail-drawer-body">{children}</div></aside></>;
+  return <><button aria-label="Закрыть окно деталей" className="drawer-scrim" onClick={onClose} type="button" /><aside aria-labelledby={titleId} aria-modal="true" className="detail-drawer open" ref={drawer} role="dialog" tabIndex={-1}><header className="detail-drawer-header"><div className="detail-drawer-title">{eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}<h2 id={titleId}>{title}</h2></div><button aria-label="Закрыть" className="icon-button" onClick={onClose} type="button"><Icon name="close" /></button></header>{actions ? <div className="detail-drawer-actionbar">{actions}</div> : null}<div className="detail-drawer-body">{children}</div></aside></>;
 }
 
 export function Modal({ open, title, onClose, footer, children }: { open: boolean; title: string; onClose: () => void; footer?: ReactNode; children: ReactNode }) {
+  const titleId = useId();
+  const modal = useDialogFocus<HTMLDivElement>(open, onClose);
   if (!open) return null;
-  return <div className="modal-backdrop" onMouseDown={onClose} role="presentation"><div aria-modal="true" className="modal" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><h2>{title}</h2><IconButton icon="close" label="Закрыть" onClick={onClose} /></header><div className="modal-body">{children}</div>{footer ? <footer>{footer}</footer> : null}</div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose} role="presentation"><div aria-labelledby={titleId} aria-modal="true" className="modal" onMouseDown={(event) => event.stopPropagation()} ref={modal} role="dialog" tabIndex={-1}><header><h2 id={titleId}>{title}</h2><IconButton icon="close" label="Закрыть" onClick={onClose} /></header><div className="modal-body">{children}</div>{footer ? <footer>{footer}</footer> : null}</div></div>;
 }
 
 export function LoadingState({ label = "Загрузка данных..." }: { label?: string }) {

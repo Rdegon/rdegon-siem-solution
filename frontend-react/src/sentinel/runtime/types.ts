@@ -334,6 +334,7 @@ export type DashboardDefinition = {
   title: string;
   description?: string;
   built_in?: boolean;
+  widgets?: string[];
   layout?: DashboardLayoutItemRecord[];
   [key: string]: unknown;
 };

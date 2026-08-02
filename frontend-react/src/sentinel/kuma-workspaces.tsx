@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "./runtime/api";
 import type { IncidentDetailResponse } from "./runtime/types";
 import { formatTime, number, severityTone, text, useQuery } from "./runtime/query";
@@ -41,19 +41,23 @@ function incidentId(row: Row) {
 const activeIncidentStatuses = new Set(["new", "open", "assigned", "triaged", "reopened", "in_progress", "escalated"]);
 
 export function IncidentQueueWorkspace({ mode, notify }: { mode: "agg" | "raw"; notify: Notify }) {
+  const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(mode === "agg" ? "active" : "all");
   const [severity, setSeverity] = useState("all");
+  const [windowSize, setWindowSize] = useState(mode === "raw" ? "24h" : "30d");
+  const [rowLimit, setRowLimit] = useState(mode === "raw" ? 100 : 200);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<Row | null>(null);
   const [detail, setDetail] = useState<IncidentDetailResponse | null>(null);
   const [detailError, setDetailError] = useState("");
   const includeTerminal = mode === "agg" && status !== "active";
-  const state = useQuery(`kuma-queue:${mode}:${status}:${query}`, () => api.incidents({ view: mode, q: query, window: "30d", limit: 500, include_terminal: includeTerminal }), 30_000);
+  useEffect(() => { const timer = window.setTimeout(() => setQuery(queryInput.trim()), 400); return () => window.clearTimeout(timer); }, [queryInput]);
+  const state = useQuery(`kuma-queue:${mode}:${status}:${query}:${windowSize}:${rowLimit}`, () => api.incidents({ view: mode, q: query, window: windowSize, limit: rowLimit, include_terminal: includeTerminal }), 30_000);
 
   async function open(row: Row) {
     setSelected(row); setDetail(null); setDetailError("");
-    try { setDetail(await api.incidentDetail(mode, incidentId(row), { window: "30d", event_limit: 100, alert_limit: 100, include_evidence: true })); }
+    try { setDetail(await api.incidentDetail(mode, incidentId(row), { window: windowSize, event_limit: 100, alert_limit: 100, include_evidence: true })); }
     catch (error) { setDetailError(error instanceof Error ? error.message : String(error)); }
   }
 
@@ -102,13 +106,13 @@ export function IncidentQueueWorkspace({ mode, notify }: { mode: "agg" | "raw"; 
   return <div className="native-page kuma-queue-page">
     <PageHeader title={mode === "agg" ? "Инциденты" : "Алерты"} actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} />
     <div className="kuma-commandbar">
-      <SearchField onChange={setQuery} placeholder="Поиск по названию, активу, источнику или исполнителю..." value={query} />
+      <SearchField onChange={setQueryInput} placeholder="Поиск по названию, активу, источнику или исполнителю..." value={queryInput} />
       <div className="kuma-commandbar-actions">
-        <span className="kuma-found">Найдено: <b>{visible.length.toLocaleString("ru-RU")}</b></span>
+        <span className="kuma-found">Показано: <b>{visible.length.toLocaleString("ru-RU")}</b>{number(state.data?.available_count) > visible.length ? ` из ${number(state.data?.available_count).toLocaleString("ru-RU")}` : ""}</span>
         <Button icon="filter" onClick={() => setFilterOpen((value) => !value)}>Фильтры{status !== "all" || severity !== "all" ? " · активны" : ""}</Button>
       </div>
     </div>
-    {filterOpen ? <div className="kuma-filter-strip"><Field label="Состояние"><select onChange={(event) => setStatus(event.target.value)} value={status}><option value="all">Все</option><option value="active">Открытые</option><option value="resolved">Закрытые</option><option value="false_positive">False positive</option></select></Field><Field label="Важность"><select onChange={(event) => setSeverity(event.target.value)} value={severity}><option value="all">Все</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></Field><Button onClick={() => { setStatus("all"); setSeverity("all"); }}>Сбросить</Button></div> : null}
+    {filterOpen ? <div className="kuma-filter-strip"><Field label="Состояние"><select onChange={(event) => setStatus(event.target.value)} value={status}><option value="all">Все</option><option value="active">Открытые</option><option value="resolved">Закрытые</option><option value="false_positive">False positive</option></select></Field><Field label="Важность"><select onChange={(event) => setSeverity(event.target.value)} value={severity}><option value="all">Все</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></Field><Field label="Период"><select onChange={(event) => setWindowSize(event.target.value)} value={windowSize}><option value="24h">24 часа</option><option value="7d">7 дней</option><option value="30d">30 дней</option></select></Field><Field label="Строк"><select onChange={(event) => setRowLimit(Number(event.target.value))} value={rowLimit}><option value={100}>100</option><option value={200}>200</option><option value={250}>250</option><option value={500}>500</option></select></Field><Button onClick={() => { setStatus(mode === "agg" ? "active" : "all"); setSeverity("all"); setWindowSize(mode === "raw" ? "24h" : "30d"); setRowLimit(mode === "raw" ? 100 : 200); setQueryInput(""); }}>Сбросить</Button></div> : null}
     <Boundary state={state}>{() => <Grid columns={mode === "agg" ? incidentColumns : alertColumns} data={visible} onOpen={open} />}</Boundary>
     <DetailDrawer actions={selectedActive ? <><Button icon="user" onClick={() => update({ assignee: "current_user" })}>Назначить мне</Button><Button icon="check" onClick={() => update({ status: "closed", note: "Closed from Sentinel UI" })} tone="primary">Закрыть</Button><Button onClick={() => update({ status: "false_positive", note: "Marked as false positive from Sentinel UI" })} tone="danger">False positive</Button></> : selectedTerminal ? <Button icon="refresh" onClick={() => update({ status: "reopened", note: "Reopened from Sentinel UI" })} tone="primary">Вернуть в работу</Button> : null} eyebrow={selected ? text(selected.severity_agg ?? selected.severity) : undefined} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.rule_name, incidentId(selected)) : "Детали"}>
       {selected ? detailError ? <ErrorState error={new Error(detailError)} retry={() => open(selected)} /> : detail ? <IncidentDetailContent detail={detail} /> : <LoadingState label="Загрузка evidence..." /> : null}
@@ -162,7 +166,7 @@ export function EventsQueryWorkspace({ notify }: { notify: Notify }) {
     <div className="kuma-results-toolbar"><div><h2>Результаты</h2><span>{number(state.data?.total_count ?? state.data?.row_count).toLocaleString("ru-RU")} событий · {number(state.data?.elapsed_ms)} мс</span></div><div><Button onClick={() => { downloadTsv(data, visibleColumns); notify("Результат экспортирован в TSV", "healthy"); }}>Экспорт TSV</Button><IconButton active={columnPicker} icon="settings" label="Настроить столбцы" onClick={() => setColumnPicker((value) => !value)} /></div></div>
     {columnPicker ? <div className="kuma-column-picker">{eventColumns.map((column) => <label key={column.key}><input checked={visibleKeys.includes(column.key)} onChange={(event) => setVisibleKeys((current) => event.target.checked ? [...current, column.key] : current.length > 1 ? current.filter((key) => key !== column.key) : current)} type="checkbox" />{column.title}</label>)}</div> : null}
     <Boundary state={state}>{() => <Grid columns={visibleColumns} data={data} onOpen={setSelected} />}</Boundary>
-    <DetailDrawer actions={selected ? <Button onClick={() => { void navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); notify("JSON события скопирован", "healthy"); }}>Копировать JSON</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? `${text(selected.log_source)} · ${formatTime(selected.ts)}` : "Событие"}>{selected ? <EventDetailContent event={selected} /> : null}</DetailDrawer>
+    <DetailDrawer actions={selected ? <Button onClick={() => { void navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); notify("Данные события скопированы", "healthy"); }}>Копировать данные</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? `${text(selected.log_source)} · ${formatTime(selected.ts)}` : "Событие"}>{selected ? <EventDetailContent event={selected} /> : null}</DetailDrawer>
   </div>;
 }
 

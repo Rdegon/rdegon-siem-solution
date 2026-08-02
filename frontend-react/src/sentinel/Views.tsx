@@ -8,6 +8,7 @@ import { OverviewDashboard } from "./dashboard";
 import { EventDetailContent, IncidentDetailContent } from "./incident-details";
 import { EventsQueryWorkspace, IncidentQueueWorkspace, ResourcesWorkspace, RulesWorkspace } from "./kuma-workspaces";
 import { RecordDetails, RuntimeOverviewCards } from "./record-details";
+import { TaskDispatcherView } from "./task-dispatcher";
 
 type Notify = (message: string, tone?: string) => void;
 type Navigate = (view: View) => void;
@@ -121,7 +122,7 @@ export function EventsView({ notify }: { notify: Notify }) {
   return <div className="native-page"><PageHeader title="Поиск событий" actions={<IconButton icon="refresh" label="Повторить запрос" onClick={state.reload} />} />
     <div className="kuma-query-console"><div className="kuma-query-toolbar"><SearchField onChange={setQuery} placeholder="Полнотекстовый запрос или выражение..." value={query} /><select aria-label="Временной диапазон" onChange={(event) => setWindowSize(event.target.value)} value={windowSize}><option value="1h">1 час</option><option value="24h">24 часа</option><option value="7d">7 дней</option><option value="30d">30 дней</option></select><Button icon="play" onClick={() => setSubmitted((value) => value + 1)} tone="primary">Выполнить</Button></div></div>
     <QueryBoundary state={state}>{(data) => <><div className="native-actionbar"><div><span>Production storage</span></div><div><span>{number(data.total_count ?? data.row_count).toLocaleString("ru-RU")} событий · {number(data.elapsed_ms)} мс</span></div></div><DataTable columns={columns} onOpen={setSelected} rows={data.rows as Row[]} /></>}</QueryBoundary>
-    <DetailDrawer actions={selected ? <Button onClick={() => { navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); notify("JSON события скопирован", "healthy"); }}>Копировать JSON</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? `${text(selected.log_source)} · ${formatTime(selected.ts)}` : "Событие"}>{selected ? <EventDetailContent event={selected} /> : null}</DetailDrawer>
+    <DetailDrawer actions={selected ? <Button onClick={() => { navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); notify("Данные события скопированы", "healthy"); }}>Копировать данные</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? `${text(selected.log_source)} · ${formatTime(selected.ts)}` : "Событие"}>{selected ? <EventDetailContent event={selected} /> : null}</DetailDrawer>
   </div>;
 }
 
@@ -418,6 +419,7 @@ export function PrimaryView({ view, navigate, notify }: { view: View; navigate: 
     case "reports": return <ReportsView notify={notify} />;
     case "resources": return <ResourcesWorkspace notify={notify} />;
     case "sources": return <SourcesView notify={notify} />;
+    case "tasks": return <TaskDispatcherView navigate={navigate} />;
     case "rules": return <RulesWorkspace notify={notify} />;
     case "runtime": return <RuntimeView />;
     case "access": return <AccessView notify={notify} />;

@@ -1,13 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { geoNaturalEarth1, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { FeatureCollection } from "geojson";
 import worldAtlas from "world-atlas/countries-110m.json";
 import { api } from "./runtime/api";
-import type { DashboardSummaryResponse, IncidentRecord } from "./runtime/types";
+import type { DashboardDefinition, DashboardSummaryResponse, IncidentRecord } from "./runtime/types";
 import { formatTime, number, severityTone, text, useQuery } from "./runtime/query";
 import type { View } from "./model";
-import { Badge, Button, EmptyState, ErrorState, IconButton, LoadingState, PageHeader, StatusCell } from "./ui";
+import { Badge, Button, EmptyState, ErrorState, Icon, IconButton, LoadingState, Modal, PageHeader, StatusCell } from "./ui";
 
 type Row = Record<string, unknown>;
 type Navigate = (view: View) => void;
@@ -104,39 +104,101 @@ function IncidentPreview({ rows, navigate }: { rows: IncidentRecord[]; navigate:
   return <div className="sentinel-incident-preview">{rows.slice(0, 8).map((row) => <button key={text(row.agg_id ?? row.alert_id)} onClick={() => navigate("incidents")} type="button"><Badge tone={severityTone(row.severity_agg ?? row.severity)}>{text(row.severity_agg ?? row.severity)}</Badge><span><strong>{text(row.rule_name)}</strong><small>{text(row.source_summary ?? row.source ?? row.entity_key)} · {formatTime(row.ts_last ?? row.ts)}</small></span><StatusCell value={text(row.status)} /></button>)}</div>;
 }
 
+function DashboardEditor({ open, dashboard, catalog, onClose, onSaved }: {
+  open: boolean;
+  dashboard: DashboardDefinition | null;
+  catalog: Array<{ id: string; title: string; description?: string; default_span?: number }>;
+  onClose: () => void;
+  onSaved: (dashboard: DashboardDefinition) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [widgets, setWidgets] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    setTitle(dashboard?.built_in ? `${dashboard.title} — копия` : dashboard?.title ?? "Новый макет SOC");
+    setDescription(dashboard?.description ?? "");
+    setWidgets(dashboard?.widgets ?? dashboard?.layout?.map((item) => item.widget) ?? ["kpis", "timelines", "incident_queue"]);
+    setError("");
+  }, [dashboard, open]);
+  async function save() {
+    setSaving(true); setError("");
+    try {
+      const result = await api.saveDashboard({
+        id: dashboard?.built_in ? "" : dashboard?.id ?? "",
+        title,
+        description,
+        widgets,
+        layout: widgets.map((widget) => ({ widget, span: catalog.find((item) => item.id === widget)?.default_span ?? 1 })),
+      });
+      onSaved(result);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setSaving(false); }
+  }
+  return <Modal footer={<><Button onClick={onClose}>Отмена</Button><Button disabled={saving || !title.trim() || !widgets.length} onClick={() => void save()} tone="primary">{saving ? "Сохранение..." : "Сохранить макет"}</Button></>} onClose={onClose} open={open} title={dashboard ? "Редактирование макета" : "Новый макет"}>
+    <div className="dashboard-editor-form">
+      <label><span>Название</span><input onChange={(event) => setTitle(event.target.value)} value={title} /></label>
+      <label><span>Описание</span><textarea onChange={(event) => setDescription(event.target.value)} rows={3} value={description} /></label>
+      <fieldset><legend>Виджеты</legend><div className="kuma-widget-catalog">{catalog.map((item) => <button aria-pressed={widgets.includes(item.id)} className={widgets.includes(item.id) ? "selected" : ""} key={item.id} onClick={() => setWidgets((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} type="button"><Icon name={widgets.includes(item.id) ? "check" : "plus"} /><span><strong>{item.title}</strong><small>{item.description}</small></span><Badge tone={widgets.includes(item.id) ? "healthy" : "info"}>{item.default_span === 2 ? "широкий" : "обычный"}</Badge></button>)}</div></fieldset>
+      {error ? <div className="sentinel-partial-warning"><Badge tone="critical">Ошибка</Badge><span>{error}</span></div> : null}
+    </div>
+  </Modal>;
+}
+
 export function OverviewDashboard({ navigate }: { navigate: Navigate }) {
-  const dashboard = useQuery("dashboard:24h", () => api.dashboard({ window: "24h", bucket_minutes: 60, recent_limit: 12 }), 60_000);
+  const [window, setWindow] = useState("24h");
+  const [refreshMs, setRefreshMs] = useState(60_000);
+  const [selectedDashboardId, setSelectedDashboardId] = useState(() => localStorage.getItem("sentinel-dashboard") || "security-overview");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorDashboard, setEditorDashboard] = useState<DashboardDefinition | null>(null);
+  const registry = useQuery("dashboard:registry", api.dashboards, 60_000);
+  const dashboard = useQuery(`dashboard:${window}`, () => api.dashboard({ window, bucket_minutes: window === "24h" ? 60 : window === "7d" ? 360 : 30, recent_limit: 12 }), refreshMs);
   const incidents = useQuery("dashboard:incidents", () => api.incidents({ view: "agg", window: "30d", limit: 50 }), 30_000);
   const sources = useQuery("dashboard:sources", () => api.sourcesInventory({ hours: 24, limit: 500 }), 60_000);
   const security = useQuery("dashboard:security", () => api.securityServices(), 60_000);
+  const selectedDashboard = registry.data?.dashboards.find((item) => item.id === selectedDashboardId) ?? registry.data?.dashboards[0] ?? null;
+  const selectedWidgets = new Set(selectedDashboard?.widgets ?? selectedDashboard?.layout?.map((item) => item.widget) ?? ["kpis", "timelines", "geo_sources", "severity_breakdown", "incident_queue", "incidents_preview", "categories", "sources", "ports"]);
+  const show = (widget: string) => selectedWidgets.has(widget);
+  useEffect(() => { if (selectedDashboard) { setSelectedDashboardId(selectedDashboard.id); localStorage.setItem("sentinel-dashboard", selectedDashboard.id); } }, [selectedDashboard]);
   const data: DashboardSummaryResponse = dashboard.data ?? {};
   const incidentRows = incidents.data?.items ?? [];
   const sourceRows = sources.data?.items ?? [];
   const unhealthySources = sourceRows.filter((row) => !/active|healthy|online|норма/i.test(text(row.status, "")));
   const partialErrors = [dashboard.error, incidents.error, sources.error, security.error].filter(Boolean);
-  return <div className="native-page sentinel-dashboard"><PageHeader eyebrow="SOC · production telemetry" title="Панель мониторинга" actions={<IconButton icon="refresh" label="Обновить все виджеты" onClick={() => { dashboard.reload(); incidents.reload(); sources.reload(); security.reload(); }} />} />
+  return <div className="native-page sentinel-dashboard"><PageHeader eyebrow="SOC · production telemetry" title="Панель мониторинга" actions={<><Button icon="settings" onClick={() => { setEditorDashboard(selectedDashboard); setEditorOpen(true); }}>Редактировать макет</Button><Button icon="plus" onClick={() => { setEditorDashboard(null); setEditorOpen(true); }} tone="primary">Новый макет</Button><IconButton icon="refresh" label="Обновить все виджеты" onClick={() => { dashboard.reload(); incidents.reload(); sources.reload(); security.reload(); registry.reload(); }} /></>} />
+    <div className="dashboard-toolbar">
+      <div className="dashboard-layouts">{registry.data?.dashboards.map((item) => <button className={selectedDashboard?.id === item.id ? "active" : ""} key={item.id} onClick={() => setSelectedDashboardId(item.id)} type="button">{item.title.split("/")[0].trim()}{item.built_in ? "" : " · custom"}</button>)}</div>
+      <div className="dashboard-scope"><label><span>Период</span><select aria-label="Период дашборда" onChange={(event) => setWindow(event.target.value)} value={window}><option value="1h">1 час</option><option value="24h">24 часа</option><option value="7d">7 дней</option><option value="30d">30 дней</option></select></label><label><span>Обновление</span><select aria-label="Интервал обновления" onChange={(event) => setRefreshMs(Number(event.target.value))} value={refreshMs}><option value={0}>Вручную</option><option value={30000}>30 секунд</option><option value={60000}>1 минута</option><option value={300000}>5 минут</option></select></label></div>
+    </div>
+    {registry.error ? <div className="sentinel-partial-warning"><Badge tone="warning">Макеты недоступны</Badge><span>{registry.error.message}</span></div> : null}
     {partialErrors.length ? <div className="sentinel-partial-warning"><Badge tone="warning">Частичные данные</Badge><span>{partialErrors.map((error) => error?.message).join(" · ")}</span></div> : null}
-    <section className="metric-grid sentinel-dashboard-metrics">
+    {show("kpis") ? <section className="metric-grid sentinel-dashboard-metrics">
       <Metric detail="нормализованный поток" label="События за 1 час" value={number(data.metrics?.events_1h).toLocaleString("ru-RU")} />
       <Metric detail="горячее хранилище" label="События за 24 часа" value={number(data.metrics?.events_24h).toLocaleString("ru-RU")} />
       <Metric detail="ожидают triage" label="Открытые инциденты" tone={incidentRows.length ? "warning" : ""} value={incidentRows.length} />
       <Metric detail={`${unhealthySources.length} с отклонениями`} label="Активные источники" value={number(data.metrics?.active_sources_24h) || sourceRows.length} />
       <Metric detail="совпадения с TI" label="Threat Intelligence" tone={number(data.metrics?.ti_hits_24h) ? "warning" : ""} value={number(data.metrics?.ti_hits_24h).toLocaleString("ru-RU")} />
       <Metric detail={`${number(security.data?.total)} интеграций`} label="Средства защиты" value={`${number(security.data?.healthy)}/${number(security.data?.total)}`} />
-    </section>
+    </section> : null}
     {dashboard.loading && !dashboard.data ? <LoadingState label="Формирование аналитических виджетов..." /> : dashboard.error && !dashboard.data ? <ErrorState error={dashboard.error} retry={dashboard.reload} /> : <>
       <div className="sentinel-dashboard-grid sentinel-dashboard-grid-main">
-        <Panel className="span-2" subtitle="Почасовая нагрузка production transport" title="Поток событий и алертов"><Timeline alerts={(data.alert_timeline ?? []) as Row[]} events={(data.timeline ?? []) as Row[]} /></Panel>
-        <Panel subtitle="Triage: critical 15 мин, high 1 ч, medium 4 ч" title="SLA инцидентов"><SlaPanel incidents={incidentRows} /></Panel>
-        <Panel className="span-2" subtitle="GeoIP внешних адресов, зафиксированных источниками" title="Карта сетевой активности"><WorldActivityMap rows={(data.geo_sources?.items ?? []) as Row[]} /></Panel>
-        <Panel subtitle="Нормализованные события за 24 часа" title="Важность событий"><Bars rows={(data.severity_breakdown ?? []) as Row[]} /></Panel>
+        {show("timelines") ? <Panel className="span-2" subtitle="Нагрузка production transport за выбранный период" title="Поток событий и алертов"><Timeline alerts={(data.alert_timeline ?? []) as Row[]} events={(data.timeline ?? []) as Row[]} /></Panel> : null}
+        {show("incident_queue") ? <Panel subtitle="Triage: critical 15 мин, high 1 ч, medium 4 ч" title="SLA инцидентов"><SlaPanel incidents={incidentRows} /></Panel> : null}
+        {show("geo_sources") ? <Panel className="span-2" subtitle="GeoIP внешних адресов, зафиксированных источниками" title="Карта сетевой активности"><WorldActivityMap rows={(data.geo_sources?.items ?? []) as Row[]} /></Panel> : null}
+        {show("geo_vpn_destinations") ? <Panel className="span-2" subtitle="Назначения, наблюдаемые за VPN egress" title="География VPN"><WorldActivityMap rows={(data.geo_vpn_destinations?.items ?? []) as Row[]} /></Panel> : null}
+        {show("severity_breakdown") ? <Panel subtitle="Нормализованные события за выбранный период" title="Важность событий"><Bars rows={(data.severity_breakdown ?? []) as Row[]} /></Panel> : null}
+        {show("threat_intel") ? <Panel subtitle="Провайдеры совпадений и индикаторов" title="Threat Intelligence"><Bars labelKey="provider" rows={(data.threat_intel?.providers ?? []) as Row[]} /></Panel> : null}
       </div>
       <div className="sentinel-dashboard-grid">
-        <Panel action={<Button onClick={() => navigate("incidents")} tone="ghost">Вся очередь</Button>} className="span-2" subtitle="Текущие агрегированные срабатывания" title="Открытые инциденты"><IncidentPreview navigate={navigate} rows={incidentRows} /></Panel>
-        <Panel subtitle="Распределение нормализованного потока" title="Категории событий"><Bars rows={(data.top_categories ?? []) as Row[]} /></Panel>
-        <Panel subtitle="Наиболее активные подключенные источники" title="Источники"><Bars labelKey="log_source" rows={(data.top_sources ?? []) as Row[]} valueKeys={["events"]} /></Panel>
-        <Panel subtitle="Адреса назначения и сервисы" title="Целевые порты"><Bars labelKey="service" rows={(data.top_target_ports ?? []) as Row[]} valueKeys={["attempts"]} /></Panel>
+        {show("incidents_preview") ? <Panel action={<Button onClick={() => navigate("incidents")} tone="ghost">Вся очередь</Button>} className="span-2" subtitle="Текущие агрегированные срабатывания" title="Открытые инциденты"><IncidentPreview navigate={navigate} rows={incidentRows} /></Panel> : null}
+        {show("categories") ? <Panel subtitle="Распределение нормализованного потока" title="Категории событий"><Bars rows={(data.top_categories ?? []) as Row[]} /></Panel> : null}
+        {show("sources") ? <Panel subtitle="Наиболее активные подключенные источники" title="Источники"><Bars labelKey="log_source" rows={(data.top_sources ?? []) as Row[]} valueKeys={["events"]} /></Panel> : null}
+        {show("ports") ? <Panel subtitle="Адреса назначения и сервисы" title="Целевые порты"><Bars labelKey="service" rows={(data.top_target_ports ?? []) as Row[]} valueKeys={["attempts"]} /></Panel> : null}
+        {show("vpn_sites") ? <Panel subtitle="Домены, наблюдаемые за VPN egress" title="VPN: посещаемые сайты"><Bars labelKey="domain" rows={(data.top_vpn_sites ?? []) as Row[]} valueKeys={["visits"]} /></Panel> : null}
       </div>
     </>}
+    <DashboardEditor catalog={registry.data?.widget_catalog ?? []} dashboard={editorDashboard} onClose={() => setEditorOpen(false)} onSaved={(saved) => { setEditorOpen(false); setSelectedDashboardId(saved.id); registry.reload(); }} open={editorOpen} />
   </div>;
 }
