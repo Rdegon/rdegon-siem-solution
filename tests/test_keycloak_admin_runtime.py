@@ -93,6 +93,54 @@ class KeycloakAdminRuntimeTests(unittest.TestCase):
         self.assertEqual("rotated", payload["secret"])
         append_audit_event.assert_called_once()
 
+    def test_update_user_applies_an_explicit_empty_role_set(self) -> None:
+        current = {
+            "id": "user-1",
+            "username": "alice",
+            "enabled": True,
+            "roles": [{"id": "role-1", "name": "analyst"}],
+            "groups": [],
+            "attributes": {},
+        }
+        updated = {**current, "roles": []}
+        with patch("keycloak_admin_runtime.get_user", side_effect=[current, updated]):
+            with patch("keycloak_admin_runtime._auth_token", return_value="token"):
+                with patch("keycloak_admin_runtime._request", return_value=(204, {}, {})):
+                    with patch("keycloak_admin_runtime.set_user_roles", return_value=updated) as set_roles:
+                        with patch("keycloak_admin_runtime.append_audit_event"):
+                            payload = self.runtime.update_user("user-1", {"roles": []}, actor="admin")
+
+        self.assertEqual([], payload["roles"])
+        set_roles.assert_called_once_with("user-1", {"roles": []}, actor="admin")
+
+    def test_set_user_roles_rejects_unknown_roles(self) -> None:
+        with patch("keycloak_admin_runtime.list_roles", return_value=[{"id": "role-1", "name": "viewer"}]):
+            with patch("keycloak_admin_runtime.get_user", return_value={"id": "user-1", "username": "alice", "roles": []}):
+                with self.assertRaisesRegex(ValueError, "Unknown Keycloak realm roles"):
+                    self.runtime.set_user_roles("user-1", {"roles": ["made-up-role"]}, actor="admin")
+
+    def test_delete_user_rejects_current_principal(self) -> None:
+        detail = {"id": "user-1", "username": "alice", "enabled": True, "roles": []}
+        with patch("keycloak_admin_runtime.get_user", return_value=detail):
+            with patch("keycloak_admin_runtime._request") as request:
+                with self.assertRaisesRegex(RuntimeError, "currently authenticated"):
+                    self.runtime.delete_user("user-1", actor="alice")
+        request.assert_not_called()
+
+    def test_delete_user_rejects_last_enabled_realm_admin(self) -> None:
+        detail = {
+            "id": "user-1",
+            "username": "alice",
+            "enabled": True,
+            "roles": [{"id": "role-admin", "name": "admin"}],
+        }
+        with patch("keycloak_admin_runtime.get_user", return_value=detail):
+            with patch("keycloak_admin_runtime._active_admin_users", return_value=[detail], create=True):
+                with patch("keycloak_admin_runtime._request") as request:
+                    with self.assertRaisesRegex(RuntimeError, "last enabled administrator"):
+                        self.runtime.delete_user("user-1", actor="break-glass-admin")
+        request.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

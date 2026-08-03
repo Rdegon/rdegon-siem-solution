@@ -653,6 +653,11 @@ export type KeycloakUserRecord = {
   roles?: KeycloakRoleRecord[];
   sessions?: KeycloakUserSessionRecord[];
   attributes?: Record<string, unknown>;
+  management_backend?: "keycloak";
+  siem_grant_id?: string;
+  siem_role?: string;
+  siem_access_enabled?: boolean;
+  siem_sections?: string[];
 };
 
 export type KeycloakUsersResponse = {

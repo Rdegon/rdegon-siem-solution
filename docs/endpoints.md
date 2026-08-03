@@ -51,8 +51,9 @@ Legacy pages such as `/dashboards` remain compatibility surfaces and are not the
 | `GET,DELETE` | `/api/auth/users/{username}` | Local-user detail and delete |
 | `POST` | `/api/auth/users/{username}/password` | Local-user password rotation |
 | `GET` | `/api/auth/keycloak/status` | Keycloak runtime and realm inventory health |
-| `GET,POST` | `/api/auth/keycloak/users` | Keycloak user inventory and create |
-| `GET,POST` | `/api/auth/keycloak/users/{user_id}` | Keycloak user detail and update |
+| `GET,POST` | `/api/auth/keycloak/users` | Keycloak user inventory and managed create; optional `siem_role` creates the real Sentinel grant |
+| `GET,POST` | `/api/auth/keycloak/users/{user_id}` | Keycloak user detail and update of profile, status, realm roles and Sentinel role |
+| `DELETE` | `/api/auth/keycloak/users/{user_id}` | Delete Keycloak identity and linked Sentinel grants; current/last-admin guards return `409` |
 | `POST` | `/api/auth/keycloak/users/{user_id}/password` | Keycloak password reset |
 | `POST` | `/api/auth/keycloak/users/{user_id}/groups` | Keycloak group membership update |
 | `POST` | `/api/auth/keycloak/users/{user_id}/roles` | Keycloak role assignment update |

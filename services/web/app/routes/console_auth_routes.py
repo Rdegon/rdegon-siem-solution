@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .auth import get_current_user
 from ..control_plane_access_ops import (
+    AccessMutationConflict,
     delete_access_grant,
     delete_service_account,
     delete_local_user,
@@ -30,22 +31,26 @@ from ..control_plane_access_ops import (
 )
 from ..control_plane_health import get_auth_governance_overview, get_auth_overview
 from ..keycloak_admin_runtime import (
-    create_user as create_keycloak_user,
-    delete_user as delete_keycloak_user,
+    KeycloakMutationConflict,
     get_client as get_keycloak_client,
-    get_user as get_keycloak_user,
     list_clients as list_keycloak_clients,
     list_groups as list_keycloak_groups,
     list_roles as list_keycloak_roles,
-    list_users as list_keycloak_users,
     rotate_client_secret as rotate_keycloak_client_secret,
     save_client as save_keycloak_client,
     save_group as save_keycloak_group,
     save_role as save_keycloak_role,
+    status as keycloak_admin_status,
+)
+from ..identity_user_runtime import (
+    IdentityUserConflict,
+    create_user as create_keycloak_user,
+    delete_user as delete_keycloak_user,
+    get_user as get_keycloak_user,
+    list_users as list_keycloak_users,
     set_user_groups as set_keycloak_user_groups,
     set_user_password as set_keycloak_user_password,
     set_user_roles as set_keycloak_user_roles,
-    status as keycloak_admin_status,
     update_user as update_keycloak_user,
 )
 from ..oidc_runtime import providers_inventory
@@ -200,8 +205,10 @@ async def update_keycloak_user_api(
 ) -> JSONResponse:
     try:
         return JSONResponse(update_keycloak_user(user_id, dict(payload or {}), actor=str(getattr(user, "username", "web") or "web")))
+    except (IdentityUserConflict, KeycloakMutationConflict) as exc:
+        return JSONResponse({"error": str(exc), "code": "identity_mutation_conflict"}, status_code=409)
     except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=404)
+        return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -213,8 +220,10 @@ async def delete_keycloak_user_api(
 ) -> JSONResponse:
     try:
         return JSONResponse(delete_keycloak_user(user_id, actor=str(getattr(user, "username", "web") or "web")))
+    except (IdentityUserConflict, KeycloakMutationConflict) as exc:
+        return JSONResponse({"error": str(exc), "code": "identity_mutation_conflict"}, status_code=409)
     except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=404)
+        return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -255,8 +264,10 @@ async def set_keycloak_user_roles_api(
 ) -> JSONResponse:
     try:
         return JSONResponse(set_keycloak_user_roles(user_id, dict(payload or {}), actor=str(getattr(user, "username", "web") or "web")))
+    except (IdentityUserConflict, KeycloakMutationConflict) as exc:
+        return JSONResponse({"error": str(exc), "code": "identity_mutation_conflict"}, status_code=409)
     except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=404)
+        return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -517,6 +528,8 @@ async def save_local_user_api(
 ) -> JSONResponse:
     try:
         return JSONResponse(save_local_user(dict(payload or {}), actor=str(getattr(user, "username", "web") or "web")))
+    except AccessMutationConflict as exc:
+        return JSONResponse({"error": str(exc), "code": "identity_mutation_conflict"}, status_code=409)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -546,6 +559,8 @@ async def delete_local_user_api(
 ) -> JSONResponse:
     try:
         return JSONResponse(delete_local_user(username, actor=str(getattr(user, "username", "web") or "web")))
+    except AccessMutationConflict as exc:
+        return JSONResponse({"error": str(exc), "code": "identity_mutation_conflict"}, status_code=409)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 

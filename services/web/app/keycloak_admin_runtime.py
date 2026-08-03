@@ -28,6 +28,11 @@ except ImportError:  # pragma: no cover - local test fallback
 
 _TOKEN_LOCK = threading.RLock()
 _TOKEN_CACHE: dict[str, Any] = {"value": "", "expires_epoch": 0.0}
+_USER_MUTATION_LOCK = threading.RLock()
+
+
+class KeycloakMutationConflict(RuntimeError):
+    """A requested identity mutation would violate an operator safety invariant."""
 
 
 def _string(value: Any) -> str:
@@ -201,6 +206,15 @@ def _auth_token() -> str:
 
 
 def _user_summary(item: dict[str, Any]) -> dict[str, Any]:
+    attributes = dict(item.get("attributes") or {})
+
+    def attribute(name: str) -> str:
+        value = attributes.get(name)
+        if isinstance(value, list):
+            return _string(value[0] if value else "")
+        return _string(value)
+
+    siem_role = attribute("rdegon_sentinel_role")
     return {
         "id": _string(item.get("id")),
         "username": _string(item.get("username")),
@@ -210,6 +224,9 @@ def _user_summary(item: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(item.get("enabled", True)),
         "email_verified": bool(item.get("emailVerified", False)),
         "created_ts": int(item.get("createdTimestamp") or 0),
+        "siem_role": siem_role,
+        "siem_access_enabled": bool(siem_role) and bool(item.get("enabled", True)),
+        "management_backend": "keycloak",
     }
 
 
@@ -329,10 +346,68 @@ def get_user(user_id: str) -> dict[str, Any]:
     status, sessions_payload, _ = _request(f"/users/{urllib.parse.quote(safe_user_id)}/sessions", token=_auth_token())
     detail["sessions"] = list(sessions_payload) if status == 200 and isinstance(sessions_payload, list) else []
     detail["attributes"] = dict((user_payload if isinstance(user_payload, dict) else {}).get("attributes") or {})
+    detail["siem_role"] = next(
+        (
+            _string(item.get("name"))
+            for item in detail["roles"]
+            if _string(item.get("name")) in {"admin", "analyst", "viewer"}
+        ),
+        _string(detail.get("siem_role")),
+    )
+    detail["siem_access_enabled"] = bool(detail["siem_role"]) and bool(detail.get("enabled", True))
+    detail["management_backend"] = "keycloak"
     return detail
 
 
+def _admin_role_name() -> str:
+    return _string(os.getenv("SIEM_KEYCLOAK_ADMIN_ROLE") or "admin")
+
+
+def _active_admin_users() -> list[dict[str, Any]]:
+    role_name = _admin_role_name()
+    status, payload, _ = _request(
+        f"/roles/{urllib.parse.quote(role_name, safe='')}/users?first=0&max=500",
+        token=_auth_token(),
+    )
+    data = _ensure_ok(status, payload, allowed={200})
+    return [
+        _user_summary(dict(item))
+        for item in (data if isinstance(data, list) else [])
+        if bool(dict(item).get("enabled", True))
+    ]
+
+
+def _user_has_admin_role(detail: dict[str, Any]) -> bool:
+    role_name = _admin_role_name().casefold()
+    return any(_string(item.get("name")).casefold() == role_name for item in list(detail.get("roles") or []))
+
+
+def _ensure_safe_user_mutation(
+    detail: dict[str, Any],
+    *,
+    actor: str,
+    deleting: bool = False,
+    disabling: bool = False,
+    removing_admin: bool = False,
+) -> None:
+    username = _string(detail.get("username"))
+    if (deleting or disabling or removing_admin) and username and username.casefold() == _string(actor).casefold():
+        raise KeycloakMutationConflict("The currently authenticated user cannot be deleted, disabled, or demoted")
+    if not bool(detail.get("enabled", True)) or not _user_has_admin_role(detail):
+        return
+    if deleting or disabling or removing_admin:
+        active_admins = _active_admin_users()
+        if len(active_admins) <= 1:
+            raise KeycloakMutationConflict("The last enabled administrator cannot be deleted, disabled, or demoted")
+
+
 def create_user(payload: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
+    siem_role = _string(payload.get("siem_role"))
+    if siem_role and siem_role not in {"admin", "analyst", "viewer"}:
+        raise ValueError(f"Unsupported Sentinel role: {siem_role}")
+    attributes = dict(payload.get("attributes") or {})
+    if siem_role:
+        attributes["rdegon_sentinel_role"] = [siem_role]
     body = {
         "username": _string(payload.get("username")),
         "email": _string(payload.get("email")),
@@ -340,7 +415,7 @@ def create_user(payload: dict[str, Any], *, actor: str = "system") -> dict[str, 
         "lastName": _string(payload.get("last_name") or payload.get("lastName")),
         "enabled": bool(payload.get("enabled", True)),
         "emailVerified": bool(payload.get("email_verified", False)),
-        "attributes": dict(payload.get("attributes") or {}),
+        "attributes": attributes,
     }
     if not body["username"]:
         raise ValueError("username is required")
@@ -357,8 +432,9 @@ def create_user(payload: dict[str, Any], *, actor: str = "system") -> dict[str, 
         set_user_password(user_id, {"password": _string(payload.get("password")), "temporary": bool(payload.get("temporary_password", False))}, actor=actor)
     if payload.get("group_ids") or payload.get("group_names"):
         set_user_groups(user_id, payload, actor=actor)
-    if payload.get("roles"):
-        set_user_roles(user_id, payload, actor=actor)
+    desired_roles = list(payload.get("roles") or [])
+    if desired_roles:
+        set_user_roles(user_id, {"roles": desired_roles}, actor=actor)
     detail = get_user(user_id)
     append_audit_event(
         actor=actor,
@@ -372,24 +448,40 @@ def create_user(payload: dict[str, Any], *, actor: str = "system") -> dict[str, 
 
 
 def update_user(user_id: str, payload: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
-    current = get_user(user_id)
-    body = {
-        "id": _string(user_id),
-        "username": _string(payload.get("username") if "username" in payload else current.get("username")),
-        "email": _string(payload.get("email") if "email" in payload else current.get("email")),
-        "firstName": _string(payload.get("first_name") if "first_name" in payload else payload.get("firstName") if "firstName" in payload else current.get("first_name")),
-        "lastName": _string(payload.get("last_name") if "last_name" in payload else payload.get("lastName") if "lastName" in payload else current.get("last_name")),
-        "enabled": bool(payload.get("enabled")) if "enabled" in payload else bool(current.get("enabled", True)),
-        "emailVerified": bool(payload.get("email_verified")) if "email_verified" in payload else bool(current.get("email_verified", False)),
-        "attributes": dict(payload.get("attributes") if "attributes" in payload else current.get("attributes") or {}),
-    }
-    status, response_payload, _ = _request(f"/users/{urllib.parse.quote(_string(user_id))}", method="PUT", payload=body, token=_auth_token())
-    _ensure_ok(status, response_payload, allowed={204})
-    if payload.get("group_ids") or payload.get("group_names"):
-        set_user_groups(user_id, payload, actor=actor)
-    if payload.get("roles"):
-        set_user_roles(user_id, payload, actor=actor)
-    detail = get_user(user_id)
+    with _USER_MUTATION_LOCK:
+        current = get_user(user_id)
+        desired_enabled = bool(payload.get("enabled")) if "enabled" in payload else bool(current.get("enabled", True))
+        _ensure_safe_user_mutation(
+            current,
+            actor=actor,
+            disabling=bool(current.get("enabled", True)) and not desired_enabled,
+        )
+        siem_role = _string(payload.get("siem_role")) if "siem_role" in payload else _string(current.get("siem_role"))
+        if siem_role and siem_role not in {"admin", "analyst", "viewer"}:
+            raise ValueError(f"Unsupported Sentinel role: {siem_role}")
+        attributes = dict(payload.get("attributes") if "attributes" in payload else current.get("attributes") or {})
+        if "siem_role" in payload:
+            if siem_role:
+                attributes["rdegon_sentinel_role"] = [siem_role]
+            else:
+                attributes.pop("rdegon_sentinel_role", None)
+        body = {
+            "id": _string(user_id),
+            "username": _string(payload.get("username") if "username" in payload else current.get("username")),
+            "email": _string(payload.get("email") if "email" in payload else current.get("email")),
+            "firstName": _string(payload.get("first_name") if "first_name" in payload else payload.get("firstName") if "firstName" in payload else current.get("first_name")),
+            "lastName": _string(payload.get("last_name") if "last_name" in payload else payload.get("lastName") if "lastName" in payload else current.get("last_name")),
+            "enabled": desired_enabled,
+            "emailVerified": bool(payload.get("email_verified")) if "email_verified" in payload else bool(current.get("email_verified", False)),
+            "attributes": attributes,
+        }
+        status, response_payload, _ = _request(f"/users/{urllib.parse.quote(_string(user_id))}", method="PUT", payload=body, token=_auth_token())
+        _ensure_ok(status, response_payload, allowed={204})
+        if "group_ids" in payload or "group_names" in payload:
+            set_user_groups(user_id, payload, actor=actor)
+        if "roles" in payload:
+            set_user_roles(user_id, {"roles": list(payload.get("roles") or [])}, actor=actor)
+        detail = get_user(user_id)
     append_audit_event(
         actor=actor,
         action="keycloak.user.updated",
@@ -425,12 +517,13 @@ def set_user_password(user_id: str, payload: dict[str, Any], *, actor: str = "sy
 
 
 def delete_user(user_id: str, *, actor: str = "system") -> dict[str, Any]:
-    detail = get_user(user_id)
-    safe_user_id = _string(user_id)
-    if not safe_user_id:
-        raise ValueError("user_id is required")
-    status, response_payload, _ = _request(f"/users/{urllib.parse.quote(safe_user_id)}", method="DELETE", token=_auth_token())
-    _ensure_ok(status, response_payload, allowed={204})
+    with _USER_MUTATION_LOCK:
+        detail = get_user(user_id)
+        safe_user_id = _string(user_id)
+        if not safe_user_id:
+            raise ValueError("user_id is required")
+        _ensure_safe_user_mutation(detail, actor=actor, deleting=True)
+        _delete_user_unchecked(safe_user_id)
     append_audit_event(
         actor=actor,
         action="keycloak.user.deleted",
@@ -440,6 +533,19 @@ def delete_user(user_id: str, *, actor: str = "system") -> dict[str, Any]:
         details={"username": detail.get("username")},
     )
     return {"deleted": True, "id": safe_user_id, "username": detail.get("username")}
+
+
+def _delete_user_unchecked(user_id: str) -> None:
+    """Compensating delete for a just-created user before it becomes managed."""
+    safe_user_id = _string(user_id)
+    if not safe_user_id:
+        raise ValueError("user_id is required")
+    status, response_payload, _ = _request(
+        f"/users/{urllib.parse.quote(safe_user_id)}",
+        method="DELETE",
+        token=_auth_token(),
+    )
+    _ensure_ok(status, response_payload, allowed={204})
 
 
 def set_user_groups(user_id: str, payload: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
@@ -489,27 +595,38 @@ def list_roles() -> list[dict[str, Any]]:
 def set_user_roles(user_id: str, payload: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
     desired_names = {_string(item) for item in (payload.get("roles") or []) if _string(item)}
     role_index = {_string(item.get("name")): dict(item) for item in list_roles()}
-    current_roles = {_string(item.get("name")): dict(item) for item in get_user(user_id).get("roles", [])}
-    token = _auth_token()
-    to_remove = [current_roles[name] for name in sorted(set(current_roles) - desired_names) if name in current_roles]
-    if to_remove:
-        status, response_payload, _ = _request(
-            f"/users/{urllib.parse.quote(_string(user_id))}/role-mappings/realm",
-            method="DELETE",
-            payload=to_remove,
-            token=token,
+    unknown_roles = sorted(desired_names - set(role_index))
+    if unknown_roles:
+        raise ValueError(f"Unknown Keycloak realm roles: {', '.join(unknown_roles)}")
+    with _USER_MUTATION_LOCK:
+        current = get_user(user_id)
+        current_roles = {_string(item.get("name")): dict(item) for item in current.get("roles", [])}
+        admin_role = _admin_role_name()
+        _ensure_safe_user_mutation(
+            current,
+            actor=actor,
+            removing_admin=admin_role in current_roles and admin_role not in desired_names,
         )
-        _ensure_ok(status, response_payload, allowed={204})
-    to_add = [role_index[name] for name in sorted(desired_names - set(current_roles)) if name in role_index]
-    if to_add:
-        status, response_payload, _ = _request(
-            f"/users/{urllib.parse.quote(_string(user_id))}/role-mappings/realm",
-            method="POST",
-            payload=to_add,
-            token=token,
-        )
-        _ensure_ok(status, response_payload, allowed={204})
-    detail = get_user(user_id)
+        token = _auth_token()
+        to_remove = [current_roles[name] for name in sorted(set(current_roles) - desired_names) if name in current_roles]
+        if to_remove:
+            status, response_payload, _ = _request(
+                f"/users/{urllib.parse.quote(_string(user_id))}/role-mappings/realm",
+                method="DELETE",
+                payload=to_remove,
+                token=token,
+            )
+            _ensure_ok(status, response_payload, allowed={204})
+        to_add = [role_index[name] for name in sorted(desired_names - set(current_roles))]
+        if to_add:
+            status, response_payload, _ = _request(
+                f"/users/{urllib.parse.quote(_string(user_id))}/role-mappings/realm",
+                method="POST",
+                payload=to_add,
+                token=token,
+            )
+            _ensure_ok(status, response_payload, allowed={204})
+        detail = get_user(user_id)
     append_audit_event(
         actor=actor,
         action="keycloak.user.roles_updated",

@@ -9,6 +9,10 @@ import secrets as pysecrets
 from typing import Any
 
 
+class AccessMutationConflict(RuntimeError):
+    """A local access mutation would remove the safe break-glass path."""
+
+
 def _core():
     try:
         from . import enterprise_control_plane as module
@@ -1299,6 +1303,33 @@ def get_local_user(username: str) -> dict[str, Any] | None:
     return _user_public_view(item) if item else None
 
 
+def _ensure_safe_local_admin_mutation(
+    rows: list[dict[str, Any]],
+    current: dict[str, Any],
+    *,
+    actor: str,
+    deleting: bool = False,
+    desired_role: str = "",
+    desired_enabled: bool | None = None,
+) -> None:
+    username = str(current.get("username") or "").strip()
+    role_demotion = str(current.get("role") or "").lower() == "admin" and desired_role not in {"", "admin"}
+    status_disable = bool(current.get("enabled", True)) and desired_enabled is False
+    removes_access = deleting or role_demotion or status_disable
+    if removes_access and username.casefold() == str(actor or "").strip().casefold():
+        raise AccessMutationConflict("The current break-glass user cannot be deleted, disabled, or demoted")
+    is_enabled_admin = str(current.get("role") or "").lower() == "admin" and bool(current.get("enabled", True))
+    if not is_enabled_admin or not removes_access:
+        return
+    enabled_admins = [
+        row
+        for row in rows
+        if str(row.get("role") or "").lower() == "admin" and bool(row.get("enabled", True))
+    ]
+    if len(enabled_admins) <= 1:
+        raise AccessMutationConflict("The last enabled break-glass administrator cannot be deleted, disabled, or demoted")
+
+
 def save_local_user(payload: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
     safe_username = str(payload.get("username") or "").strip()
     if not safe_username:
@@ -1308,6 +1339,14 @@ def save_local_user(payload: dict[str, Any], *, actor: str = "system") -> dict[s
         raise ValueError(f"Unsupported role: {role}")
     rows = _collection("local_users", _default_local_users)
     existing = next((row for row in rows if str(row.get("username") or "") == safe_username), None)
+    if existing is not None:
+        _ensure_safe_local_admin_mutation(
+            rows,
+            existing,
+            actor=actor,
+            desired_role=role,
+            desired_enabled=bool(payload.get("enabled", existing.get("enabled", True))),
+        )
     password_hash = str(payload.get("password_hash") or "").strip()
     raw_password = str(payload.get("password") or "")
     if raw_password and not password_hash:
@@ -1386,6 +1425,7 @@ def delete_local_user(username: str, *, actor: str = "system") -> dict[str, Any]
     item = next((row for row in rows if str(row.get("username") or "") == safe_username), None)
     if item is None:
         raise ValueError(f"Local user not found: {safe_username}")
+    _ensure_safe_local_admin_mutation(rows, item, actor=actor, deleting=True)
     rows = [row for row in rows if str(row.get("username") or "") != safe_username]
     _save_collection("local_users", rows)
     _invalidate_local_auth_cache()
