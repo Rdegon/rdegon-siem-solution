@@ -302,10 +302,9 @@ def _event_rows(hours: int = 24, limit: int = 2000) -> list[dict[str, Any]]:
             normalized_json
         FROM siem.events
         WHERE ts >= now() - INTERVAL {safe_hours} HOUR
-          AND (
-            position(normalized_json, '"event.provider":"host.metrics"') > 0
-            OR position(normalized_json, '"provider":"host.metrics"') > 0
-          )
+          AND category = 'platform_health'
+          AND device_vendor = 'host.metrics'
+          AND device_product = 'host.metrics'
         ORDER BY ts DESC
         LIMIT {safe_limit}
     """

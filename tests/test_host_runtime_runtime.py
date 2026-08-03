@@ -233,7 +233,9 @@ class HostRuntimeRuntimeTests(unittest.TestCase):
             payload = fetch_host_runtime_last_seen_map(hours=6)
 
         self.assertEqual("2026-03-25T10:00:00Z", payload["siem-web"])
-        self.assertIn('"provider":"host.metrics"', client.last_query)
+        self.assertIn("category = 'platform_health'", client.last_query)
+        self.assertIn("device_vendor = 'host.metrics'", client.last_query)
+        self.assertIn("device_product = 'host.metrics'", client.last_query)
         self.assertIn("normalized_json", client.last_query)
 
     def test_fetch_host_runtime_overview_backfills_empty_latest_snapshot(self) -> None:
