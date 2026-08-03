@@ -1,0 +1,27 @@
+[Unit]
+Description=Rdegon Sentinel private 3x-ui controller bridge over VLESS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=siem-xui-bridge
+Group=siem-xui-bridge
+EnvironmentFile=/etc/siem/xui-vless-bridge.env
+RuntimeDirectory=siem-xui-vless-bridge
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/python3 /opt/rdegon-sentinel/render_xui_vless_bridge.py --uri-file ${XUI_BRIDGE_URI_FILE} --output /run/siem-xui-vless-bridge/config.json --listen-host 127.0.0.1 --listen-port ${XUI_BRIDGE_LISTEN_PORT} --target-host 127.0.0.1 --target-port ${XUI_CONTROLLER_TARGET_PORT}
+ExecStart=/usr/bin/python3 /opt/rdegon-sentinel/run_xui_vless_bridge.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

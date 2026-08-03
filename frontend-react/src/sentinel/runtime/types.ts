@@ -3025,6 +3025,7 @@ export type XuiInboundRecord = RuntimeBlob & {
   protocol: string;
   port: number;
   protected?: boolean;
+  managed_by_sentinel?: boolean;
   listen?: string;
   up?: number;
   down?: number;
@@ -3047,6 +3048,20 @@ export type XuiStateResponse = {
   clients: XuiClientRecord[];
   online?: string[];
   traffic?: { up?: number; down?: number };
+  connectivity?: {
+    controller?: string;
+    panel?: string;
+    transport?: string;
+  };
+  protection?: {
+    mode?: string;
+    state?: string;
+    baseline_count?: number;
+    managed_count?: number;
+    created_at?: string;
+    updated_at?: string;
+    inbound_create_enabled?: boolean;
+  };
 };
 
 export type SecurityControlMutationResponse = RuntimeBlob & {

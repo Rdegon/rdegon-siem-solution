@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import ipaddress
 from typing import Any
 from urllib import error as url_error
 from urllib import parse as url_parse
 from urllib import request as url_request
+from uuid import uuid4
 
 from .secret_runtime import resolve_secret_value
 
@@ -30,6 +32,21 @@ class XuiControllerError(RuntimeError):
     pass
 
 
+def _validate_base_url(base_url: str) -> None:
+    try:
+        parsed = url_parse.urlparse(base_url)
+    except ValueError as exc:
+        raise XuiControllerError("VLESS controller URL is invalid") from exc
+    if parsed.scheme != "http" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise XuiControllerError("VLESS controller URL must be an HTTP loopback URL without credentials or query parameters")
+    if parsed.hostname.lower() != "localhost":
+        try:
+            if not ipaddress.ip_address(parsed.hostname).is_loopback:
+                raise XuiControllerError("VLESS controller URL must remain loopback-only")
+        except ValueError as exc:
+            raise XuiControllerError("VLESS controller URL must remain loopback-only") from exc
+
+
 def _settings() -> tuple[str, str, float]:
     base_url = str(os.getenv("SIEM_VLESS_CONTROLLER_URL") or "").strip().rstrip("/")
     token, _, _ = resolve_secret_value(
@@ -52,6 +69,8 @@ def _request(path: str, *, method: str = "GET", payload: dict[str, Any] | None =
     base_url, token, timeout = _settings()
     if not base_url or not token:
         raise XuiControllerError("VLESS controller is not configured")
+    _validate_base_url(base_url)
+    request_id = uuid4().hex
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = url_request.Request(
         f"{base_url}{path}",
@@ -61,6 +80,7 @@ def _request(path: str, *, method: str = "GET", payload: dict[str, Any] | None =
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "X-Request-ID": request_id,
         },
     )
     try:
@@ -68,10 +88,14 @@ def _request(path: str, *, method: str = "GET", payload: dict[str, Any] | None =
             body = response.read().decode("utf-8")
     except url_error.HTTPError as exc:
         try:
-            detail = json.loads(exc.read().decode("utf-8")).get("error")
+            error_payload = json.loads(exc.read().decode("utf-8"))
+            detail = error_payload.get("error")
+            remote_request_id = error_payload.get("request_id")
         except (json.JSONDecodeError, UnicodeDecodeError):
             detail = ""
-        raise XuiControllerError(str(detail or f"VLESS controller returned HTTP {exc.code}")[:500]) from exc
+            remote_request_id = ""
+        suffix = f" (request {remote_request_id})" if remote_request_id else ""
+        raise XuiControllerError(f"{str(detail or f'VLESS controller returned HTTP {exc.code}')[:450]}{suffix}") from exc
     except (OSError, url_error.URLError) as exc:
         raise XuiControllerError(f"VLESS controller is unreachable: {str(exc)[:300]}") from exc
     try:
@@ -97,8 +121,7 @@ def xui_state() -> dict[str, Any]:
             "clients": [],
         }
     try:
-        health = _request("/health")
-        inventory = _request("/inbounds")
+        snapshot = _request("/state")
     except XuiControllerError as exc:
         return {
             "configured": True,
@@ -107,7 +130,11 @@ def xui_state() -> dict[str, Any]:
             "issue": str(exc),
             "inbounds": [],
             "clients": [],
+            "connectivity": {"controller": "unreachable", "panel": "unknown"},
+            "protection": {"state": "unknown"},
         }
+    health = snapshot
+    inventory = snapshot
     inbounds = inventory.get("inbounds") if isinstance(inventory.get("inbounds"), list) else []
     clients: list[dict[str, Any]] = []
     for inbound in inbounds:
@@ -127,6 +154,8 @@ def xui_state() -> dict[str, Any]:
         "clients": clients,
         "online": list(inventory.get("online") or []),
         "traffic": dict(inventory.get("traffic") or {}),
+        "connectivity": dict(snapshot.get("connectivity") or {}),
+        "protection": dict(snapshot.get("protection") or {}),
     }
 
 

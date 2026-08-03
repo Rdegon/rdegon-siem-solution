@@ -35,6 +35,21 @@ def test_xui_controller_token_uses_secret_resolver(monkeypatch: pytest.MonkeyPat
     assert xui_runtime._settings()[:2] == ("http://127.0.0.1:18787", "resolved-token")  # noqa: SLF001
 
 
+def test_xui_runtime_rejects_non_loopback_controller(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIEM_VLESS_CONTROLLER_URL", "http://45.89.111.208:8787")
+    monkeypatch.setattr(
+        xui_runtime,
+        "resolve_secret_value",
+        lambda *_args, **_kwargs: ("resolved-token", "vault", {"status": "configured"}),
+    )
+
+    state = xui_runtime.xui_state()
+
+    assert state["configured"] is True
+    assert state["status"] == "degraded"
+    assert "loopback" in state["issue"]
+
+
 def test_xui_state_flattens_real_clients_and_preserves_inbound_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(xui_runtime, "controller_configured", lambda: True)
 
@@ -147,3 +162,60 @@ def test_deployed_controller_validates_inbound_and_client_limits() -> None:
         module._client_payload({"email": "bad/name", "limit_ip": 1})  # noqa: SLF001
     with pytest.raises(ValueError, match="IP limit"):
         module._client_payload({"email": "operator", "limit_ip": 200})  # noqa: SLF001
+
+
+def test_controller_snapshots_existing_inbounds_and_only_manages_its_own(tmp_path: Path) -> None:
+    module = _controller_module("siem_xui_controller_baseline")
+    module.STATE_PATH = tmp_path / "protection.json"
+    module.PROTECTED_INBOUND_IDS = set()
+    module._PROTECTION_STATE = None  # noqa: SLF001
+
+    state = module._initialize_protection_state([{"id": 7}, {"id": 9}])  # noqa: SLF001
+
+    assert state["baseline_inbound_ids"] == [7, 9]
+    with pytest.raises(ValueError, match="Protected production inbound"):
+        module._guard_inbound_structure(7)  # noqa: SLF001
+    module._mark_managed_inbound(12)  # noqa: SLF001
+    module._guard_inbound_structure(12)  # noqa: SLF001
+    with pytest.raises(ValueError, match="created by Sentinel"):
+        module._guard_inbound_structure(13)  # noqa: SLF001
+
+    module._PROTECTION_STATE = None  # noqa: SLF001
+    reloaded = module._initialize_protection_state([])  # noqa: SLF001
+    assert reloaded["baseline_inbound_ids"] == [7, 9]
+    assert reloaded["managed_inbound_ids"] == [12]
+
+
+def test_controller_client_update_preserves_omitted_limits() -> None:
+    module = _controller_module("siem_xui_controller_client_merge")
+    client_id = "86ddcb83-1b80-4f4f-8144-2be5809d054e"
+    current = {
+        "id": client_id,
+        "email": "operator",
+        "enable": True,
+        "flow": "xtls-rprx-vision",
+        "limitIp": 3,
+        "totalGB": 17 * 1024**3,
+        "expiryTime": 123456789,
+        "tgId": "42",
+        "subId": "stable-subscription",
+        "reset": 0,
+    }
+
+    updated = module._client_payload({"enable": False}, client_id=client_id, existing=current)  # noqa: SLF001
+
+    assert updated["enable"] is False
+    assert updated["email"] == "operator"
+    assert updated["limitIp"] == 3
+    assert updated["totalGB"] == 17 * 1024**3
+    assert updated["expiryTime"] == 123456789
+    assert updated["subId"] == "stable-subscription"
+
+
+def _controller_module(name: str):
+    path = ROOT / "deploy" / "vless" / "siem_xui_controller.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

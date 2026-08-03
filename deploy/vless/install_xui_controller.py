@@ -110,7 +110,6 @@ def validate_controller_env(path: Path) -> dict[str, str]:
             "XUI_PANEL_URL",
             "XUI_PANEL_USERNAME",
             "XUI_PANEL_PASSWORD",
-            "XUI_PROTECTED_INBOUND_IDS",
             "SIEM_XUI_CONTROLLER_TOKEN",
             "SIEM_XUI_LISTEN_HOST",
             "SIEM_XUI_LISTEN_PORT",
@@ -128,9 +127,16 @@ def validate_controller_env(path: Path) -> dict[str, str]:
             raise InstallError(f"{name} still contains a placeholder")
     if len(values["SIEM_XUI_CONTROLLER_TOKEN"]) < 32:
         raise InstallError("SIEM_XUI_CONTROLLER_TOKEN must contain at least 32 characters")
-    inbound_ids = [item.strip() for item in values["XUI_PROTECTED_INBOUND_IDS"].split(",") if item.strip()]
-    if not inbound_ids or any(not item.isdigit() or int(item) <= 0 for item in inbound_ids):
-        raise InstallError("XUI_PROTECTED_INBOUND_IDS must list every existing production inbound ID")
+    inbound_ids_value = values.get("XUI_PROTECTED_INBOUND_IDS", "auto").strip().lower()
+    inbound_ids = [item.strip() for item in inbound_ids_value.split(",") if item.strip() and item.strip() != "auto"]
+    if any(not item.isdigit() or int(item) <= 0 for item in inbound_ids):
+        raise InstallError("XUI_PROTECTED_INBOUND_IDS must be 'auto' or a comma-separated list of positive IDs")
+    state_path = values.get("XUI_PROTECTION_STATE", "/var/lib/siem-xui-controller/protection.json")
+    if state_path != "/var/lib/siem-xui-controller/protection.json":
+        raise InstallError("XUI_PROTECTION_STATE must remain inside the controller StateDirectory")
+    allow_create = values.get("XUI_ALLOW_INBOUND_CREATE", "false").strip().lower()
+    if allow_create not in {"0", "1", "false", "true", "no", "yes", "off", "on"}:
+        raise InstallError("XUI_ALLOW_INBOUND_CREATE must be a boolean")
     try:
         listen_port = int(values["SIEM_XUI_LISTEN_PORT"])
     except ValueError as exc:
@@ -354,7 +360,7 @@ def install(args: argparse.Namespace) -> list[str]:
 
     actions = [f"install {item.destination} mode={item.mode:04o}" for item in files]
     if args.enable_controller:
-        actions.append("enable controller after local 3x-ui preflight")
+        actions.append("snapshot existing inbounds as immutable and enable controller after local 3x-ui preflight")
     if args.enable_tunnel:
         actions.append("enable loopback-only reverse tunnel")
     if not args.apply:

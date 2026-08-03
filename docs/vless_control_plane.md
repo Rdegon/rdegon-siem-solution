@@ -1,87 +1,102 @@
 # VLESS / 3x-ui control plane
 
-## Trust boundary
+## Security model
 
-The 3x-ui panel remains bound to loopback on the public VLESS host. Sentinel
-must never expose the panel port through the public firewall. Management uses
-two components:
+The 3x-ui panel and the Sentinel controller remain bound to VPS loopback. No
+panel, controller, SSH or additional public management port is required. The
+supported primary path is:
 
-1. `siem-xui-controller.service` runs on the VLESS host and talks to the local
-   3x-ui HTTP API.
-2. `siem-xui-reverse-tunnel.service` publishes only the controller loopback
-   port to a loopback port on the trusted jump host.
-3. SIEM-WEB reaches that loopback port through its existing private management
-   channel and authenticates every request with a dedicated bearer token.
+```text
+SIEM-WEB -> 127.0.0.1:18787 -> Xray VLESS bridge -> existing VLESS port
+         -> VPS 127.0.0.1:8787 controller -> VPS 127.0.0.1:<panel> 3x-ui
+```
 
-The UI and API support inbound inventory, inbound create/update/delete,
-client create/update/delete, limits, expiration, traffic reset and generation
-of a VLESS/Reality profile URI. The controller never returns a Reality private
-key or 3x-ui credentials.
+The VLESS bridge is a fixed-target `dokodemo-door`: it can reach only the
+controller loopback port. It is not a general-purpose SOCKS proxy. The older
+reverse-SSH service remains an optional fallback only when its complete
+private path to the SIEM-WEB host is independently verified.
 
-## VLESS host installation
+On its first successful start, the controller takes an atomic snapshot of all
+existing inbound IDs. This production baseline is immutable. Baseline and
+externally-created inbounds cannot be updated, disabled, adopted or deleted by
+Sentinel. Only an inbound created by Sentinel after the snapshot can be
+structurally managed, and inbound creation is disabled by default. Client
+profile CRUD inside an existing VLESS inbound remains available.
 
-Install the controller only after SSH connectivity to the VLESS host has been
-restored. Keep the existing 3x-ui and Xray services in place.
+The controller never returns 3x-ui credentials or Reality private keys. The
+SIEM API accepts only an HTTP loopback controller URL and authenticates every
+request using a dedicated secret-store token.
 
-As of 2026-08-03, there is no confirmed deployable management path to
-`45.89.111.208`. A TCP connect to the public address is not sufficient: the
-SSH handshake does not complete, and the operator documentation identifies
-this host as a VLESS data-plane endpoint rather than a public management
-entry. The jump host is reachable only through the private VPN path, and no
-working jump-host-to-VLESS management hop has been verified. Do not open SSH
-or the 3x-ui panel on the public interface to work around this.
+## Runtime blocker
 
-Run the installer locally from a VPS console, or through a private SSH path
-after that path has been independently restored. The default invocation is a
-read-only plan. It does not call 3x-ui APIs, inspect or change inbounds, start
-Xray, or alter firewall rules.
+As of 2026-08-03 there is no confirmed shell or console path to
+`45.89.111.208`:
 
-Prepare these files outside Git with `umask 077`:
+- TCP 443 is the active VLESS/Reality data plane;
+- TCP 22 accepts a connection but does not complete an SSH banner exchange;
+- the documented jump-host SSH path closes during key exchange;
+- the only locally recovered VLESS URI fails its VLESS/Reality handshake and
+  must not be used to enable the bridge;
+- no controller is currently confirmed on VPS loopback port 8787.
 
-- a controller environment based on `xui-controller.env.example`;
-- a tunnel environment based on `xui-tunnel.env.example`;
-- a dedicated reverse-tunnel private key;
-- a `known_hosts` entry whose jump-host fingerprint was verified through a
-  second trusted channel.
+Therefore the code can be installed safely, but the remote controller cannot
+truthfully be reported as active until one authorized console/shell session is
+available. Do not expose 3x-ui or weaken the VPS firewall to bypass this.
 
-Set `XUI_PROTECTED_INBOUND_IDS` to every existing production inbound ID before
-enabling the controller. The installer requires a non-empty list and will not
-discover or modify it automatically. Generate a dedicated controller token of
-at least 32 random characters and transfer the same value to the SIEM secret
-store without placing it on a command line.
+## One-time VPS installation
+
+Keep `x-ui.service`, Xray and every existing inbound unchanged. Prepare a
+controller environment from `deploy/vless/xui-controller.env.example` with
+`umask 077`. Set the real loopback panel URL and credentials, a random
+controller token of at least 32 characters, and:
+
+```text
+XUI_PROTECTED_INBOUND_IDS=auto
+XUI_PROTECTION_STATE=/var/lib/siem-xui-controller/protection.json
+XUI_ALLOW_INBOUND_CREATE=false
+SIEM_XUI_TRANSPORT=vless-data-plane
+```
+
+First inspect the read-only plan, then apply it locally from the provider
+console or a confirmed private shell:
 
 ```bash
 sudo python3 deploy/vless/install_xui_controller.py \
   --controller-env-source /root/xui-controller.env \
-  --tunnel-env-source /root/xui-tunnel.env \
-  --tunnel-key-source /root/xui-controller-tunnel_ed25519 \
-  --jump-known-hosts-source /root/xui-controller-known_hosts \
-  --enable-controller --enable-tunnel
+  --enable-controller
+
+sudo python3 deploy/vless/install_xui_controller.py \
+  --controller-env-source /root/xui-controller.env \
+  --enable-controller --apply
 ```
 
-Review the plan, then repeat the same command with `--apply`. Secret files that
-already exist are preserved. A different source is rejected unless the
-operator explicitly adds `--rotate-secrets` during an approved credential
-rotation. The installer pins the SSH host key, creates dedicated unprivileged
-service accounts, and checks the existing loopback panel before enabling the
-controller. It never starts or reconfigures `x-ui.service`.
+The installer does not call mutation APIs, alter firewall rules, or manage
+`x-ui.service`. The controller performs one read-only inventory before it
+starts listening and persists the immutable baseline with mode 0600.
 
-For a staged install without starting services, omit `--enable-controller` and
-`--enable-tunnel`. This is useful when the code arrives through a console but
-the private jump path is not ready yet.
+## One-time SIEM bridge installation
+
+Use a dedicated working VLESS profile as a secret. It may point to an existing
+protected inbound; the installation does not alter that inbound. Prepare
+`xui-vless-bridge.env.example` and a one-line URI file with `umask 077`:
 
 ```bash
-sudo systemctl is-active siem-xui-controller.service siem-xui-reverse-tunnel.service
-sudo ss -lntp | grep -E '127\.0\.0\.1:(2053|8787)'
+sudo python3 deploy/vless/install_xui_vless_bridge.py \
+  --env-source /root/xui-vless-bridge.env \
+  --uri-source /root/xui-controller-vless-uri \
+  --enable
+
+sudo python3 deploy/vless/install_xui_vless_bridge.py \
+  --env-source /root/xui-vless-bridge.env \
+  --uri-source /root/xui-controller-vless-uri \
+  --enable --apply
 ```
 
-Both controller endpoints must remain loopback-only. The reverse forward is
-also bound to `127.0.0.1` on the jump host. No public listening port is added
-on the VLESS VPS.
+The renderer validates UUID, VLESS transport and Reality/TLS parameters,
+creates an ephemeral Xray config under `/run`, and binds only
+`127.0.0.1:18787`. The URI secret remains mode 0600 and is never printed.
 
-## SIEM-WEB configuration
-
-Set these through the VM107 secret/environment deployment mechanism:
+Configure SIEM-WEB through its secret/environment deployment mechanism:
 
 ```text
 SIEM_VLESS_CONTROLLER_URL=http://127.0.0.1:18787
@@ -89,23 +104,27 @@ SIEM_VLESS_CONTROLLER_TOKEN_REF=vault://secret/siem/vless-controller#token
 SIEM_VLESS_PUBLIC_ENDPOINT=45.89.111.208:443/TCP
 ```
 
-`SIEM_VLESS_CONTROLLER_TOKEN` may be supplied by the service credential loader,
-but must not be written to documentation or committed files.
-
 ## Verification
 
-1. Check the controller health from the VLESS host through loopback.
-2. Check the tunnel service and the jump-host loopback listener.
-3. Open **Security tools -> Remote access -> VLESS / Reality** in Sentinel.
-4. Create a short-lived test profile, copy its URI, connect a test client and
-   confirm traffic counters change.
-5. Disable and delete only that test profile. Existing profiles and inbounds
-   must remain unchanged.
+1. On the VPS, verify `siem-xui-controller.service` and authenticated
+   `http://127.0.0.1:8787/state`.
+2. Confirm the state reports `immutable-baseline` and the expected baseline
+   count before any profile mutation.
+3. On SIEM-WEB, verify `siem-xui-vless-bridge.service` and loopback port 18787.
+4. Open **VPN -> VLESS / Reality**. Confirm transport, panel and protection
+   states are active and existing inbounds are marked immutable.
+5. Create one short-lived client profile in an existing inbound, edit it,
+   obtain its URI, connect it, verify counters, and delete only this test
+   client.
+6. Confirm the baseline inbound ID, port, protocol, enable flag and Reality
+   settings did not change.
 
-For rollback, stop and disable only `siem-xui-reverse-tunnel.service` and
-`siem-xui-controller.service`. Do not stop `x-ui.service` or Xray. Removing the
-Sentinel controller has no data migration and must not alter existing inbounds.
+If the server-side Xray routing policy denies destinations in `127.0.0.0/8`,
+the VLESS bridge cannot reach the controller. That policy must be inspected
+during the authorized VPS session. It must not be changed automatically or by
+this installer.
 
-If the VLESS server itself is unreachable, Sentinel reports `degraded` and
-disables mutations. It must not invent successful operations or expose the
-3x-ui panel as a workaround.
+Rollback stops only `siem-xui-vless-bridge.service` and
+`siem-xui-controller.service`. It must not stop 3x-ui/Xray or delete the
+protection state. Keeping the state preserves the original immutable baseline
+across reinstallations.
