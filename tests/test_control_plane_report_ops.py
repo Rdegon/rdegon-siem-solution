@@ -149,12 +149,98 @@ class ControlPlaneReportOpsTests(unittest.TestCase):
             loaders={"sources": lambda: [{"source": "linux", "events": 12}]},
         )
 
+        self.module.save_report_template({**template, "description": "Edited after the slot ran"})
+        after_edit = self.module.run_due_report_templates(
+            now=now,
+            loaders={"sources": lambda: [{"source": "linux", "events": 12}]},
+        )
+
         self.assertEqual([template["id"]], [item["template_id"] for item in first["generated"]])
         self.assertEqual([], second["generated"])
         self.assertIn(
             {"template_id": template["id"], "reason": "slot_already_generated"},
             second["skipped"],
         )
+        self.assertEqual([], after_edit["generated"])
+
+    def test_manual_job_is_idempotent_and_tracks_progress(self) -> None:
+        template = self.module.save_report_template(
+            {"name": "Progress report", "period": "24h", "sections": ["sources"], "formats": ["json"]}
+        )
+        queued, created = self.module.create_report_run(
+            template["id"], actor="tester", tenant_scope=["main"], idempotency_key="manual:progress:0001"
+        )
+        replay, replay_created = self.module.create_report_run(
+            template["id"], actor="tester", tenant_scope=["main"], idempotency_key="manual:progress:0001"
+        )
+        completed = self.module.execute_report_run(
+            queued["id"], loaders={"sources": lambda: [{"source": "linux", "events": 12}]}
+        )
+
+        self.assertTrue(created)
+        self.assertFalse(replay_created)
+        self.assertEqual(queued["id"], replay["id"])
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["progress"]["percent"], 100)
+        self.assertEqual(completed["progress"]["sections_completed"], 1)
+
+    def test_tenant_and_schedule_are_bounded(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Tenant scope is not available"):
+            self.module.save_report_template(
+                {"name": "Wrong tenant", "period": "24h", "tenant_scope": ["other"], "sections": ["sources"]}
+            )
+        with self.assertRaisesRegex(ValueError, "HH:MM"):
+            self.module.save_report_template(
+                {
+                    "name": "Wrong schedule",
+                    "period": "24h",
+                    "sections": ["sources"],
+                    "schedule": {"enabled": True, "frequency": "daily", "time": "29:00", "timezone": "UTC"},
+                }
+            )
+
+    def test_schedule_state_and_pdf_artifact(self) -> None:
+        template = self.module.save_report_template(
+            {
+                "name": "PDF report",
+                "period": "24h",
+                "sections": ["sources"],
+                "formats": ["json", "csv", "pdf"],
+                "schedule": {"enabled": True, "frequency": "daily", "time": "08:00", "timezone": "UTC"},
+            }
+        )
+        listed = self.module.get_report_template(template["id"])
+        self.assertTrue(listed["schedule"]["next_run_ts"])
+        run = self.module.generate_report_run(template["id"], loaders={"sources": lambda: [{"source": "linux"}]})
+        if self.module.reporting_capabilities()["pdf_available"]:
+            artifact = self.module.report_run_pdf(run)
+            self.assertTrue(artifact.startswith(b"%PDF-"))
+
+    def test_template_reads_do_not_mutate_updated_timestamp(self) -> None:
+        template = self.module.save_report_template(
+            {"name": "Stable template", "period": "24h", "sections": ["sources"], "formats": ["json"]}
+        )
+        first = self.module.get_report_template(template["id"])
+        second = self.module.get_report_template(template["id"])
+        self.assertEqual(first["updated_ts"], second["updated_ts"])
+
+    def test_executor_failure_reaches_terminal_state_and_redacts_secrets(self) -> None:
+        template = self.module.save_report_template(
+            {"name": "Failed executor", "period": "24h", "sections": ["sources"], "formats": ["json"]}
+        )
+        queued, _ = self.module.create_report_run(
+            template["id"], actor="tester", idempotency_key="manual:failure:0001"
+        )
+        original = self.module._default_section_loaders
+        self.module._default_section_loaders = lambda _hours: (_ for _ in ()).throw(
+            RuntimeError("password=do-not-expose")
+        )
+        try:
+            failed = self.module.execute_report_run(queued["id"])
+        finally:
+            self.module._default_section_loaders = original
+        self.assertEqual(failed["status"], "failed")
+        self.assertNotIn("do-not-expose", failed["errors"][0]["error"])
 
 
 if __name__ == "__main__":

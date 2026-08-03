@@ -25,22 +25,37 @@ resources:
 - correlation rules;
 - normalizers;
 - filters;
-- connectors, destinations, enrichment, active lists, and response rules.
+- connectors, destinations, enrichment, active lists, response rules, storage,
+  agents, proxies, aggregation rules, dictionaries, context tables, searches,
+  secrets, segmentation rules, email templates and event routers.
 
 Runtime-discovered resources cannot be overwritten. An operator can duplicate
 one into a managed draft, validate it, and publish the draft.
 
-Publishing performs a real activation:
+Publishing reports the actual runtime result rather than treating a catalog
+write as activation:
 
 - normalizer: writes an enabled row to `siem.normalizer_rules`;
 - filter: writes an enabled row to `siem.filter_rules`;
 - correlation rule: creates and publishes a correlation pack into the
   detection catalog and `siem.correlation_rules_stream`;
 - collector: publishes the production ingest contract and collector profile;
-- correlator: publishes the engine/rule binding used by auto-reloading workers.
+- connector: creates or updates the connector control-plane definition;
+- response rule: creates or updates the governed response action;
+- kinds without an executable runtime adapter are marked `registered`, not
+  `active`, and show the missing adapter in the activation result;
+- correlator definitions remain `registered` until bound to a managed running
+  correlation service instance.
+
+Inline credentials are rejected. Managed resources reference secrets through
+`secret_ref`; API tokens, passwords and private keys are never persisted in the
+resource catalog.
 
 All write, validation, and publish routes retain `rules:write` or `rules:test`
 permission checks.
+
+Backend versioning, duplicate/rollback/delete safety, and Sentinel-native
+package import/export are documented in `managed_resource_lifecycle.md`.
 
 ## KUMA package workflow
 

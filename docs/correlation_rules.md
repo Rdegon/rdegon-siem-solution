@@ -12,6 +12,11 @@ The live platform uses a pack-oriented correlation model.
 
 The Builders module now exposes a dedicated `Correlation` workspace for pack authoring, validation, targeted testing, and publish.
 
+The backend rule list is reconciled through the stable identity model described
+in [`unified_rule_inventory.md`](unified_rule_inventory.md). UI/API consumers
+must use that inventory instead of independently counting catalog, stream, and
+batch rows.
+
 Current operational families include:
 
 - `fleet_observability_v1`

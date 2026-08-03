@@ -1,0 +1,26 @@
+[Unit]
+Description=Rdegon Sentinel 3x-ui controller
+After=network-online.target x-ui.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=siem-xui-controller
+Group=siem-xui-controller
+EnvironmentFile=/etc/siem/xui-controller.env
+ExecStart=/usr/bin/python3 /opt/rdegon-sentinel/siem_xui_controller.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

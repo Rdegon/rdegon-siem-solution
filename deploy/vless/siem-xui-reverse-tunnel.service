@@ -1,0 +1,25 @@
+[Unit]
+Description=Private 3x-ui controller reverse tunnel to the SOC jump host
+After=network-online.target siem-xui-controller.service
+Wants=network-online.target
+Requires=siem-xui-controller.service
+
+[Service]
+Type=simple
+User=siem-xui-tunnel
+Group=siem-xui-tunnel
+EnvironmentFile=/etc/siem/xui-tunnel.env
+ExecStart=/usr/bin/ssh -NT -p ${JUMP_PORT} -i ${TUNNEL_KEY} -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o ExitOnForwardFailure=yes -o ServerAliveInterval=20 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${TUNNEL_KNOWN_HOSTS} -R 127.0.0.1:${JUMP_REMOTE_PORT}:127.0.0.1:${CONTROLLER_LOCAL_PORT} ${JUMP_USER}@${JUMP_HOST}
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

@@ -6,12 +6,17 @@ from .console_assets_routes import router as assets_router
 from .console_auth_routes import router as auth_router
 from .console_dashboard_routes import router as dashboard_router
 from .console_docs_routes import router as docs_router
+from .console_event_hunting_routes import router as event_hunting_router
 from .console_health_routes import router as health_router
 from .console_operations_routes import router as operations_router
 from .console_reporting_routes import router as reporting_router
+from .console_retroscan_routes import router as retroscan_router
 from .console_response_routes import router as response_router
 from .console_resources_routes import router as resources_router
+from .console_resource_lifecycle_routes import router as resource_lifecycle_router
+from .console_rule_inventory_routes import router as rule_inventory_router
 from .console_security_services_routes import router as security_services_router
+from .console_service_lifecycle_routes import router as service_lifecycle_router
 from .console_source_policy_routes import router as source_policy_router
 
 
@@ -21,11 +26,16 @@ ROUTERS = (
     operations_router,
     response_router,
     resources_router,
+    resource_lifecycle_router,
+    rule_inventory_router,
+    event_hunting_router,
     dashboard_router,
     docs_router,
     reporting_router,
+    retroscan_router,
     assets_router,
     security_services_router,
+    service_lifecycle_router,
     source_policy_router,
 )
 

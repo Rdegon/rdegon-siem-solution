@@ -40,7 +40,7 @@ def test_remote_access_profile_is_prepared_without_fabricating_activation(
     assert remote_access_runtime.remote_access_state()["profiles"] == []
 
 
-def test_remote_access_state_reports_observed_openvpn_and_non_ingress_vless(
+def test_remote_access_state_reports_observed_openvpn_and_private_vless_controller(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -55,8 +55,51 @@ def test_remote_access_state_reports_observed_openvpn_and_non_ingress_vless(
     assert openvpn["status"] == "active"
     assert openvpn["role"] == "remote_ingress"
     assert openvpn["jump_host_reachable"] is True
-    assert vless["status"] == "retired"
-    assert vless["role"] == "outbound_egress"
+    assert vless["status"] == "degraded"
+    assert vless["role"] == "managed_proxy_access"
+
+
+def test_remote_access_state_marks_vless_managed_when_controller_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(remote_access_runtime, "_PROFILE_FILE", tmp_path / "profiles.json")
+    monkeypatch.setenv("SIEM_VLESS_CONTROLLER_URL", "http://127.0.0.1:18787")
+    monkeypatch.setenv("SIEM_VLESS_CONTROLLER_TOKEN", "runtime-secret")
+    monkeypatch.setattr(remote_access_runtime, "_service_state", lambda unit: "active")
+    monkeypatch.setattr(remote_access_runtime, "_interface_address", lambda interface: "10.66.66.4")
+    monkeypatch.setattr(remote_access_runtime, "_tcp_reachable", lambda host, port: True)
+
+    state = remote_access_runtime.remote_access_state()
+    vless = state["access_planes"][1]
+
+    assert vless["status"] == "active"
+    assert vless["managed_profile_issuance"] is True
+    assert vless["tunnel_state"] == "private_management_channel"
+
+
+def test_remote_access_controller_uses_secret_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIEM_VLESS_CONTROLLER_URL", "http://127.0.0.1:18787")
+    monkeypatch.setattr(
+        remote_access_runtime,
+        "resolve_secret_value",
+        lambda *_args, **_kwargs: ("resolved-token", "vault", {"status": "configured"}),
+    )
+
+    state = remote_access_runtime._controller("vless")  # noqa: SLF001
+
+    assert state["configured"] is True
+    assert state["credential_configured"] is True
+
+
+def test_generic_remote_access_api_rejects_vless(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(remote_access_runtime, "_PROFILE_FILE", tmp_path / "profiles.json")
+
+    with pytest.raises(ValueError, match="dedicated VLESS"):
+        remote_access_runtime.create_remote_access_profile(
+            {"provider": "vless", "name": "operator", "route_preset": "siem-core-admin"},
+            actor="tester",
+        )
 
 
 def test_remote_access_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

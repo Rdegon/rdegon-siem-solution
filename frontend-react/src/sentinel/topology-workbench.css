@@ -1,0 +1,361 @@
+.topology-workbench.topology-workbench--production {
+  --topology-grid: color-mix(in srgb, var(--muted-2) 58%, transparent);
+  background: var(--surface, #fbfbf9);
+  border: 1px solid var(--line, #d9ddda);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(25, 37, 42, 0.06);
+  color: var(--text, #19252a);
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.topology-workbench--production .topology-toolbar {
+  align-items: center;
+  background: var(--surface-raised, #fff);
+  border-bottom: 1px solid var(--line, #d9ddda);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(240px, 1fr) auto;
+  min-height: 58px;
+  padding: 9px 12px;
+}
+
+.topology-workbench--production .topology-toolbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.topology-workbench--production .topology-save-state {
+  color: var(--muted, #647177);
+  font-size: 11px;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-workbench--production .topology-canvas {
+  background: var(--surface-muted, #f5f5f2);
+  height: clamp(580px, 70vh, 860px);
+  min-height: 520px;
+  overflow: hidden;
+  position: relative;
+}
+
+.topology-workbench--production .react-flow__renderer {
+  touch-action: none;
+}
+
+.topology-workbench--production .react-flow__node-segment {
+  background: color-mix(in srgb, var(--surface-raised, #fff) 82%, var(--teal-soft, #e2f0ee));
+  border: 1px solid color-mix(in srgb, var(--teal, #087c7b) 42%, var(--line, #d9ddda));
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(25, 37, 42, 0.05);
+  cursor: default;
+  overflow: hidden;
+}
+
+.topology-workbench--production .react-flow__node-segment::after {
+  border-top: 1px solid color-mix(in srgb, var(--teal, #087c7b) 23%, var(--line, #d9ddda));
+  content: "";
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 61px;
+}
+
+.topology-workbench--production .topology-segment-node {
+  align-items: center;
+  color: var(--text, #19252a);
+  display: flex;
+  height: 62px;
+  justify-content: space-between;
+  padding: 10px 15px 10px 17px;
+  width: 100%;
+}
+
+.topology-workbench--production .topology-segment-node > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.topology-workbench--production .topology-segment-kicker {
+  color: var(--muted, #647177);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.topology-workbench--production .topology-segment-node strong {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.topology-workbench--production .react-flow__node-asset {
+  border-radius: 6px;
+}
+
+.topology-workbench--production .topology-asset-node {
+  align-items: center;
+  background: var(--surface-raised, #fff);
+  border: 1px solid var(--line-strong, #c4cac6);
+  border-left: 4px solid var(--muted-2, #8a9498);
+  border-radius: 6px;
+  box-shadow: 0 3px 10px rgba(25, 37, 42, 0.09);
+  color: var(--text, #19252a);
+  display: grid;
+  gap: 8px 10px;
+  grid-template-columns: 38px minmax(0, 1fr) 9px;
+  grid-template-rows: minmax(46px, auto) 18px;
+  height: 92px;
+  padding: 10px 11px 8px 10px;
+  position: relative;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  width: 238px;
+}
+
+.topology-workbench--production .topology-asset-node:hover {
+  border-color: color-mix(in srgb, var(--teal, #087c7b) 62%, var(--line-strong, #c4cac6));
+  box-shadow: 0 7px 17px rgba(25, 37, 42, 0.14);
+  transform: translateY(-1px);
+}
+
+.topology-workbench--production .topology-asset-node.state-healthy { border-left-color: var(--green, #2c7958); }
+.topology-workbench--production .topology-asset-node.state-warning { border-left-color: var(--orange, #c47026); }
+.topology-workbench--production .topology-asset-node.state-critical { border-left-color: var(--red, #c5403f); }
+
+.topology-workbench--production .topology-asset-node.selected {
+  border-color: var(--teal, #087c7b);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--teal, #087c7b) 24%, transparent), 0 8px 20px rgba(25, 37, 42, 0.15);
+}
+
+.topology-workbench--production .react-flow__node-asset:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--teal, #087c7b) 52%, transparent);
+  outline-offset: 3px;
+}
+
+.topology-workbench--production .topology-asset-icon {
+  align-items: center;
+  align-self: center;
+  background: var(--surface-strong, #e9ebe8);
+  border: 1px solid var(--line, #d9ddda);
+  border-radius: 5px;
+  color: var(--teal-dark, #086867);
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.topology-workbench--production .topology-asset-copy {
+  align-self: center;
+  min-width: 0;
+}
+
+.topology-workbench--production .topology-asset-copy strong {
+  display: -webkit-box;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  max-height: 45px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.topology-workbench--production .topology-asset-copy small {
+  color: var(--muted, #647177);
+  display: block;
+  font: 10px/1.35 "IBM Plex Mono", monospace;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-workbench--production .topology-node-status {
+  background: var(--muted-2, #8a9498);
+  border: 2px solid var(--surface-raised, #fff);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--muted-2, #8a9498) 40%, transparent);
+  height: 10px;
+  width: 10px;
+}
+
+.topology-workbench--production .state-healthy .topology-node-status { background: var(--green, #2c7958); }
+.topology-workbench--production .state-warning .topology-node-status { background: var(--orange, #c47026); }
+.topology-workbench--production .state-critical .topology-node-status { background: var(--red, #c5403f); }
+
+.topology-workbench--production .topology-event-count {
+  align-self: end;
+  color: var(--muted, #647177);
+  font: 9px/1.2 "IBM Plex Mono", monospace;
+  grid-column: 2 / 4;
+  justify-self: end;
+}
+
+.topology-workbench--production .react-flow__handle {
+  background: var(--teal, #087c7b);
+  border: 2px solid var(--surface-raised, #fff);
+  height: 8px;
+  opacity: 0.36;
+  transition: opacity 150ms ease;
+  width: 8px;
+}
+
+.topology-workbench--production .react-flow__node-asset:hover .react-flow__handle,
+.topology-workbench--production .react-flow__node-asset.selected .react-flow__handle { opacity: 1; }
+
+.topology-workbench--production .react-flow__edge-path {
+  transition: opacity 160ms ease, stroke-width 160ms ease;
+}
+
+.topology-workbench--production .react-flow__edge.selected .react-flow__edge-path {
+  opacity: 1 !important;
+  stroke: var(--teal, #087c7b) !important;
+  stroke-width: 3px !important;
+}
+
+.topology-workbench--production .react-flow__controls,
+.topology-workbench--production .react-flow__minimap {
+  background: var(--surface-raised, #fff);
+  border: 1px solid var(--line, #d9ddda);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(25, 37, 42, 0.12);
+  overflow: hidden;
+}
+
+.topology-workbench--production .react-flow__controls-button {
+  background: var(--surface-raised, #fff);
+  border-bottom-color: var(--line, #d9ddda);
+  color: var(--text, #19252a);
+  fill: currentColor;
+}
+
+.topology-workbench--production .react-flow__controls-button:hover { background: var(--surface-strong, #e9ebe8); }
+
+.topology-workbench--production .topology-legend {
+  align-items: center;
+  background: var(--surface-raised, #fff);
+  border-top: 1px solid var(--line, #d9ddda);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 18px;
+  min-height: 46px;
+  padding: 9px 12px;
+}
+
+.topology-workbench--production .topology-legend > span {
+  align-items: center;
+  color: var(--muted, #647177);
+  display: inline-flex;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.topology-workbench--production .topology-legend > span > i {
+  background: var(--muted-2, #8a9498);
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.topology-workbench--production .topology-legend i.healthy { background: var(--green, #2c7958); }
+.topology-workbench--production .topology-legend i.warning { background: var(--orange, #c47026); }
+.topology-workbench--production .topology-legend i.critical { background: var(--red, #c5403f); }
+
+.topology-workbench--production .topology-legend-summary { gap: 5px; }
+
+.topology-workbench--production .topology-current-selection {
+  margin-left: auto;
+  min-width: 0;
+}
+
+.topology-workbench--production .topology-current-selection strong {
+  color: var(--text, #19252a);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell[data-theme="dark"] .topology-workbench--production {
+  --topology-grid: rgba(148, 170, 180, 0.38);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.24);
+}
+
+.app-shell[data-theme="dark"] .topology-workbench--production .react-flow__node-segment {
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--teal) 12%);
+}
+
+.app-shell[data-theme="dark"] .topology-workbench--production .topology-asset-node {
+  box-shadow: 0 4px 13px rgba(0, 0, 0, 0.26);
+}
+
+@media (max-width: 1050px) {
+  .topology-workbench--production .topology-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 1fr);
+  }
+
+  .topology-workbench--production .topology-toolbar-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .topology-workbench--production .topology-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px;
+  }
+
+  .topology-workbench--production .topology-mode-toggle {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .topology-workbench--production .topology-toolbar-actions {
+    display: grid;
+    grid-column: 1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .topology-workbench--production .topology-toolbar-actions .button {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 8px;
+  }
+
+  .topology-workbench--production .topology-save-state {
+    grid-column: 1 / -1;
+    max-width: none;
+    white-space: normal;
+  }
+
+  .topology-workbench--production .topology-canvas {
+    height: 66vh;
+    min-height: 480px;
+  }
+
+  .topology-workbench--production .react-flow__minimap { display: none; }
+
+  .topology-workbench--production .topology-current-selection {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topology-workbench--production .topology-asset-node,
+  .topology-workbench--production .react-flow__edge-path { transition: none; }
+}

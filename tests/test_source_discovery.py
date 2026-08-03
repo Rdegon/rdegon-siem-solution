@@ -220,7 +220,8 @@ class SourceDiscoveryTests(unittest.TestCase):
         candidate = inventory["items"][0]
 
         self.assertTrue(candidate["connected"])
-        self.assertEqual(candidate["monitoring_status"], "connected")
+        self.assertEqual(candidate["monitoring_status"], "verified")
+        self.assertEqual(candidate["source_telemetry"]["normalization_health"], "healthy")
         self.assertEqual(candidate["connected_source"], "siem-web")
         self.assertEqual(0, inventory["metrics"]["unmanaged"])
 
@@ -285,12 +286,12 @@ class SourceDiscoveryTests(unittest.TestCase):
             )
             refreshed = rescanned["items"][0]
             self.assertTrue(refreshed["connected"])
-            self.assertEqual(refreshed["monitoring_status"], "connected")
+            self.assertEqual(refreshed["monitoring_status"], "verified")
 
             jobs = rescanned["jobs"]
             job = next(item for item in jobs if item["id"] == prepared["job"]["id"])
-            self.assertEqual(job["status"], "superseded")
-            self.assertEqual(job["superseded_reason"], "candidate_connected")
+            self.assertEqual(job["status"], "verified")
+            self.assertTrue(job["verification"]["normalized_event_seen"])
         finally:
             server.shutdown()
             server.server_close()
@@ -348,7 +349,76 @@ class SourceDiscoveryTests(unittest.TestCase):
 
         inventory = self.module.list_source_discovery_candidates()
         refreshed = next(item for item in inventory["items"] if item["id"] == candidate["id"])
-        self.assertEqual(refreshed["monitoring_status"], "package_ready")
+        self.assertEqual(refreshed["monitoring_status"], "prepared")
+
+    def test_onboarding_verification_distinguishes_ingest_from_normalized_event(self) -> None:
+        candidate = {
+            "id": "cand-linux-verify",
+            "ip": "10.20.30.50",
+            "hostname": "linux-verify-01",
+            "connected": False,
+            "monitoring_status": "installing",
+            "recommendation": {
+                "collector_profile": "linux-syslog-audit",
+                "auto_monitoring_method": "linux_rsyslog_ssh",
+            },
+        }
+        job = {
+            "id": "onboard-verify",
+            "candidate_id": candidate["id"],
+            "status": "installing",
+            "method": "linux_rsyslog_ssh",
+        }
+        self.module._save_rows(self.module.DISCOVERY_CANDIDATES_COLLECTION, [candidate])  # type: ignore[attr-defined]
+        self.module._save_rows(self.module.DISCOVERY_JOBS_COLLECTION, [job])  # type: ignore[attr-defined]
+
+        connected = self.module.verify_source_onboarding(
+            job["id"],
+            actor="tester",
+            normalized_sources=[],
+            ingest_sources=[{
+                "source_alias": "linux-verify-01",
+                "accepted_total": 3,
+                "rejected_total": 0,
+                "status": "healthy",
+                "last_event_ts": "2026-08-03T10:00:00Z",
+                "collector_profile": "linux-syslog-audit",
+            }],
+        )
+        self.assertFalse(connected["verified"])
+        self.assertTrue(connected["connected"])
+        self.assertEqual(connected["status"], "connected")
+        self.assertEqual(connected["telemetry"]["normalization_health"], "pending")
+
+        verified = self.module.verify_source_onboarding(
+            job["id"],
+            actor="tester",
+            normalized_sources=[{
+                "source_name": "linux-verify-01",
+                "events": 3,
+                "last_seen": "2026-08-03T10:00:05Z",
+                "collector_id": "linux-syslog-audit",
+            }],
+            ingest_sources=[],
+        )
+        self.assertTrue(verified["verified"])
+        self.assertEqual(verified["status"], "verified")
+        self.assertEqual(verified["telemetry"]["normalization_health"], "healthy")
+
+    def test_routine_web_only_candidate_is_low_priority(self) -> None:
+        candidate = {
+            "id": "candidate-web-only",
+            "ip": "192.0.2.10",
+            "hostname": "web-only",
+            "connected": False,
+            "log_capable": False,
+            "last_seen_ts": self.module._now_iso(),  # type: ignore[attr-defined]
+            "first_seen_ts": self.module._now_iso(),  # type: ignore[attr-defined]
+        }
+        self.module._save_rows(self.module.DISCOVERY_CANDIDATES_COLLECTION, [candidate])  # type: ignore[attr-defined]
+        inventory = self.module.list_source_discovery_candidates(connected_sources=[], ingest_sources=[])
+        self.assertEqual(inventory["items"][0]["lifecycle_state"], "low_priority")
+        self.assertEqual(inventory["metrics"]["low_priority"], 1)
 
     def test_network_onboarding_plan_supports_dry_run_and_command_preview(self) -> None:
         candidate = {

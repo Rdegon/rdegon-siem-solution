@@ -11,10 +11,14 @@ current references unless noted otherwise.
 - `repository_layout.md` - repository structure and packaging constraints.
 - `source_manifest.md` - source inclusion and exclusion policy.
 - `deployment_runbook.md` - baseline deployment path.
+- `vless_control_plane.md` - private 3x-ui integration and VLESS profile management.
+- `managed_resource_lifecycle.md` - immutable managed-resource versions, rollback, deletion and package gates.
+- `reporting_operations.md` - report templates, schedules, jobs, artifacts, and RBAC.
 
 ## Detection And Rules
 
 - `correlation_rules.md` - correlation authoring and publishing guide.
+- `unified_rule_inventory.md` - reconciled catalog/stream/batch rule identity and safe write semantics.
 - `rules_audit_runbook.md` - rule audit procedure.
 - `contour_audit_and_false_positive_remediation_2026-03-29.md` - FP cleanup wave.
 - `incident_false_positive_remediation_2026-03-29.md` - incident noise remediation.

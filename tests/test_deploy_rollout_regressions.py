@@ -485,6 +485,8 @@ class DeployRolloutRegressionTests(unittest.TestCase):
         self.assertIn("services/web/app/control_plane_source_policy_ops.py", release_files)
         self.assertIn("services/web/app/routes/console_reporting_routes.py", release_files)
         self.assertIn("services/web/app/routes/console_source_policy_routes.py", release_files)
+        self.assertIn("services/filter/filter_core.py", release_files)
+        self.assertIn("services/web/requirements-web.txt", release_files)
         self.assertIn("services/web/maintenance/report_scheduler.py", release_files)
         self.assertIn("frontend-react/src/sentinel/Views.tsx", release_files)
         self.assertIn("frontend-react/src/sentinel/dashboard.tsx", release_files)

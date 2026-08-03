@@ -52,8 +52,8 @@ describe("KUMA-compatible workspaces", () => {
     expect((blocks[1].config as Record<string, unknown>).threshold).toBe(5);
   });
 
-  it("uses the production read-only events view and every supported resource kind once", () => {
-    expect(DEFAULT_EVENT_QUERY).toContain("FROM events_view");
+  it("does not expose SQL in the browser and keeps every supported resource kind once", () => {
+    expect(DEFAULT_EVENT_QUERY).toBe("");
     expect(new Set(RESOURCE_DEFINITIONS.map((item) => item.kind)).size).toBe(RESOURCE_DEFINITIONS.length);
     expect(RESOURCE_DEFINITIONS.map((item) => item.kind)).toContain("correlationRule");
   });

@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from ..asset_catalog_runtime import (
@@ -53,6 +53,14 @@ from ..asset_binding_overrides import (
     save_binding_override,
     update_binding_override,
 )
+from ..active_list_runtime import (
+    delete_active_item,
+    export_active_items,
+    import_active_items,
+    list_active_items,
+    save_active_item,
+    set_active_item_enabled,
+)
 from ..config import CONFIG
 from ..deps_runtime_docs_ops import delete_builder_draft
 from ..control_plane_governance_runtime import get_secret_inventory, list_audit_events
@@ -72,6 +80,8 @@ from ..source_discovery import (
     list_source_discovery_candidates,
     prepare_source_onboarding,
     scan_source_candidates,
+    source_onboarding_package_path,
+    verify_source_onboarding,
 )
 from ..proxmox_fleet_runtime import list_proxmox_fleet_inventory, sync_proxmox_fleet_inventory
 from ..host_access_runtime import delete_host_access_profile, list_host_access_profiles, save_host_access_profile
@@ -435,22 +445,75 @@ async def audit_events_api(
 
 
 @router.get("/api/lists/active", response_class=JSONResponse)
-async def active_lists_api(user=Depends(get_current_user)) -> JSONResponse:
-    return JSONResponse({"items": fetch_active_list_items()})
+async def active_lists_api(
+    list_name: str = Query("", max_length=128),
+    limit: int = Query(1000, ge=1, le=5000),
+    user=Depends(get_current_user),
+) -> JSONResponse:
+    return JSONResponse({"items": list_active_items(list_name=list_name, limit=limit)})
 
 
 @router.post("/api/lists/active", response_class=JSONResponse)
 async def save_active_list_api(payload: dict = Body(default={}), user=Depends(require_permissions("active_lists:write"))) -> JSONResponse:
     try:
-        item = save_active_list_item(
-            list_name=str(payload.get("list_name") or payload.get("name") or "active-list"),
-            list_kind=str(payload.get("list_kind") or payload.get("kind") or "watch"),
-            item_type=str(payload.get("indicator_type") or payload.get("type") or "ip"),
-            item_value=str(payload.get("indicator") or payload.get("value") or ""),
-            item_label=str(payload.get("description") or payload.get("label") or ""),
-            tags=",".join(payload.get("tags") or []) if isinstance(payload.get("tags"), list) else str(payload.get("tags") or ""),
-        )
+        item = save_active_item(dict(payload or {}), actor=str(getattr(user, "username", "web") or "web"))
         return JSONResponse(item)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.delete("/api/lists/active", response_class=JSONResponse)
+async def delete_active_list_item_api(
+    payload: dict = Body(default={}),
+    user=Depends(require_permissions("active_lists:write")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(delete_active_item(dict(payload or {}), actor=str(getattr(user, "username", "web") or "web")))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.patch("/api/lists/active", response_class=JSONResponse)
+async def toggle_active_list_item_api(
+    payload: dict = Body(default={}),
+    user=Depends(require_permissions("active_lists:write")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(
+            set_active_item_enabled(
+                dict(payload or {}),
+                enabled=bool(payload.get("enabled", True)),
+                actor=str(getattr(user, "username", "web") or "web"),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.post("/api/lists/active/import", response_class=JSONResponse)
+async def import_active_list_api(
+    payload: dict = Body(default={}),
+    user=Depends(require_permissions("active_lists:write")),
+) -> JSONResponse:
+    try:
+        return JSONResponse(import_active_items(dict(payload or {}), actor=str(getattr(user, "username", "web") or "web")))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.get("/api/lists/active/export", response_model=None)
+async def export_active_list_api(
+    list_name: str = Query("", max_length=128),
+    format: str = Query("json", pattern="^(json|csv)$"),
+    user=Depends(get_current_user),
+) -> Response:
+    try:
+        content, media_type, filename = export_active_items(list_name=list_name, output_format=format)
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
 
@@ -665,9 +728,15 @@ async def proxmox_fleet_inventory_sync_api(user=Depends(require_permissions("sou
 @router.post("/api/sources/discovery/scan", response_class=JSONResponse)
 async def sources_discovery_scan_api(payload: dict = Body(default={}), user=Depends(require_permissions("sources:discover"))) -> JSONResponse:
     try:
+        requested_networks = payload.get("networks")
+        cidr = (
+            ",".join(str(item).strip() for item in requested_networks if str(item).strip())
+            if isinstance(requested_networks, list)
+            else str(payload.get("cidr") or "192.168.3.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24").strip()
+        )
         return JSONResponse(
             scan_source_candidates(
-                str(payload.get("cidr") or "192.168.3.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24").strip(),
+                cidr,
                 ports=[int(item) for item in (payload.get("ports") or []) if str(item).strip()],
                 timeout_seconds=float(payload.get("timeout_seconds") or 0.35),
                 max_hosts=int(payload.get("max_hosts") or 256),
@@ -737,6 +806,28 @@ async def geo_sources_api(hours: int = Query(24, ge=1, le=720), limit: int = Que
         )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.post("/api/sources/discovery/jobs/{job_id}/verify", response_class=JSONResponse)
+async def sources_discovery_verify_api(job_id: str, user=Depends(require_permissions("sources:discover"))) -> JSONResponse:
+    try:
+        return JSONResponse(
+            verify_source_onboarding(
+                job_id,
+                actor=str(getattr(user, "username", "unknown") or "unknown"),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.get("/api/sources/discovery/jobs/{job_id}/package", response_class=FileResponse, response_model=None)
+async def sources_discovery_package_api(job_id: str, user=Depends(require_permissions("sources:discover"))) -> Response:
+    try:
+        path = source_onboarding_package_path(job_id)
+        return FileResponse(path, media_type="application/zip", filename=path.name)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=404)
 
 
 @router.get("/api/topology/network", response_class=JSONResponse)

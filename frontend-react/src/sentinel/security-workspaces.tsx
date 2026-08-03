@@ -25,6 +25,7 @@ import {
   StatusCell,
   Tabs,
 } from "./ui";
+import { VlessManagement } from "./vless-management";
 
 type Notify = (message: string, tone?: string) => void;
 type Row = Record<string, unknown>;
@@ -263,7 +264,9 @@ function RemoteAccessPlanes({ state }: { state: RemoteAccessStateResponse }) {
           <small>
             {plane.role === "remote_ingress"
               ? "Входной удаленный доступ"
-              : "Исходящий канал, не VPN-вход"}
+              : plane.role === "managed_proxy_access"
+                ? "Управляемый VLESS / Reality доступ"
+                : "Дополнительный защищенный канал"}
           </small>
           <dl>
             <dt>Сервис</dt>
@@ -355,9 +358,6 @@ function VpnProfileModal({
           <span>Провайдер</span>
           <select name="provider">
             <option value="openvpn">OpenVPN</option>
-            <option value="vless" disabled>
-              VLESS (нет inbound-контроллера)
-            </option>
           </select>
         </label>
         <label>
@@ -571,6 +571,7 @@ export function SecurityOperationsWorkspace({
           {view === "vpn" && data?.remote ? (
             <RemoteAccessPlanes state={data.remote} />
           ) : null}
+          {view === "vpn" ? <VlessManagement notify={notify} /> : null}
           {view === "vpn" && data?.remote?.issues.length ? (
             <div className="sentinel-partial-warning">
               <Badge tone="warning">Controller</Badge>

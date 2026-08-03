@@ -34,7 +34,14 @@ except ImportError:  # pragma: no cover - service-local fallback
 
 
 LOG = logging.getLogger("incident_telegram_bot")
-TERMINAL_STATUSES = {"closed", "false_positive", "expired"}
+TERMINAL_STATUSES = {
+    "closed",
+    "false_positive",
+    "expired",
+    "merged",
+    "suppressed",
+    "suppressed_by_tuning",
+}
 
 
 def _env(name: str, default: str = "") -> str:
@@ -69,7 +76,7 @@ def _incident_count(incident: dict[str, Any]) -> int:
 
 
 def _incident_should_skip_delivery(incident: dict[str, Any]) -> bool:
-    return str(incident.get("status") or "").strip().lower() == "false_positive"
+    return str(incident.get("status") or "").strip().lower() in TERMINAL_STATUSES
 
 
 def _safe_chat_title(user: dict[str, Any]) -> str:
@@ -130,9 +137,11 @@ def load_config() -> BotConfig:
     return BotConfig(
         siem_base_url=siem_base_url,
         siem_api_token=_env("SIEM_BOT_API_TOKEN"),
-        incident_view=_env("SIEM_BOT_INCIDENT_VIEW", "agg"),
+        # Notifications intentionally follow the same aggregated queue as Web.
+        # Raw-alert delivery is not supported because it bypasses incident grouping.
+        incident_view="agg",
         incident_window=_env("SIEM_BOT_INCIDENT_WINDOW", "24h"),
-        incident_limit=max(10, min(_env_int("SIEM_BOT_INCIDENT_LIMIT", 200), 500)),
+        incident_limit=max(10, min(_env_int("SIEM_BOT_INCIDENT_LIMIT", 1000), 1000)),
         poll_seconds=max(15, _env_int("SIEM_BOT_POLL_SECONDS", 45)),
         verify_tls=_env_bool("SIEM_BOT_VERIFY_TLS", False),
         telegram_bot_token=_env("SIEM_TELEGRAM_BOT_TOKEN"),
@@ -167,6 +176,11 @@ class IncidentTelegramBot:
         signal.signal(signal.SIGTERM, self.stop)
         with psycopg.connect(self.config.postgres_dsn, autocommit=True) as conn:
             self._ensure_schema(conn)
+            with conn.cursor() as cur:
+                cur.execute("select pg_try_advisory_lock(hashtext('siem_incident_telegram_bot'))")
+                lock_row = cur.fetchone()
+            if not lock_row or not bool(lock_row[0]):
+                raise RuntimeError("another incident Telegram worker owns the delivery lock")
             LOG.info("incident bot started; telegram=%s callbacks=%s", self.config.telegram_enabled, self.config.enable_callbacks)
             while not self._stop:
                 try:
@@ -199,6 +213,18 @@ class IncidentTelegramBot:
             cur.execute("alter table incident_delivery_state add column if not exists telegram_chat_id text not null default ''")
             cur.execute("alter table incident_delivery_state add column if not exists delivery_count integer not null default 0")
             cur.execute("alter table incident_delivery_state add column if not exists last_seen_at timestamptz not null default now()")
+            cur.execute("alter table incident_delivery_state add column if not exists current_incident_key text not null default ''")
+            cur.execute("alter table incident_delivery_state add column if not exists aggregation_fingerprint text not null default ''")
+            cur.execute("alter table incident_delivery_state add column if not exists operation_key text not null default ''")
+            cur.execute("alter table incident_delivery_state add column if not exists operation_kind text not null default ''")
+            cur.execute("alter table incident_delivery_state add column if not exists operation_state text not null default 'committed'")
+            cur.execute("alter table incident_delivery_state add column if not exists operation_fingerprint text not null default ''")
+            cur.execute("alter table incident_delivery_state add column if not exists retry_count integer not null default 0")
+            cur.execute("alter table incident_delivery_state add column if not exists last_error text not null default ''")
+            cur.execute(
+                "update incident_delivery_state set current_incident_key = incident_key "
+                "where current_incident_key = ''"
+            )
             cur.execute(
                 """
                 create table if not exists telegram_bot_state (
@@ -219,40 +245,97 @@ class IncidentTelegramBot:
             f"&limit={self.config.incident_limit}"
         )
         items = [dict(item or {}) for item in list(payload.get("items") or [])]
-        current_keys = {
-            incident_key
-            for incident_key in (self._incident_key(item) for item in items)
-            if incident_key
-        }
+        current_keys = {self._delivery_key(item) for item in items if self._delivery_key(item)}
         for item in reversed(items):
             self._process_incident(conn, item)
-        self._reconcile_absent_incidents(conn, current_keys)
+        available_count = int(payload.get("available_count") or len(items))
+        if available_count <= len(items):
+            self._reconcile_absent_incidents(conn, current_keys)
+        else:
+            LOG.info(
+                "incident snapshot truncated (%s/%s); stale-card reconciliation deferred",
+                len(items),
+                available_count,
+            )
 
     def _process_incident(self, conn: psycopg.Connection[Any], incident: dict[str, Any]) -> None:
-        incident_key = self._incident_key(incident)
-        if not incident_key:
+        current_incident_key = self._incident_key(incident)
+        delivery_key = self._delivery_key(incident)
+        if not current_incident_key or not delivery_key:
             return
         fingerprint = self._incident_fingerprint(incident)
-        state = self._get_incident_state(conn, incident_key)
+        aggregation_fingerprint = self._aggregation_fingerprint(incident)
+        state = self._get_incident_state(
+            conn,
+            delivery_key,
+            current_incident_key=current_incident_key,
+            aggregation_fingerprint=aggregation_fingerprint,
+        )
+        if state and str(state.get("stored_delivery_key") or delivery_key) != delivery_key:
+            self._migrate_state_key(
+                conn,
+                old_key=str(state.get("stored_delivery_key") or ""),
+                new_key=delivery_key,
+            )
+            state["stored_delivery_key"] = delivery_key
+        interrupted_state = str((state or {}).get("operation_state") or "")
+        interrupted_operation = str((state or {}).get("operation_kind") or "")
+        if (
+            state
+            and interrupted_state in {"prepared", "uncertain"}
+            and interrupted_operation == "send"
+            and not state.get("telegram_message_id")
+            and str(state.get("operation_fingerprint") or "") == fingerprint
+        ):
+            # A restart may happen after Telegram accepted sendMessage but before
+            # the message id was committed. Re-sending would create a duplicate;
+            # keep the attempt explicitly uncertain for operator reconciliation.
+            self._touch_incident_state(
+                conn,
+                delivery_key=delivery_key,
+                current_incident_key=current_incident_key,
+                incident=incident,
+                operation_state="uncertain",
+            )
+            self._publish_delivery_state(
+                incident,
+                incident_key=current_incident_key,
+                delivery_key=delivery_key,
+                aggregation_fingerprint=aggregation_fingerprint,
+                telegram={
+                    "status": "uncertain",
+                    "message_id": state.get("telegram_message_id") or 0,
+                    "reason": "unconfirmed_delivery_attempt_not_replayed",
+                },
+                delivery_count=0,
+                operation=str(state.get("operation_kind") or "send"),
+                attempt_key=str(state.get("operation_key") or ""),
+                active=bool(state.get("telegram_message_id")),
+            )
+            return
+        if state and interrupted_state == "prepared":
+            # Edits and deletes target a known message id and are safe to resume.
+            # The process-wide PostgreSQL advisory lock prevents a second worker
+            # from racing the resumed operation.
+            self._touch_incident_state(
+                conn,
+                delivery_key=delivery_key,
+                current_incident_key=current_incident_key,
+                incident=incident,
+                operation_state="retryable",
+            )
+            state["operation_state"] = "retryable"
         if (
             state
             and str(state.get("fingerprint") or "") == fingerprint
-            and str(state.get("incident_status") or "").lower() != "expired"
+            and str(state.get("operation_state") or "committed") == "committed"
         ):
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    update incident_delivery_state
-                    set last_seen_at = now(), updated_at = now(),
-                        incident_status = %s, incident_title = %s
-                    where incident_key = %s
-                    """,
-                    (
-                        str(incident.get("status") or "new").strip().lower(),
-                        self._incident_title(incident),
-                        incident_key,
-                    ),
-                )
+            self._touch_incident_state(
+                conn,
+                delivery_key=delivery_key,
+                current_incident_key=current_incident_key,
+                incident=incident,
+            )
             stored_payload = state.get("payload") if isinstance(state.get("payload"), dict) else {}
             stored_telegram = (
                 stored_payload.get("telegram")
@@ -261,7 +344,9 @@ class IncidentTelegramBot:
             )
             self._publish_delivery_state(
                 incident,
-                incident_key=incident_key,
+                incident_key=current_incident_key,
+                delivery_key=delivery_key,
+                aggregation_fingerprint=aggregation_fingerprint,
                 telegram={
                     **stored_telegram,
                     "message_id": (
@@ -271,54 +356,120 @@ class IncidentTelegramBot:
                     "status": stored_telegram.get("status") or "unchanged",
                 },
                 delivery_count=0,
+                operation="unchanged",
+                attempt_key=str(state.get("operation_key") or ""),
+                active=bool(state.get("telegram_message_id")),
             )
             return
         status = str(incident.get("status") or "new").strip().lower()
         terminal = status in TERMINAL_STATUSES
         chat_id = str((state or {}).get("telegram_chat_id") or self.config.telegram_chat_id)
         message_id = (state or {}).get("telegram_message_id")
-        callback_ref = self._store_incident_callback_ref(conn, incident_key)
+        callback_ref = self._store_incident_callback_ref(conn, current_incident_key)
         timezone_name = self._get_chat_timezone(conn, chat_id)
-        if message_id and terminal:
-            telegram = self._delete_incident_card(
-                chat_id=chat_id,
-                message_id=int(message_id),
-                reason=f"terminal_{status}",
-            )
-        elif message_id:
-            telegram = self._edit_incident(
+        operation = "delete" if message_id and terminal else "edit" if message_id else "retract" if terminal else "send"
+        attempt_key = hashlib.sha256(f"{delivery_key}|{operation}|{fingerprint}".encode("utf-8")).hexdigest()
+        acquired = self._prepare_operation(
+            conn,
+            delivery_key=delivery_key,
+            current_incident_key=current_incident_key,
+            aggregation_fingerprint=aggregation_fingerprint,
+            incident=incident,
+            state=state,
+            operation=operation,
+            attempt_key=attempt_key,
+            operation_fingerprint=fingerprint,
+            chat_id=chat_id,
+        )
+        if not acquired:
+            self._publish_delivery_state(
                 incident,
-                incident_key,
-                chat_id=chat_id,
-                message_id=int(message_id),
-                timezone_name=timezone_name,
-                callback_ref=callback_ref,
+                incident_key=current_incident_key,
+                delivery_key=delivery_key,
+                aggregation_fingerprint=aggregation_fingerprint,
+                telegram={
+                    "status": "pending",
+                    "message_id": message_id or 0,
+                    "reason": "delivery_operation_already_in_flight",
+                },
+                delivery_count=0,
+                operation=operation,
+                attempt_key=attempt_key,
+                active=bool(message_id) and not terminal,
             )
-        elif terminal:
-            telegram = {"status": "skipped", "reason": f"terminal_{status}"}
-        else:
-            telegram = self._send_incident(
-                incident,
-                incident_key,
-                chat_id=chat_id,
-                timezone_name=timezone_name,
-                callback_ref=callback_ref,
-            )
+            return
+        try:
+            if operation == "delete":
+                telegram = self._delete_incident_card(
+                    chat_id=chat_id,
+                    message_id=int(message_id),
+                    reason=f"terminal_{status}",
+                )
+            elif operation == "edit":
+                telegram = self._edit_incident(
+                    incident,
+                    current_incident_key,
+                    chat_id=chat_id,
+                    message_id=int(message_id),
+                    timezone_name=timezone_name,
+                    callback_ref=callback_ref,
+                )
+            elif operation == "retract":
+                telegram = {"status": "skipped", "reason": f"terminal_{status}"}
+            else:
+                telegram = self._send_incident(
+                    incident,
+                    current_incident_key,
+                    chat_id=chat_id,
+                    timezone_name=timezone_name,
+                    callback_ref=callback_ref,
+                )
+        except Exception as exc:  # noqa: BLE001
+            telegram = {
+                "status": "uncertain" if operation == "send" else f"{operation}_failed",
+                "message_id": message_id or 0,
+                "reason": "telegram_operation_not_confirmed",
+                "error": self._redact_error(exc),
+            }
         next_message_id = (
             None
             if telegram.get("status") in {"deleted", "archived"}
             else telegram.get("message_id") or message_id
         )
-        delivered = int(telegram.get("status") in {"sent", "edited"})
+        successful = str(telegram.get("status") or "") in {
+            "sent",
+            "edited",
+            "unchanged",
+            "deleted",
+            "archived",
+            "skipped",
+        }
+        delivered = int(telegram.get("status") == "sent")
+        operation_state = (
+            "committed"
+            if successful
+            else "retryable"
+            if telegram.get("status") == "telegram_disabled"
+            else "uncertain"
+            if operation == "send"
+            else "retryable"
+        )
+        committed_fingerprint = fingerprint if successful else str((state or {}).get("fingerprint") or "")
         with conn.cursor() as cur:
             cur.execute(
                 """
                 insert into incident_delivery_state (
                     incident_key, incident_view, fingerprint, incident_status,
                     incident_title, telegram_message_id, telegram_chat_id,
-                    delivery_count, delivered_at, updated_at, last_seen_at, payload
+                    delivery_count, delivered_at, updated_at, last_seen_at, payload,
+                    current_incident_key, aggregation_fingerprint, operation_key,
+                    operation_kind, operation_state, operation_fingerprint,
+                    retry_count, last_error
                 )
-                values (%s, %s, %s, %s, %s, %s, %s, %s, now(), now(), now(), %s::jsonb)
+                values (
+                    %s, %s, %s, %s, %s, %s, %s, %s, now(), now(), now(), %s::jsonb,
+                    %s, %s, %s, %s, %s, %s, %s, %s
+                )
                 on conflict (incident_key) do update set
                     fingerprint = excluded.fingerprint,
                     incident_status = excluded.incident_status,
@@ -328,12 +479,20 @@ class IncidentTelegramBot:
                     delivery_count = incident_delivery_state.delivery_count + excluded.delivery_count,
                     updated_at = now(),
                     last_seen_at = now(),
-                    payload = excluded.payload
+                    payload = excluded.payload,
+                    current_incident_key = excluded.current_incident_key,
+                    aggregation_fingerprint = excluded.aggregation_fingerprint,
+                    operation_key = excluded.operation_key,
+                    operation_kind = excluded.operation_kind,
+                    operation_state = excluded.operation_state,
+                    operation_fingerprint = excluded.operation_fingerprint,
+                    retry_count = case when excluded.operation_state = 'committed' then 0 else incident_delivery_state.retry_count + 1 end,
+                    last_error = excluded.last_error
                 """,
                 (
-                    incident_key,
+                    delivery_key,
                     self.config.incident_view,
-                    fingerprint,
+                    committed_fingerprint,
                     status,
                     self._incident_title(incident),
                     next_message_id,
@@ -343,14 +502,157 @@ class IncidentTelegramBot:
                         {"incident": incident, "telegram": telegram, "processed_at": _utc_now().isoformat()},
                         ensure_ascii=False,
                     ),
+                    current_incident_key,
+                    aggregation_fingerprint,
+                    attempt_key,
+                    operation,
+                    operation_state,
+                    fingerprint,
+                    0 if successful else int((state or {}).get("retry_count") or 0) + 1,
+                    self._redact_error(telegram.get("error") or telegram.get("reason") or "") if not successful else "",
                 ),
             )
         self._publish_delivery_state(
             incident,
-            incident_key=incident_key,
+            incident_key=current_incident_key,
+            delivery_key=delivery_key,
+            aggregation_fingerprint=aggregation_fingerprint,
             telegram=telegram,
             delivery_count=delivered,
+            operation=operation,
+            attempt_key=attempt_key,
+            active=bool(next_message_id) and not terminal,
         )
+
+    def _aggregation_group(self, incident: dict[str, Any]) -> dict[str, Any]:
+        group = incident.get("group_key")
+        if isinstance(group, dict):
+            return dict(group)
+        raw = incident.get("group_key_json")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (TypeError, ValueError):
+                pass
+        return {}
+
+    def _delivery_key(self, incident: dict[str, Any]) -> str:
+        group = self._aggregation_group(incident)
+        return str(
+            group.get("incident_key")
+            or group.get("agg_id")
+            or incident.get("aggregation_key")
+            or incident.get("agg_id")
+            or incident.get("record_id")
+            or incident.get("id")
+            or ""
+        ).strip()
+
+    def _aggregation_fingerprint(self, incident: dict[str, Any]) -> str:
+        return hashlib.sha256(f"agg|{self._delivery_key(incident)}".encode("utf-8")).hexdigest()
+
+    def _redact_error(self, value: Any) -> str:
+        text = _redact_secret(value, self.config.telegram_bot_token)
+        text = _redact_secret(text, self.config.siem_api_token)
+        return text[:300]
+
+    def _touch_incident_state(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        delivery_key: str,
+        current_incident_key: str,
+        incident: dict[str, Any],
+        operation_state: str | None = None,
+    ) -> None:
+        assignment = ", operation_state = %s" if operation_state else ""
+        params: list[Any] = [
+            current_incident_key,
+            str(incident.get("status") or "new").strip().lower(),
+            self._incident_title(incident),
+        ]
+        if operation_state:
+            params.append(operation_state)
+        params.append(delivery_key)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                update incident_delivery_state
+                set last_seen_at = now(), updated_at = now(),
+                    current_incident_key = %s,
+                    incident_status = %s, incident_title = %s
+                    {assignment}
+                where incident_key = %s
+                """,
+                tuple(params),
+            )
+
+    def _prepare_operation(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        delivery_key: str,
+        current_incident_key: str,
+        aggregation_fingerprint: str,
+        incident: dict[str, Any],
+        state: dict[str, Any] | None,
+        operation: str,
+        attempt_key: str,
+        operation_fingerprint: str,
+        chat_id: str,
+    ) -> bool:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into incident_delivery_state (
+                    incident_key, incident_view, fingerprint, incident_status,
+                    incident_title, telegram_message_id, telegram_chat_id,
+                    delivery_count, delivered_at, updated_at, last_seen_at, payload,
+                    current_incident_key, aggregation_fingerprint, operation_key,
+                    operation_kind, operation_state, operation_fingerprint,
+                    retry_count, last_error
+                ) values (
+                    %s, %s, %s, %s, %s, %s, %s, %s, now(), now(), now(), %s::jsonb,
+                    %s, %s, %s, %s, 'prepared', %s, %s, ''
+                )
+                on conflict (incident_key) do update set
+                    incident_view = excluded.incident_view,
+                    incident_status = excluded.incident_status,
+                    incident_title = excluded.incident_title,
+                    current_incident_key = excluded.current_incident_key,
+                    aggregation_fingerprint = excluded.aggregation_fingerprint,
+                    operation_key = excluded.operation_key,
+                    operation_kind = excluded.operation_kind,
+                    operation_state = 'prepared',
+                    operation_fingerprint = excluded.operation_fingerprint,
+                    updated_at = now(), last_seen_at = now(), last_error = ''
+                where incident_delivery_state.operation_state not in ('prepared', 'uncertain')
+                returning incident_key
+                """,
+                (
+                    delivery_key,
+                    self.config.incident_view,
+                    str((state or {}).get("fingerprint") or ""),
+                    str(incident.get("status") or "new").strip().lower(),
+                    self._incident_title(incident),
+                    (state or {}).get("telegram_message_id"),
+                    chat_id,
+                    0,
+                    json.dumps(
+                        {"incident": incident, "operation": operation, "prepared_at": _utc_now().isoformat()},
+                        ensure_ascii=False,
+                    ),
+                    current_incident_key,
+                    aggregation_fingerprint,
+                    attempt_key,
+                    operation,
+                    operation_fingerprint,
+                    int((state or {}).get("retry_count") or 0),
+                ),
+            )
+            return cur.fetchone() is not None
 
     def _reconcile_absent_incidents(
         self,
@@ -360,10 +662,13 @@ class IncidentTelegramBot:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select incident_key, telegram_message_id, telegram_chat_id
+                select incident_key, current_incident_key
                 from incident_delivery_state
                 where incident_view = %s
-                  and incident_status not in ('closed', 'false_positive', 'expired')
+                  and incident_status not in (
+                      'closed', 'false_positive', 'expired', 'merged',
+                      'suppressed', 'suppressed_by_tuning'
+                  )
                   and last_seen_at < now() - make_interval(secs => %s)
                 order by last_seen_at asc
                 limit 500
@@ -371,37 +676,18 @@ class IncidentTelegramBot:
                 (self.config.incident_view, self.config.stale_grace_seconds),
             )
             stale_rows = list(cur.fetchall())
-        for incident_key, message_id, stored_chat_id in stale_rows:
-            key = str(incident_key or "").strip()
+        for delivery_key, current_incident_key in stale_rows:
+            key = str(delivery_key or "").strip()
             if not key or key in current_keys:
                 continue
-            chat_id = str(stored_chat_id or self.config.telegram_chat_id)
-            telegram = (
-                self._delete_incident_card(
-                    chat_id=chat_id,
-                    message_id=int(message_id),
-                    reason="left_main_incident_queue",
-                )
-                if message_id
-                else {"status": "expired", "reason": "left_main_incident_queue"}
-            )
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    update incident_delivery_state
-                    set incident_status = 'expired',
-                        fingerprint = 'expired:' || fingerprint,
-                        telegram_message_id = null,
-                        updated_at = now()
-                    where incident_key = %s
-                    """,
-                    (key,),
-                )
-            self._publish_delivery_state(
-                {"record_id": key, "status": "expired"},
-                incident_key=key,
-                telegram=telegram,
-                delivery_count=0,
+            self._process_incident(
+                conn,
+                {
+                    "record_id": str(current_incident_key or key),
+                    "status": "expired",
+                    "title": "Incident left the active Web queue",
+                    "group_key": {"incident_key": key},
+                },
             )
 
     def _delete_incident_card(
@@ -427,7 +713,7 @@ class IncidentTelegramBot:
             LOG.warning(
                 "unable to delete stale Telegram incident card %s: %s",
                 message_id,
-                exc,
+                self._redact_error(exc),
             )
             try:
                 self._telegram_request(
@@ -453,13 +739,13 @@ class IncidentTelegramBot:
                 LOG.warning(
                     "unable to archive stale Telegram incident card %s: %s",
                     message_id,
-                    edit_exc,
+                    self._redact_error(edit_exc),
                 )
                 return {
                     "status": "delete_failed",
                     "message_id": int(message_id),
                     "reason": reason,
-                    "error": str(edit_exc)[:300],
+                    "error": self._redact_error(edit_exc),
                 }
 
     def _publish_delivery_state(
@@ -467,8 +753,13 @@ class IncidentTelegramBot:
         incident: dict[str, Any],
         *,
         incident_key: str,
+        delivery_key: str,
+        aggregation_fingerprint: str,
         telegram: dict[str, Any],
         delivery_count: int,
+        operation: str,
+        attempt_key: str,
+        active: bool,
     ) -> None:
         try:
             self._siem_request_json(
@@ -476,39 +767,102 @@ class IncidentTelegramBot:
                 method="POST",
                 payload={
                     "incident_key": incident_key,
+                    "delivery_key": delivery_key,
+                    "aggregation_fingerprint": aggregation_fingerprint,
                     "incident_view": self.config.incident_view,
                     "incident_status": str(incident.get("status") or ""),
                     "channel": "telegram",
                     "delivery_status": str(telegram.get("status") or "unknown"),
                     "message_id": int(telegram.get("message_id") or 0),
                     "delivery_count": int(delivery_count),
+                    "active": bool(active),
+                    "operation": operation,
+                    "attempt_key": attempt_key,
                     "reason": str(telegram.get("reason") or telegram.get("error") or "")[:300],
                     "updated_at": _utc_now().isoformat(),
                 },
             )
         except Exception as exc:  # noqa: BLE001
-            LOG.warning("unable to publish incident delivery state for %s: %s", incident_key, exc)
+            LOG.warning(
+                "unable to publish incident delivery state for %s: %s",
+                incident_key,
+                self._redact_error(exc),
+            )
 
-    def _get_incident_state(self, conn: psycopg.Connection[Any], incident_key: str) -> dict[str, Any] | None:
+    def _migrate_state_key(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        old_key: str,
+        new_key: str,
+    ) -> None:
+        if not old_key or not new_key or old_key == new_key:
+            return
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select fingerprint, payload, telegram_message_id, telegram_chat_id, incident_status
-                from incident_delivery_state where incident_key = %s
+                update incident_delivery_state
+                set incident_key = %s, aggregation_fingerprint = %s, updated_at = now()
+                where incident_key = %s
+                  and not exists (
+                      select 1 from incident_delivery_state existing
+                      where existing.incident_key = %s
+                  )
                 """,
-                (incident_key,),
+                (new_key, hashlib.sha256(f"agg|{new_key}".encode("utf-8")).hexdigest(), old_key, new_key),
+            )
+
+    def _get_incident_state(
+        self,
+        conn: psycopg.Connection[Any],
+        incident_key: str,
+        *,
+        current_incident_key: str = "",
+        aggregation_fingerprint: str = "",
+    ) -> dict[str, Any] | None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select incident_key, fingerprint, payload, telegram_message_id, telegram_chat_id,
+                       incident_status, current_incident_key, aggregation_fingerprint,
+                       operation_key, operation_kind, operation_state,
+                       operation_fingerprint, retry_count, last_error
+                from incident_delivery_state
+                where incident_key = %s
+                   or (%s != '' and current_incident_key = %s)
+                   or (%s != '' and aggregation_fingerprint = %s)
+                order by (incident_key = %s) desc, updated_at desc
+                limit 1
+                """,
+                (
+                    incident_key,
+                    current_incident_key,
+                    current_incident_key,
+                    aggregation_fingerprint,
+                    aggregation_fingerprint,
+                    incident_key,
+                ),
             )
             row = cur.fetchone()
         if not row:
             return None
-        payload = row[1] if isinstance(row[1], dict) else {}
+        payload = row[2] if isinstance(row[2], dict) else {}
         legacy_message_id = ((payload.get("telegram") or {}) if isinstance(payload, dict) else {}).get("message_id")
         return {
-            "fingerprint": row[0],
+            "stored_delivery_key": row[0],
+            "fingerprint": row[1],
             "payload": payload,
-            "telegram_message_id": row[2] or legacy_message_id,
-            "telegram_chat_id": row[3],
-            "incident_status": row[4],
+            "telegram_message_id": row[3] or legacy_message_id,
+            "telegram_chat_id": row[4],
+            "incident_status": row[5],
+            "current_incident_key": row[6],
+            "aggregation_fingerprint": row[7],
+            "operation_key": row[8],
+            "operation_kind": row[9],
+            "operation_state": row[10],
+            "operation_fingerprint": row[11],
+            "retry_count": row[12],
+            "last_error": row[13],
         }
 
     def _incident_key(self, incident: dict[str, Any]) -> str:
@@ -633,7 +987,10 @@ class IncidentTelegramBot:
                 "reply_markup": {"inline_keyboard": self._build_incident_keyboard(incident_key, callback_ref)},
             },
         )
-        return {"status": "sent", "message_id": response.get("result", {}).get("message_id")}
+        message_id = response.get("result", {}).get("message_id")
+        if not message_id:
+            raise RuntimeError("Telegram accepted sendMessage without a message id")
+        return {"status": "sent", "message_id": message_id}
 
     def _edit_incident(
         self,
@@ -661,17 +1018,8 @@ class IncidentTelegramBot:
         except RuntimeError as exc:
             if "message is not modified" in str(exc).lower():
                 return {"status": "unchanged", "message_id": message_id}
-            if terminal:
-                LOG.warning("terminal incident card could not be edited: %s", exc)
-                return {"status": "edit_failed", "message_id": message_id, "error": str(exc)[:300]}
-            LOG.warning("incident card edit failed; replacing card: %s", exc)
-            return self._send_incident(
-                incident,
-                incident_key,
-                chat_id=chat_id,
-                timezone_name=timezone_name,
-                callback_ref=callback_ref,
-            )
+            LOG.warning("incident card edit failed; existing card retained: %s", self._redact_error(exc))
+            return {"status": "edit_failed", "message_id": message_id, "error": self._redact_error(exc)}
 
     def _incident_callback_ref(self, incident_key: str) -> str:
         return hashlib.sha256(incident_key.encode("utf-8")).hexdigest()[:20]
@@ -801,7 +1149,9 @@ class IncidentTelegramBot:
                 return json.loads(response.read().decode("utf-8", errors="replace"))
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"SIEM request failed: {path} -> HTTP {exc.code}; body={body[:400]}") from exc
+            raise RuntimeError(
+                f"SIEM request failed: {path} -> HTTP {exc.code}; body={self._redact_error(body)}"
+            ) from exc
 
     def _post_chat_message(self, chat_id: str, text: str) -> dict[str, Any]:
         return self._telegram_request(
@@ -827,7 +1177,9 @@ class IncidentTelegramBot:
             safe_detail = _redact_secret(detail or exc, self.config.telegram_bot_token)
             raise RuntimeError(f"Telegram request failed: {method}; {safe_detail[:400]}") from exc
         if not bool(body.get("ok")):
-            raise RuntimeError(f"Telegram request failed: {method} -> {body}")
+            raise RuntimeError(
+                f"Telegram request failed: {method} -> {self._redact_error(json.dumps(body, ensure_ascii=False))}"
+            )
         return body
 
 

@@ -61,15 +61,18 @@ def main() -> int:
             "columns=$(sudo -u postgres psql -d siem_incident_bot -Atc "
             "\"select count(*) from information_schema.columns "
             "where table_name='incident_delivery_state' "
-            "and column_name in ('telegram_message_id','telegram_chat_id','delivery_count','last_seen_at')\"); "
-            "[ \"$columns\" = 4 ] && break; "
+            "and column_name in ("
+            "'telegram_message_id','telegram_chat_id','delivery_count','last_seen_at',"
+            "'current_incident_key','aggregation_fingerprint','operation_key','operation_kind',"
+            "'operation_state','operation_fingerprint','retry_count','last_error')\"); "
+            "[ \"$columns\" = 12 ] && break; "
             "sleep 1; "
             "done; "
             "printf '%s\\n' \"$columns\"",
             timeout=180,
         )
     lines = [line.strip() for line in output.splitlines() if line.strip()]
-    if lines[-2:] != ["active", "4"]:
+    if lines[-2:] != ["active", "12"]:
         raise RuntimeError(f"Incident bot release smoke failed: {lines}")
     print(
         json.dumps(

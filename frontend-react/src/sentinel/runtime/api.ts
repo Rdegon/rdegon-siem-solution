@@ -1,4 +1,6 @@
 import type {
+  ActiveListImportResponse,
+  ActiveListMutationResponse,
   ActiveListRecord,
   ActiveListsResponse,
   AccessGrantRecord,
@@ -46,12 +48,21 @@ import type {
   EntityDetailResponse,
   EventsFacetsResponse,
   EventsQueryResponse,
+  HuntingCapabilitiesResponse,
+  HuntingEventDetailResponse,
+  HuntingFacetsResponse,
+  HuntingQueryResponse,
+  HuntingSavedSearchRecord,
+  HuntingSavedSearchesResponse,
   GeoCountryDetailResponse,
   GeoSourcesResponse,
   GeoVpnResponse,
   GeneratedReportDetailResponse,
-  GeneratedReportRecord,
   GeneratedReportsResponse,
+  RetroscanCapabilities,
+  RetroscanCreateResponse,
+  RetroscanRunDetailResponse,
+  RetroscanRunsResponse,
   HostAccessProfileRecord,
   HostAccessProfilesResponse,
   HostRuntimeOverviewResponse,
@@ -59,6 +70,7 @@ import type {
   IncidentHostActionResponse,
   IncidentListResponse,
   IncidentUpdateResponse,
+  IncidentWorkflowResponse,
   RuleTestResponse,
   HealthOverviewResponse,
   IngestDlqResponse,
@@ -84,12 +96,20 @@ import type {
   ReplayDlqResponse,
   ResourceCatalogRecord,
   ResourceCatalogResponse,
+  ResourceLifecycleMutationResponse,
+  ResourcePackageImportResponse,
   ResourcePublishResponse,
   ResourceValidationResponse,
+  ResourceVersionCompareResponse,
+  ResourceVersionsResponse,
   RemoteAccessProfileRecord,
   RemoteAccessStateResponse,
+  XuiStateResponse,
   ReportTemplateRecord,
   ReportTemplatesResponse,
+  ReportRunCreateResponse,
+  ReportSchedule,
+  ReportingCapabilities,
   ResponseAnalyticsResponse,
   ResponseActionsResponse,
   ResponseActionRecord,
@@ -104,6 +124,10 @@ import type {
   SecurityServiceControlResponse,
   SecurityControlMutationResponse,
   SecurityServicesResponse,
+  ServiceLifecycleAction,
+  ServiceLifecycleActionResponse,
+  ServiceLifecycleInstance,
+  ServiceLifecycleRegistryResponse,
   ServiceAccountDetailResponse,
   ServiceAccountsResponse,
   ServiceAccountSummary,
@@ -115,6 +139,7 @@ import type {
   SourceMonitoringPolicyRecord,
   SourceOnboardingExecutionResponse,
   SourceOnboardingPreparedResponse,
+  SourceOnboardingVerificationResponse,
   SourcesInventoryResponse,
   ThreatIntelGeoDetailResponse,
   ThreatIntelOverviewResponse,
@@ -137,6 +162,9 @@ import type {
   VulnRowsResponse,
   VulnSoftwareRow,
   VulnSyncResponse,
+  UnifiedRuleMutationResponse,
+  UnifiedRuleRecord,
+  UnifiedRulesResponse,
   RuntimeBlob,
   KumaResourcesResponse,
   KumaStatusResponse,
@@ -297,6 +325,96 @@ async function putJson<T>(url: string, body: Record<string, unknown>): Promise<T
   return parseResponse<T>(response);
 }
 
+async function deleteJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "include",
+    headers: scopedHeaders(buildMutationHeaders()),
+  });
+  return parseResponse<T>(response);
+}
+
+async function patchJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(url, {
+    method: "PATCH",
+    credentials: "include",
+    headers: scopedHeaders(buildMutationHeaders()),
+    body: JSON.stringify(body),
+  });
+  return parseResponse<T>(response);
+}
+
+async function deleteJsonBody<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "include",
+    headers: scopedHeaders(buildMutationHeaders()),
+    body: JSON.stringify(body),
+  });
+  return parseResponse<T>(response);
+}
+
+async function downloadFile(url: string): Promise<{ filename: string }> {
+  const response = await fetch(url, {
+    credentials: "include",
+    headers: scopedHeaders({ Accept: "application/json, text/csv" }),
+  });
+  if (!response.ok) await parseResponse<never>(response);
+  const disposition = response.headers.get("content-disposition") || "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "download";
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  return { filename };
+}
+
+function mutationKey(action: string, resourceId = "") {
+  const random = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `ui:${action}:${resourceId || "package"}:${random}`;
+}
+
+function resourceLifecycleHeaders(action: string, resourceId = "", contentType = "application/json") {
+  const tenantHeaders: Record<string, string> = {};
+  if (activeTenantScope.length === 1) tenantHeaders["X-Tenant-Scope"] = activeTenantScope[0];
+  return scopedHeaders({
+    ...buildMutationHeaders(contentType),
+    ...tenantHeaders,
+    "Idempotency-Key": mutationKey(action, resourceId),
+  });
+}
+
+async function getResourceLifecycleJson<T>(url: string): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (activeTenantScope.length === 1) headers["X-Tenant-Scope"] = activeTenantScope[0];
+  const response = await fetch(url, {
+    credentials: "include",
+    headers: scopedHeaders(headers),
+  });
+  return parseResponse<T>(response);
+}
+
+async function saveDownload(response: Response): Promise<{ filename: string }> {
+  if (!response.ok) await parseResponse<never>(response);
+  const disposition = response.headers.get("content-disposition") || "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "sentinel-resources.json";
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  return { filename };
+}
+
 export const api = {
   bootstrap: () => getJson<BootstrapResponse>("/api/ui/bootstrap"),
   tenantScope: () => getJson<TenantScopeResponse>("/api/ui/tenants"),
@@ -312,6 +430,59 @@ export const api = {
     postJson<ResourcePublishResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/publish`, {}),
   resourceDeployment: (resourceId: string) =>
     getJson<CollectorDeploymentResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/deployment`),
+  duplicateResource: async (resourceId: string, body: { name?: string } = {}) => {
+    const response = await fetch(`/api/resources/catalog/${encodeURIComponent(resourceId)}/duplicate`, {
+      method: "POST",
+      credentials: "include",
+      headers: resourceLifecycleHeaders("duplicate", resourceId),
+      body: JSON.stringify(body),
+    });
+    return parseResponse<ResourceLifecycleMutationResponse>(response);
+  },
+  resourceVersions: (resourceId: string) =>
+    getResourceLifecycleJson<ResourceVersionsResponse>(`/api/resources/catalog/${encodeURIComponent(resourceId)}/versions`),
+  compareResourceVersions: (resourceId: string, fromVersion: number, toVersion: number) =>
+    getResourceLifecycleJson<ResourceVersionCompareResponse>(
+      `/api/resources/catalog/${encodeURIComponent(resourceId)}/versions/compare${toQuery({ from_version: fromVersion, to_version: toVersion })}`,
+    ),
+  rollbackResource: async (resourceId: string, body: { target_version: number; expected_revision: number }) => {
+    const response = await fetch(`/api/resources/catalog/${encodeURIComponent(resourceId)}/rollback`, {
+      method: "POST",
+      credentials: "include",
+      headers: resourceLifecycleHeaders("rollback", resourceId),
+      body: JSON.stringify(body),
+    });
+    return parseResponse<ResourceLifecycleMutationResponse>(response);
+  },
+  deleteResourceDraft: async (resourceId: string, expectedRevision: number) => {
+    const response = await fetch(`/api/resources/catalog/${encodeURIComponent(resourceId)}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: resourceLifecycleHeaders("delete-draft", resourceId),
+      body: JSON.stringify({ expected_revision: expectedRevision }),
+    });
+    return parseResponse<ResourceLifecycleMutationResponse>(response);
+  },
+  exportResourcePackage: async (resourceIds: string[]) => {
+    const response = await fetch("/api/resources/catalog/export", {
+      method: "POST",
+      credentials: "include",
+      headers: resourceLifecycleHeaders("export-package"),
+      body: JSON.stringify({ resource_ids: resourceIds }),
+    });
+    return saveDownload(response);
+  },
+  importResourcePackage: async (file: File) => {
+    const form = new FormData();
+    form.append("package", file);
+    const response = await fetch("/api/resources/catalog/import", {
+      method: "POST",
+      credentials: "include",
+      headers: resourceLifecycleHeaders("import-package", "", ""),
+      body: form,
+    });
+    return parseResponse<ResourcePackageImportResponse>(response);
+  },
   kumaStatus: () => getJson<KumaStatusResponse>("/api/integrations/kuma/status"),
   kumaResources: (params: { page?: number; kind?: string[]; tenant_id?: string; name?: string } = {}) => {
     const search = new URLSearchParams();
@@ -468,6 +639,7 @@ export const api = {
   playbookDetail: (slug: string) => getJson<PlaybookDetailResponse>(`/api/playbooks/${encodeURIComponent(slug)}`),
   reports: () => getJson<VulnReportsResponse>("/api/reports"),
   reportDetail: (reportId: string) => getJson<VulnReportDetailResponse>(`/api/reports/${encodeURIComponent(reportId)}`),
+  reportingCapabilities: () => getJson<ReportingCapabilities>("/api/reporting/capabilities"),
   reportTemplates: () => getJson<ReportTemplatesResponse>("/api/reporting/templates"),
   saveReportTemplate: (body: Record<string, unknown>) =>
     postJson<ReportTemplateRecord>("/api/reporting/templates", body),
@@ -479,12 +651,30 @@ export const api = {
     });
     return parseResponse<{ deleted: boolean; id: string }>(response);
   },
+  updateReportSchedule: async (templateId: string, body: Partial<ReportSchedule>) => {
+    const response = await fetch(`/api/reporting/templates/${encodeURIComponent(templateId)}/schedule`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: scopedHeaders(buildMutationHeaders()),
+      body: JSON.stringify(body),
+    });
+    return parseResponse<ReportTemplateRecord>(response);
+  },
   generatedReports: (params: { limit?: number } = {}) =>
     getJson<GeneratedReportsResponse>(`/api/reporting/runs${toQuery(params)}`),
   generatedReportDetail: (runId: string) =>
     getJson<GeneratedReportDetailResponse>(`/api/reporting/runs/${encodeURIComponent(runId)}`),
   runReportTemplate: (templateId: string, body: Record<string, unknown> = {}) =>
-    postJson<GeneratedReportRecord>(`/api/reporting/templates/${encodeURIComponent(templateId)}/run`, body),
+    postJson<ReportRunCreateResponse>(`/api/reporting/templates/${encodeURIComponent(templateId)}/run`, body),
+  retroscanCapabilities: () => getJson<RetroscanCapabilities>("/api/retroscan/capabilities"),
+  retroscanRuns: (params: { limit?: number; status?: string } = {}) =>
+    getJson<RetroscanRunsResponse>(`/api/retroscan/runs${toQuery(params)}`),
+  retroscanRunDetail: (runId: string) =>
+    getJson<RetroscanRunDetailResponse>(`/api/retroscan/runs/${encodeURIComponent(runId)}`),
+  createRetroscan: (body: Record<string, unknown>) =>
+    postJson<RetroscanCreateResponse>("/api/retroscan/runs", body),
+  cancelRetroscan: (runId: string) =>
+    postJson<RetroscanRunDetailResponse>(`/api/retroscan/runs/${encodeURIComponent(runId)}/cancel`, {}),
   vulnOverview: (params: { days?: number; limit?: number } = {}) =>
     getJson<VulnOverviewResponse>(`/api/vuln/overview${toQuery(params)}`),
   vulnRuntime: (params: { days?: number } = {}) =>
@@ -572,6 +762,10 @@ export const api = {
     postJson<SourceOnboardingPreparedResponse>(`/api/sources/discovery/${encodeURIComponent(candidateId)}/prepare`, body),
   executeSourceOnboarding: (jobId: string, body: Record<string, unknown>) =>
     postJson<SourceOnboardingExecutionResponse>(`/api/sources/discovery/jobs/${encodeURIComponent(jobId)}/execute`, body),
+  verifySourceOnboarding: (jobId: string) =>
+    postJson<SourceOnboardingVerificationResponse>(`/api/sources/discovery/jobs/${encodeURIComponent(jobId)}/verify`, {}),
+  sourceOnboardingPackageUrl: (jobId: string) =>
+    `/api/sources/discovery/jobs/${encodeURIComponent(jobId)}/package`,
   collectorsInventory: (params: { hours?: number } = {}) =>
     getJson<CollectorsInventoryResponse>(`/api/collectors${toQuery(params)}`),
   integrationsCatalog: () => getJson<IntegrationsCatalogResponse>("/api/integrations/catalog"),
@@ -614,6 +808,15 @@ export const api = {
   certificationHealth: () => getJson<CertificationHealthResponse>("/api/health/certification"),
   hostRuntimeOverview: (params: { hours?: number; limit?: number } = {}) =>
     getJson<HostRuntimeOverviewResponse>(`/api/health/hosts/runtime${toQuery(params)}`),
+  serviceLifecycle: (params: { refresh_live?: boolean } = {}) =>
+    getJson<ServiceLifecycleRegistryResponse>(`/api/service-lifecycle${toQuery(params)}`),
+  serviceLifecycleDetail: (instanceId: string, params: { refresh_live?: boolean } = {}) =>
+    getJson<ServiceLifecycleInstance>(`/api/service-lifecycle/${encodeURIComponent(instanceId)}${toQuery(params)}`),
+  executeServiceLifecycleAction: (instanceId: string, action: ServiceLifecycleAction, idempotencyKey: string) =>
+    postJson<ServiceLifecycleActionResponse>(
+      `/api/service-lifecycle/${encodeURIComponent(instanceId)}/actions/${encodeURIComponent(action)}`,
+      { idempotency_key: idempotencyKey },
+    ),
   ingestOverview: () => getJson<IngestOverviewResponse>("/api/ingest/overview"),
   ingestSources: (params: { limit?: number } = {}) => getJson<IngestHeartbeatResponse>(`/api/ingest/sources${toQuery(params)}`),
   ingestCollectors: (params: { limit?: number } = {}) => getJson<IngestHeartbeatResponse>(`/api/ingest/collectors${toQuery(params)}`),
@@ -671,8 +874,37 @@ export const api = {
     postJson<ContentBundleRecord>(`/api/content/bundles/${encodeURIComponent(bundleId)}/promote`, body),
   savedSearches: () => getJson<SavedSearchesResponse>("/api/search/saved"),
   saveSavedSearch: (body: Record<string, unknown>) => postJson<SavedSearchMutationResponse>("/api/search/saved", body),
-  activeLists: () => getJson<ActiveListsResponse>("/api/lists/active"),
+  activeLists: (params: { list_name?: string; limit?: number } = {}) =>
+    getJson<ActiveListsResponse>(`/api/lists/active${toQuery(params)}`),
   saveActiveList: (body: Record<string, unknown>) => postJson<ActiveListRecord>("/api/lists/active", body),
+  deleteActiveList: (body: Record<string, unknown>) =>
+    deleteJsonBody<ActiveListMutationResponse>("/api/lists/active", body),
+  toggleActiveList: (body: Record<string, unknown>) =>
+    patchJson<ActiveListMutationResponse>("/api/lists/active", body),
+  importActiveLists: (body: Record<string, unknown>) =>
+    postJson<ActiveListImportResponse>("/api/lists/active/import", body),
+  exportActiveLists: (listName: string, format: "csv" | "json") =>
+    downloadFile(`/api/lists/active/export${toQuery({ list_name: listName, format })}`),
+  unifiedRules: (params: {
+    search?: string;
+    status?: string;
+    engine?: string;
+    pack_id?: string;
+    limit?: number;
+    offset?: number;
+    noise_days?: number;
+  } = {}) => getJson<UnifiedRulesResponse>(`/api/rules/unified${toQuery(params)}`),
+  unifiedRule: (identity: string) =>
+    getJson<UnifiedRuleRecord>(`/api/rules/unified/${encodeURIComponent(identity)}`),
+  publishUnifiedRule: (identity: string) =>
+    postJson<UnifiedRuleMutationResponse>(`/api/rules/unified/${encodeURIComponent(identity)}/publish`, {}),
+  setUnifiedRuleEnabled: (
+    identity: string,
+    body: { enabled: boolean; reason?: string; replacement_identity?: string },
+  ) => postJson<UnifiedRuleMutationResponse>(
+    `/api/rules/unified/${encodeURIComponent(identity)}/enabled`,
+    body,
+  ),
   secretsRequired: () => getJson<SecretsRequiredResponse>("/api/secrets/required"),
   securityServices: () => getJson<SecurityServicesResponse>("/api/security-services"),
   securityService: (serviceId: string) =>
@@ -697,6 +929,44 @@ export const api = {
     const response = await fetch(`/api/security-services/vpn/remote-access/${encodeURIComponent(profileId)}`, { method: "DELETE", credentials: "include", headers: scopedHeaders(buildMutationHeaders("")) });
     return parseResponse<{ deleted: boolean; id: string }>(response);
   },
+  xuiState: () => getJson<XuiStateResponse>("/api/security-services/vpn/vless"),
+  createXuiInbound: (body: Record<string, unknown>) =>
+    postJson<RuntimeBlob>("/api/security-services/vpn/vless/inbounds", body),
+  updateXuiInbound: (inboundId: number, body: Record<string, unknown>) =>
+    putJson<RuntimeBlob>(`/api/security-services/vpn/vless/inbounds/${inboundId}`, body),
+  deleteXuiInbound: async (inboundId: number) => {
+    const response = await fetch(`/api/security-services/vpn/vless/inbounds/${inboundId}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: scopedHeaders(buildMutationHeaders()),
+    });
+    return parseResponse<RuntimeBlob>(response);
+  },
+  createXuiClient: (inboundId: number, body: Record<string, unknown>) =>
+    postJson<RuntimeBlob>(`/api/security-services/vpn/vless/inbounds/${inboundId}/clients`, body),
+  updateXuiClient: (inboundId: number, clientId: string, body: Record<string, unknown>) =>
+    putJson<RuntimeBlob>(
+      `/api/security-services/vpn/vless/inbounds/${inboundId}/clients/${encodeURIComponent(clientId)}`,
+      body,
+    ),
+  deleteXuiClient: async (inboundId: number, clientId: string) => {
+    const response = await fetch(
+      `/api/security-services/vpn/vless/inbounds/${inboundId}/clients/${encodeURIComponent(clientId)}`,
+      { method: "DELETE", credentials: "include", headers: scopedHeaders(buildMutationHeaders()) },
+    );
+    return parseResponse<RuntimeBlob>(response);
+  },
+  xuiClientProfile: (inboundId: number, clientId: string) =>
+    getJson<{ profile?: string; issue?: string }>(
+      `/api/security-services/vpn/vless/inbounds/${inboundId}/clients/${encodeURIComponent(clientId)}/profile`,
+    ),
+  resetXuiClientTraffic: (inboundId: number, clientId: string) =>
+    postJson<RuntimeBlob>(
+      `/api/security-services/vpn/vless/inbounds/${inboundId}/clients/${encodeURIComponent(clientId)}/reset-traffic`,
+      {},
+    ),
+  resetXuiInboundTraffic: (inboundId: number) =>
+    postJson<RuntimeBlob>(`/api/security-services/vpn/vless/inbounds/${inboundId}/reset-traffic`, {}),
   incidents: (params: { view?: string; q?: string; scope?: string; window?: string; limit?: number; from_ts?: string; to_ts?: string; include_terminal?: boolean } = {}) =>
     getJson<IncidentListResponse>(`/api/incidents${toQuery(params)}`),
   incidentDetail: (
@@ -711,7 +981,39 @@ export const api = {
     postJson<IncidentHostActionResponse>(`/api/incident-ops/${encodeURIComponent(view)}/${encodeURIComponent(recordId)}/host-action`, body),
   updateIncident: (view: string, recordId: string, body: Record<string, unknown>) =>
     postJson<IncidentUpdateResponse>(`/api/alerts/${encodeURIComponent(view)}/${encodeURIComponent(recordId)}`, body),
+  createManualIncident: (body: Record<string, unknown>) =>
+    postJson<IncidentWorkflowResponse>("/api/incident-workflow/incidents", body),
+  changeIncidentSeverity: (incidentId: string, body: Record<string, unknown>) =>
+    postJson<IncidentWorkflowResponse>(
+      `/api/incident-workflow/incidents/${encodeURIComponent(incidentId)}/severity`,
+      body,
+    ),
+  linkIncidentAlert: (incidentId: string, body: Record<string, unknown>) =>
+    postJson<IncidentWorkflowResponse>(
+      `/api/incident-workflow/incidents/${encodeURIComponent(incidentId)}/alerts/link`,
+      body,
+    ),
+  unlinkIncidentAlert: (incidentId: string, body: Record<string, unknown>) =>
+    postJson<IncidentWorkflowResponse>(
+      `/api/incident-workflow/incidents/${encodeURIComponent(incidentId)}/alerts/unlink`,
+      body,
+    ),
+  mergeIncidents: (incidentId: string, body: Record<string, unknown>) =>
+    postJson<IncidentWorkflowResponse>(
+      `/api/incident-workflow/incidents/${encodeURIComponent(incidentId)}/merge`,
+      body,
+    ),
   eventsQuery: (body: Record<string, unknown>) => postJson<EventsQueryResponse>("/api/events/query", body),
   eventsFacets: (body: Record<string, unknown>) => postJson<EventsFacetsResponse>("/api/events/facets", body),
+  huntingCapabilities: () => getJson<HuntingCapabilitiesResponse>("/api/hunting/capabilities"),
+  huntingQuery: (body: Record<string, unknown>) => postJson<HuntingQueryResponse>("/api/hunting/events/query", body),
+  huntingFacets: (body: Record<string, unknown>) => postJson<HuntingFacetsResponse>("/api/hunting/events/facets", body),
+  huntingEventDetail: (eventId: string, eventTs: string, source: string) =>
+    getJson<HuntingEventDetailResponse>(`/api/hunting/events/${encodeURIComponent(eventId)}${toQuery({ event_ts: eventTs, source })}`),
+  huntingSavedSearches: () => getJson<HuntingSavedSearchesResponse>("/api/hunting/saved-searches"),
+  huntingSaveSearch: (body: Record<string, unknown>) =>
+    postJson<HuntingSavedSearchRecord>("/api/hunting/saved-searches", body),
+  huntingDeleteSearch: (searchId: string) =>
+    deleteJson<{ status: string; id: string; revision: number }>(`/api/hunting/saved-searches/${encodeURIComponent(searchId)}`),
   ruleTest: (ruleId: number) => postJson<RuleTestResponse>(`/api/rules/${ruleId}/test`, {}),
 };

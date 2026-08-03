@@ -207,6 +207,19 @@ Legacy pages such as `/dashboards` remain compatibility surfaces and are not the
 | `GET` | `/api/reports/{report_id}` | Report detail |
 | `GET` | `/api/reports/{report_id}/artifact` | Artifact download or retrieval |
 
+### SIEM reporting jobs
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/reporting/capabilities` | Formats, tenant/time bounds, and PDF availability |
+| `GET/POST` | `/api/reporting/templates` | List or save structured report templates |
+| `GET/DELETE` | `/api/reporting/templates/{template_id}` | Read or delete a template |
+| `PATCH` | `/api/reporting/templates/{template_id}/schedule` | Enable, disable, or update a schedule |
+| `POST` | `/api/reporting/templates/{template_id}/run` | Queue an idempotent report job |
+| `GET` | `/api/reporting/runs` | Report execution history and progress |
+| `GET` | `/api/reporting/runs/{run_id}` | Report run detail and errors |
+| `GET` | `/api/reporting/runs/{run_id}/artifact` | Download JSON, CSV, or PDF |
+
 ## Production-Green Subset
 
 The release gate uses these endpoints as the operational truth:

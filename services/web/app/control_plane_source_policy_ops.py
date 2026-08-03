@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 from datetime import datetime, timezone
 from typing import Any
 
@@ -139,6 +140,23 @@ def _parse_ts(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
 
 
+def _source_matches_pattern(source: dict[str, Any], pattern: str) -> bool:
+    normalized = str(pattern or "").strip().lower()
+    values = [
+        str(source.get("source_name") or ""),
+        str(source.get("source_type") or ""),
+        str(source.get("collector_name") or source.get("collector_id") or ""),
+        *(str(item) for item in list(source.get("products") or [])),
+        *(str(item) for item in list(source.get("aliases") or [])),
+    ]
+    lowered = [value.lower() for value in values if value.strip()]
+    if normalized in {"*", "all"}:
+        return True
+    if any(character in normalized for character in "*?["):
+        return any(fnmatchcase(value, normalized) for value in lowered)
+    return any(normalized in value for value in lowered)
+
+
 def evaluate_source_policies(
     sources: list[dict[str, Any]],
     *,
@@ -151,16 +169,7 @@ def evaluate_source_policies(
         pattern = str(policy.get("source_pattern") or "").strip().lower()
         matches: list[dict[str, Any]] = []
         for source in sources:
-            haystack = " ".join(
-                [
-                    str(source.get("source_name") or ""),
-                    str(source.get("source_type") or ""),
-                    str(source.get("collector_name") or source.get("collector_id") or ""),
-                    " ".join(str(item) for item in list(source.get("products") or [])),
-                    " ".join(str(item) for item in list(source.get("aliases") or [])),
-                ]
-            ).lower()
-            if pattern in haystack:
+            if _source_matches_pattern(source, pattern):
                 matches.append(source)
 
         violations: list[dict[str, Any]] = []
@@ -174,7 +183,7 @@ def evaluate_source_policies(
                     reasons.append("below_min_events")
                 if max_events and events > max_events:
                     reasons.append("above_max_events")
-                last_seen = _parse_ts(source.get("last_seen"))
+                last_seen = _parse_ts(source.get("last_seen") or source.get("last_event_ts") or source.get("last_seen_ts"))
                 stale_seconds = int(policy.get("stale_after_minutes") or 30) * 60
                 if last_seen is None or (evaluated_ts - last_seen).total_seconds() > stale_seconds:
                     reasons.append("stale")

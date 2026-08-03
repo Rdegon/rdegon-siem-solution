@@ -14,6 +14,7 @@ ClickHouse schema and rule seed SQL live here.
 | `17_lab_ti_seed.sql` | Lab threat-intel seed. |
 | `18_security_analytics_schema.sql` | Searchable Zeek, endpoint, container, vulnerability, rule, and evidence fields. |
 | `19_event_insert_deduplication.sql` | Enables deterministic insert-block deduplication for at-least-once Kafka writers. |
+| `20_event_hunting.sql` | Tenant/user-owned saved searches for the Events/Hunting workspace. |
 
 Publishing utilities that consume these files:
 

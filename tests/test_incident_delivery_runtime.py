@@ -114,6 +114,91 @@ def test_enrich_incidents_reports_telegram_queue_state() -> None:
         "delivered": 1,
         "pending": 1,
         "failed": 1,
+        "active_cards": 1,
+        "retracted": 0,
         "synchronized": False,
         "updated_at": "2026-07-29T12:01:00Z",
     }
+
+
+def test_delivery_key_replaces_obsolete_incident_alias() -> None:
+    stored: list[dict] = []
+
+    with (
+        patch(
+            "services.web.app.incident_delivery_runtime.load_control_plane_rows",
+            side_effect=lambda _: [dict(row) for row in stored],
+        ),
+        patch(
+            "services.web.app.incident_delivery_runtime.save_control_plane_rows",
+            side_effect=lambda _, rows: stored.__setitem__(slice(None), [dict(row) for row in rows]),
+        ),
+    ):
+        record_incident_delivery(
+            {
+                "incident_key": "old-web-id",
+                "delivery_key": "asset:web|campaign:ssh",
+                "incident_view": "agg",
+                "delivery_status": "sent",
+                "incident_status": "open",
+                "message_id": 41,
+                "delivery_count": 1,
+                "active": True,
+            },
+            actor="incident-bot",
+        )
+        record_incident_delivery(
+            {
+                "incident_key": "new-web-id",
+                "delivery_key": "asset:web|campaign:ssh",
+                "incident_view": "agg",
+                "delivery_status": "edited",
+                "incident_status": "open",
+                "message_id": 41,
+                "active": True,
+            },
+            actor="incident-bot",
+        )
+
+    assert len(stored) == 1
+    assert stored[0]["incident_key"] == "new-web-id"
+    assert stored[0]["message_id"] == 41
+    assert stored[0]["delivery_count"] == 1
+
+
+def test_terminal_delivery_is_not_counted_as_an_active_card() -> None:
+    with patch(
+        "services.web.app.incident_delivery_runtime.load_control_plane_rows",
+        return_value=[
+            {
+                "incident_key": "INC-closed",
+                "incident_view": "agg",
+                "channel": "telegram",
+                "delivery_status": "deleted",
+                "incident_status": "closed",
+                "message_id": 0,
+                "active": False,
+                "updated_at": "2026-07-29T12:02:00Z",
+            }
+        ],
+    ):
+        _, summary = enrich_incidents_with_delivery([{"agg_id": "INC-closed"}], view="agg")
+
+    assert summary["active_cards"] == 0
+    assert summary["retracted"] == 1
+
+
+def test_raw_alert_view_never_reports_independent_notification_fanout() -> None:
+    with patch(
+        "services.web.app.incident_delivery_runtime.load_control_plane_rows"
+    ) as load_mock:
+        items, summary = enrich_incidents_with_delivery(
+            [{"alert_id": "raw-1"}, {"alert_id": "raw-2"}],
+            view="raw",
+        )
+
+    load_mock.assert_not_called()
+    assert summary["mode"] == "aggregated_incidents_only"
+    assert summary["queue_count"] == 0
+    assert summary["pending"] == 0
+    assert items[0]["notification_delivery"]["delivery_status"] == "not_applicable"

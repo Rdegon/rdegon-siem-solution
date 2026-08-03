@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +27,13 @@ if "requests" not in sys.modules:
     requests_stub.HTTPError = _HTTPError
     sys.modules["requests"] = requests_stub
 
-from services.incident_telegram_bot import BotConfig, IncidentTelegramBot, _incident_count, _incident_should_skip_delivery
+from services.incident_telegram_bot import (
+    BotConfig,
+    IncidentTelegramBot,
+    _incident_count,
+    _incident_should_skip_delivery,
+    load_config,
+)
 
 
 class IncidentTelegramBotTests(unittest.TestCase):
@@ -111,7 +118,28 @@ class IncidentTelegramBotTests(unittest.TestCase):
 
     def test_false_positive_incident_is_skipped_for_delivery(self) -> None:
         self.assertTrue(_incident_should_skip_delivery({"status": "false_positive"}))
+        self.assertTrue(_incident_should_skip_delivery({"status": "suppressed_by_tuning"}))
+        self.assertTrue(_incident_should_skip_delivery({"status": "merged"}))
         self.assertFalse(_incident_should_skip_delivery({"status": "open"}))
+
+    def test_config_cannot_enable_raw_alert_fanout(self) -> None:
+        with patch.dict("os.environ", {"SIEM_BOT_INCIDENT_VIEW": "raw"}):
+            self.assertEqual("agg", load_config().incident_view)
+
+    def test_delivery_key_uses_stable_aggregation_scope(self) -> None:
+        bot = self._bot()
+        first = {
+            "record_id": "materialized-high",
+            "agg_id": "materialized-high",
+            "group_key": {"incident_key": "asset:web|campaign:ssh"},
+        }
+        second = {
+            "record_id": "materialized-critical",
+            "agg_id": "materialized-critical",
+            "group_key_json": '{"incident_key":"asset:web|campaign:ssh"}',
+        }
+        self.assertEqual(bot._delivery_key(first), bot._delivery_key(second))
+        self.assertEqual(bot._aggregation_fingerprint(first), bot._aggregation_fingerprint(second))
 
     def test_poll_uses_main_scope_and_reconciles_absent_cards(self) -> None:
         bot = self._bot()
@@ -136,6 +164,69 @@ class IncidentTelegramBotTests(unittest.TestCase):
         self.assertIn("scope=main", requested[0])
         self.assertEqual(["agg-2", "agg-1"], processed)
         self.assertEqual([{"agg-1", "agg-2"}], reconciled)
+
+    def test_truncated_poll_does_not_expire_cards_outside_the_page(self) -> None:
+        bot = self._bot()
+        bot._siem_request_json = lambda *_args, **_kwargs: {  # type: ignore[method-assign]
+            "items": [{"record_id": "agg-1", "status": "open"}],
+            "available_count": 200,
+        }
+        bot._process_incident = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+        bot._reconcile_absent_incidents = lambda *_args, **_kwargs: self.fail(  # type: ignore[method-assign]
+            "truncated snapshot must not reconcile absent cards"
+        )
+
+        bot._poll_incidents(object())  # type: ignore[arg-type]
+
+    def test_unconfirmed_send_is_not_replayed_after_restart(self) -> None:
+        bot = self._bot()
+        published: list[dict] = []
+        incident = {
+            "record_id": "web-id",
+            "status": "open",
+            "severity": "high",
+            "title": "SSH burst",
+            "group_key": {"incident_key": "asset:web|campaign:ssh"},
+        }
+        state = {
+            "stored_delivery_key": "asset:web|campaign:ssh",
+            "fingerprint": "",
+            "operation_state": "prepared",
+            "operation_fingerprint": bot._incident_fingerprint(incident),
+            "operation_kind": "send",
+            "operation_key": "attempt-1",
+            "telegram_message_id": None,
+        }
+        bot._get_incident_state = lambda *_args, **_kwargs: state  # type: ignore[method-assign]
+        bot._touch_incident_state = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+        bot._publish_delivery_state = lambda *_args, **kwargs: published.append(kwargs)  # type: ignore[method-assign]
+        bot._telegram_request = lambda *_args, **_kwargs: self.fail("send must not be replayed")  # type: ignore[method-assign]
+
+        bot._process_incident(object(), incident)  # type: ignore[arg-type]
+
+        self.assertEqual("uncertain", published[0]["telegram"]["status"])
+        self.assertEqual("attempt-1", published[0]["attempt_key"])
+
+    def test_failed_edit_keeps_existing_card_and_never_sends_replacement(self) -> None:
+        bot = self._bot()
+        calls: list[str] = []
+
+        def telegram(method: str, _payload: dict) -> dict:
+            calls.append(method)
+            raise RuntimeError("edit rejected")
+
+        bot._telegram_request = telegram  # type: ignore[method-assign]
+        result = bot._edit_incident(
+            {"record_id": "agg-1", "status": "open", "title": "SSH burst"},
+            "agg-1",
+            chat_id="12345",
+            message_id=42,
+            timezone_name="Europe/Moscow",
+            callback_ref="callback",
+        )
+
+        self.assertEqual("edit_failed", result["status"])
+        self.assertEqual(["editMessageText"], calls)
 
     def test_delete_incident_card_uses_telegram_delete_message(self) -> None:
         bot = self._bot()

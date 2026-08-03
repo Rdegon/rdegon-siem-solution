@@ -60,10 +60,12 @@ def _load_pack(path: Path) -> dict[str, Any]:
 
 
 def _rule_view(item: dict[str, Any]) -> dict[str, Any]:
-    return {
+    rule = {
         "id": int(item.get("id") or 0),
         "title": _string(item.get("title")),
+        "description": _string(item.get("description")),
         "severity": _string(item.get("severity") or "medium").lower() or "medium",
+        "pattern": _string(item.get("pattern") or "threshold").lower() or "threshold",
         "window_s": max(60, int(item.get("window_s") or 300)),
         "threshold": max(1, int(item.get("threshold") or 1)),
         "entity_field": _string(item.get("entity_field") or "host.name") or "host.name",
@@ -73,6 +75,11 @@ def _rule_view(item: dict[str, Any]) -> dict[str, Any]:
         "sigma_yaml": _string(item.get("sigma_yaml")),
         "expr": _string(item.get("expr")),
     }
+    replacement_rule_id = int(item.get("replacement_rule_id") or 0)
+    if replacement_rule_id > 0:
+        rule["replacement_rule_id"] = replacement_rule_id
+        rule["replacement_reason"] = _string(item.get("replacement_reason"))
+    return rule
 
 
 def _pack_view(payload: dict[str, Any]) -> dict[str, Any]:

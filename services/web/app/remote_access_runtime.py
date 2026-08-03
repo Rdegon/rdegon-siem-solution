@@ -14,6 +14,8 @@ from urllib import error as url_error
 from urllib import request as url_request
 from uuid import uuid4
 
+from .secret_runtime import resolve_secret_value
+
 
 _LOCK = RLock()
 _PROFILE_FILE = Path(os.getenv("SIEM_REMOTE_ACCESS_PROFILE_FILE", "/opt/siem/runtime-docs/remote_access_profiles.json"))
@@ -51,7 +53,10 @@ def _save(items: list[dict[str, Any]]) -> None:
 def _controller(provider: str) -> dict[str, Any]:
     prefix = "SIEM_OPENVPN" if provider == "openvpn" else "SIEM_VLESS"
     url = str(os.getenv(f"{prefix}_CONTROLLER_URL") or "").rstrip("/")
-    token = str(os.getenv(f"{prefix}_CONTROLLER_TOKEN") or "")
+    token, _, _ = resolve_secret_value(
+        f"{prefix}_CONTROLLER_TOKEN",
+        explicit_value=str(os.getenv(f"{prefix}_CONTROLLER_TOKEN") or ""),
+    )
     local_controller = provider == "openvpn" and _LOCAL_OPENVPN_CONTROLLER.is_file()
     return {
         "provider": provider,
@@ -115,6 +120,7 @@ def _access_planes() -> list[dict[str, Any]]:
         and bool(tunnel_address)
         and jump_reachable
     )
+    vless_controller = _controller("vless")
     return [
         {
             "provider": "openvpn",
@@ -130,15 +136,15 @@ def _access_planes() -> list[dict[str, Any]]:
         },
         {
             "provider": "vless",
-            "role": "outbound_egress",
-            "status": "retired",
-            "endpoint": "45.89.111.208",
+            "role": "managed_proxy_access",
+            "status": "active" if vless_controller["configured"] else "degraded",
+            "endpoint": str(os.getenv("SIEM_VLESS_PUBLIC_ENDPOINT") or "45.89.111.208:443/TCP"),
             "interface": "",
             "address": "",
-            "service_state": "not_deployed_for_remote_access",
-            "tunnel_state": "not_applicable",
+            "service_state": "controller_connected" if vless_controller["configured"] else "controller_unavailable",
+            "tunnel_state": "private_management_channel" if vless_controller["configured"] else "not_connected",
             "jump_host_reachable": False,
-            "managed_profile_issuance": _controller("vless")["configured"],
+            "managed_profile_issuance": vless_controller["configured"],
         },
     ]
 
@@ -168,7 +174,10 @@ def _activate(provider: str, payload: dict[str, Any]) -> dict[str, Any]:
         return dict(response)
     prefix = "SIEM_OPENVPN" if provider == "openvpn" else "SIEM_VLESS"
     base_url = str(os.getenv(f"{prefix}_CONTROLLER_URL") or "").rstrip("/")
-    token = str(os.getenv(f"{prefix}_CONTROLLER_TOKEN") or "")
+    token, _, _ = resolve_secret_value(
+        f"{prefix}_CONTROLLER_TOKEN",
+        explicit_value=str(os.getenv(f"{prefix}_CONTROLLER_TOKEN") or ""),
+    )
     if not base_url or not token:
         return {"status": "prepared", "issue": f"{provider} controller is not configured on the SIEM Web node"}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -195,7 +204,7 @@ def remote_access_state() -> dict[str, Any]:
     if not controllers[0]["configured"]:
         issues.append("OpenVPN transport is monitored, but CA profile issuance is not connected to the SIEM controller")
     if not controllers[1]["configured"]:
-        issues.append("VLESS is not deployed as remote ingress; the known endpoint was outbound egress only")
+        issues.append("3x-ui is installed, but its private localhost controller channel is not connected to SIEM-WEB")
     return {
         "generated_at": _now(),
         "profiles": profiles,
@@ -210,8 +219,10 @@ def create_remote_access_profile(payload: dict[str, Any], *, actor: str) -> dict
     provider = str(payload.get("provider") or "").strip().lower()
     name = str(payload.get("name") or "").strip()
     preset = str(payload.get("route_preset") or "siem-core-admin").strip()
-    if provider not in {"openvpn", "vless"}:
-        raise ValueError("Provider must be openvpn or vless")
+    if provider == "vless":
+        raise ValueError("Use the dedicated VLESS/3x-ui management API")
+    if provider != "openvpn":
+        raise ValueError("Provider must be openvpn")
     if not name:
         raise ValueError("Profile name is required")
     if preset not in _ROUTE_PRESETS:

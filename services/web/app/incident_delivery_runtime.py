@@ -8,6 +8,14 @@ from .enterprise_control_plane import load_control_plane_rows, save_control_plan
 
 COLLECTION_NAME = "incident_notification_delivery"
 MAX_DELIVERY_ROWS = 2500
+TERMINAL_INCIDENT_STATUSES = {
+    "closed",
+    "expired",
+    "false_positive",
+    "merged",
+    "suppressed",
+    "suppressed_by_tuning",
+}
 
 
 def _now_iso() -> str:
@@ -40,6 +48,9 @@ def record_incident_delivery(payload: dict[str, Any], *, actor: str) -> dict[str
         raise ValueError(f"Unsupported incident notification channel: {channel}")
     delivery_status = _text(payload.get("delivery_status") or "unknown", limit=80).lower()
     if delivery_status not in {
+        "pending",
+        "retrying",
+        "uncertain",
         "sent",
         "edited",
         "unchanged",
@@ -53,20 +64,68 @@ def record_incident_delivery(payload: dict[str, Any], *, actor: str) -> dict[str
         "unknown",
     }:
         raise ValueError(f"Unsupported delivery status: {delivery_status}")
+    incident_status = _text(payload.get("incident_status"), limit=80).lower()
+    delivery_key = _text(payload.get("delivery_key") or incident_key, limit=800)
+    active_default = (
+        delivery_status not in {"deleted", "expired", "skipped", "telegram_disabled"}
+        and incident_status not in TERMINAL_INCIDENT_STATUSES
+    )
     row = {
         "key": f"{incident_view}:{incident_key}:{channel}",
         "incident_key": incident_key,
+        "delivery_key": delivery_key,
+        "aggregation_fingerprint": _text(payload.get("aggregation_fingerprint"), limit=160),
         "incident_view": incident_view,
         "channel": channel,
         "delivery_status": delivery_status,
-        "incident_status": _text(payload.get("incident_status"), limit=80).lower(),
+        "incident_status": incident_status,
         "message_id": int(payload.get("message_id") or 0),
         "delivery_count": max(0, int(payload.get("delivery_count") or 0)),
+        "active": bool(payload.get("active", active_default)),
+        "operation": _text(payload.get("operation"), limit=80).lower(),
+        "attempt_key": _text(payload.get("attempt_key"), limit=160),
         "reason": _text(payload.get("reason"), limit=300),
         "actor": _text(actor, limit=120) or "service",
         "updated_at": _text(payload.get("updated_at"), limit=80) or _now_iso(),
     }
     rows = load_control_plane_rows(COLLECTION_NAME)
+    previous_scope = next(
+        (
+            dict(item)
+            for item in rows
+            if isinstance(item, dict)
+            and _text(item.get("incident_view")).lower() == incident_view
+            and _text(item.get("channel")).lower() == channel
+            and _text(item.get("delivery_key") or item.get("incident_key"), limit=800) == delivery_key
+        ),
+        None,
+    )
+    if previous_scope:
+        prior_count = max(0, int(previous_scope.get("delivery_count") or 0))
+        same_attempt = (
+            bool(row["attempt_key"])
+            and row["attempt_key"] == _text(previous_scope.get("attempt_key"), limit=160)
+        ) or (
+            not row["attempt_key"]
+            and not _text(previous_scope.get("attempt_key"), limit=160)
+            and row["delivery_status"] == _text(previous_scope.get("delivery_status")).lower()
+            and row["message_id"] == int(previous_scope.get("message_id") or 0)
+        )
+        row["delivery_count"] = prior_count if same_attempt else prior_count + row["delivery_count"]
+    # A Web incident id can change while the aggregation scope remains the same
+    # (for example after materialization or merge). Keep only one delivery row for
+    # that stable scope so metrics and cards cannot fan out by an obsolete alias.
+    rows = [
+        item
+        for item in rows
+        if not (
+            isinstance(item, dict)
+            and _text(item.get("incident_view")).lower() == incident_view
+            and _text(item.get("channel")).lower() == channel
+            and _text(item.get("delivery_key") or item.get("incident_key"), limit=800) == delivery_key
+            and _text(item.get("key"), limit=1200) != row["key"]
+        )
+    ]
     rows_by_key = {
         _text(item.get("key"), limit=1200): dict(item)
         for item in rows
@@ -77,12 +136,17 @@ def record_incident_delivery(payload: dict[str, Any], *, actor: str) -> dict[str
         previous.get(field) == row.get(field)
         for field in (
             "incident_key",
+            "delivery_key",
+            "aggregation_fingerprint",
             "incident_view",
             "channel",
             "delivery_status",
             "incident_status",
             "message_id",
             "delivery_count",
+            "active",
+            "operation",
+            "attempt_key",
             "reason",
             "actor",
         )
@@ -103,8 +167,31 @@ def enrich_incidents_with_delivery(
     *,
     view: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    rows = load_control_plane_rows(COLLECTION_NAME)
     normalized_view = "raw" if str(view or "").strip().lower() == "raw" else "agg"
+    if normalized_view == "raw":
+        enriched = []
+        for source in items:
+            row = dict(source)
+            row["notification_delivery"] = {
+                "channel": "telegram",
+                "delivery_status": "not_applicable",
+                "incident_key": incident_record_key(row, normalized_view),
+                "reason": "notifications_follow_aggregated_incidents",
+            }
+            enriched.append(row)
+        return enriched, {
+            "channel": "telegram",
+            "mode": "aggregated_incidents_only",
+            "queue_count": 0,
+            "delivered": 0,
+            "pending": 0,
+            "failed": 0,
+            "active_cards": 0,
+            "retracted": 0,
+            "synchronized": True,
+            "updated_at": "",
+        }
+    rows = load_control_plane_rows(COLLECTION_NAME)
     delivery_by_incident = {
         _text(row.get("incident_key"), limit=800): dict(row)
         for row in rows
@@ -116,6 +203,8 @@ def enrich_incidents_with_delivery(
     delivered = 0
     pending = 0
     failed = 0
+    active_message_ids: set[int] = set()
+    retracted = 0
     for source in items:
         row = dict(source)
         incident_key = incident_record_key(row, normalized_view)
@@ -123,10 +212,15 @@ def enrich_incidents_with_delivery(
         if delivery:
             row["notification_delivery"] = delivery
             status = _text(delivery.get("delivery_status")).lower()
-            if status in {"sent", "edited", "unchanged"}:
+            is_active = bool(delivery.get("active", True))
+            if is_active and int(delivery.get("message_id") or 0) > 0:
+                active_message_ids.add(int(delivery.get("message_id") or 0))
+            if status in {"sent", "edited", "unchanged"} and is_active:
                 delivered += 1
-            elif status in {"edit_failed", "failed"}:
+            elif status in {"edit_failed", "failed", "delete_failed", "uncertain"}:
                 failed += 1
+            elif not is_active:
+                retracted += 1
             else:
                 pending += 1
         else:
@@ -143,6 +237,8 @@ def enrich_incidents_with_delivery(
         "delivered": delivered,
         "pending": pending,
         "failed": failed,
+        "active_cards": len(active_message_ids),
+        "retracted": retracted,
         "synchronized": pending == 0 and failed == 0,
         "updated_at": max(
             (_text(item.get("updated_at")) for item in delivery_by_incident.values()),

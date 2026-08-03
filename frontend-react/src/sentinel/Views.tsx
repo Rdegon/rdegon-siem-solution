@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { api } from "./runtime/api";
 import type { View } from "./model";
-import type { IncidentDetailResponse } from "./runtime/types";
-import { Badge, Button, DetailDrawer, EmptyState, ErrorState, IconButton, LoadingState, Modal, PageHeader, SearchField, StatusCell, Tabs } from "./ui";
+import type { GeneratedReportRecord, IncidentDetailResponse, ReportTemplateRecord } from "./runtime/types";
+import { Badge, Button, DetailDrawer, EmptyState, ErrorState, IconButton, KeyValue, LoadingState, Modal, PageHeader, SearchField, StatusCell, Tabs } from "./ui";
 import { formatTime, number, severityTone, text, useQuery } from "./runtime/query";
 import { OverviewDashboard } from "./dashboard";
 import { EventDetailContent, IncidentDetailContent } from "./incident-details";
@@ -12,6 +12,7 @@ import { TaskDispatcherView } from "./task-dispatcher";
 import { TopologyWorkbench } from "./topology-workbench";
 import { DiscoveryWorkspace } from "./discovery-workspace";
 import { SecurityOperationsWorkspace } from "./security-workspaces";
+import { ServiceLifecyclePanel } from "./service-lifecycle";
 
 type Notify = (message: string, tone?: string) => void;
 type Navigate = (view: View) => void;
@@ -290,17 +291,59 @@ export function CasesView({ notify }: { notify: Notify }) {
 }
 
 export function ReportsView({ notify }: { notify: Notify }) {
-  const [tab, setTab] = useState("runs"); const [selected, setSelected] = useState<Row | null>(null);
-  const state = useQuery("reports", async () => { const [templates, runs] = await Promise.all([api.reportTemplates(), api.generatedReports({ limit: 200 })]); return { templates, runs }; });
-  async function run(row: Row) { try { await api.runReportTemplate(text(row.id)); notify("Формирование отчета запущено", "healthy"); state.reload(); } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); } }
-  return <div className="native-page"><PageHeader title="Отчеты" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><QueryBoundary state={state}>{({ templates, runs }) => <><Tabs items={[{ id: "runs", label: "Сформированные", count: runs.items.length }, { id: "templates", label: "Шаблоны", count: templates.items.length }]} label="Отчеты" onChange={setTab} value={tab} />{tab === "runs" ? <DataTable columns={[
-    { key: "status", title: "Статус", render: (row) => <StatusCell value={text(row.status)} /> }, { key: "name", title: "Отчет", render: (row) => <strong>{text(row.name)}</strong> }, { key: "owner", title: "Владелец" }, { key: "record_count", title: "Записей" }, { key: "duration_ms", title: "Время, мс" }, { key: "completed_ts", title: "Сформирован", render: (row) => formatTime(row.completed_ts) },
-  ]} onOpen={setSelected} rows={runs.items as Row[]} /> : <DataTable columns={[
-    { key: "name", title: "Шаблон", render: (row) => <strong>{text(row.name)}</strong> }, { key: "owner", title: "Владелец" }, { key: "period", title: "Период" }, { key: "formats", title: "Форматы", render: (row) => text(row.formats) }, { key: "sections", title: "Разделы", render: (row) => text(row.sections) }, { key: "schedule", title: "Расписание", render: (row) => text((row.schedule as Row)?.enabled ? `${text((row.schedule as Row).frequency)} ${text((row.schedule as Row).time)}` : "Выключено") },
-  ]} onOpen={setSelected} rows={templates.items as Row[]} />}</>}</QueryBoundary><DetailDrawer actions={selected && tab === "templates" ? <Button icon="play" onClick={() => run(selected)} tone="primary">Сформировать сейчас</Button> : null} onClose={() => setSelected(null)} open={Boolean(selected)} title={selected ? text(selected.name) : "Отчет"}>{selected ? <RecordDetails kind="report" value={selected} /> : null}</DetailDrawer></div>;
+  const [tab, setTab] = useState("runs");
+  const [selectedRun, setSelectedRun] = useState<GeneratedReportRecord | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplateRecord | null>(null);
+  const [editing, setEditing] = useState<ReportTemplateRecord | null | undefined>(undefined);
+  const state = useQuery("reports", async () => {
+    const [templates, runs, capabilities] = await Promise.all([api.reportTemplates(), api.generatedReports({ limit: 200 }), api.reportingCapabilities()]);
+    return { templates, runs, capabilities };
+  }, 5_000);
+  async function run(template: ReportTemplateRecord) {
+    try {
+      const result = await api.runReportTemplate(template.id, { tenant_scope: template.tenant_scope, idempotency_key: `manual:${template.id}:${Date.now()}` });
+      notify(result.created ? "Отчет поставлен в очередь" : "Этот запуск уже существует", result.created ? "healthy" : "warning");
+      setSelectedTemplate(null);
+      setTab("runs");
+      setSelectedRun(result.item);
+      state.reload();
+    } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); }
+  }
+  async function saveTemplate(form: HTMLFormElement) {
+    const values = new FormData(form);
+    const current = editing ?? undefined;
+    try {
+      await api.saveReportTemplate({
+        ...(current?.id ? { id: current.id } : {}),
+        name: text(values.get("name")), description: text(values.get("description"), ""), owner: text(values.get("owner"), "soc-ops"),
+        tenant_scope: ["main"], period: text(values.get("period"), "24h"), retention_days: number(values.get("retention_days")) || 90,
+        sections: values.getAll("sections").map(String), formats: values.getAll("formats").map(String),
+        schedule: { enabled: values.get("schedule_enabled") === "on", frequency: text(values.get("frequency"), "daily"), time: text(values.get("time"), "08:00"), timezone: text(values.get("timezone"), "Europe/Moscow"), recipients: text(values.get("recipients"), "").split(",").map((item) => item.trim()).filter(Boolean) },
+      });
+      notify(current ? "Шаблон обновлен" : "Шаблон создан", "healthy");
+      setEditing(undefined); state.reload();
+    } catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); }
+  }
+  async function toggleSchedule(template: ReportTemplateRecord) {
+    try { await api.updateReportSchedule(template.id, { enabled: !template.schedule.enabled }); notify(template.schedule.enabled ? "Расписание выключено" : "Расписание включено", "healthy"); setSelectedTemplate(null); state.reload(); }
+    catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); }
+  }
+  async function removeTemplate(template: ReportTemplateRecord) {
+    if (!window.confirm(`Удалить шаблон «${template.name}»? История сформированных отчетов сохранится.`)) return;
+    try { await api.deleteReportTemplate(template.id); notify("Шаблон удален", "healthy"); setSelectedTemplate(null); state.reload(); }
+    catch (error) { notify(error instanceof Error ? error.message : String(error), "critical"); }
+  }
+  return <div className="native-page"><PageHeader title="Отчеты" actions={<><Button icon="plus" onClick={() => setEditing(null)} tone="primary">Создать шаблон</Button><IconButton icon="refresh" label="Обновить" onClick={state.reload} /></>} /><QueryBoundary state={state}>{({ templates, runs, capabilities }) => <><section className="metric-grid"><Metric label="Шаблоны" value={templates.items.length} /><Metric label="Активные расписания" value={templates.items.filter((item) => item.schedule.enabled).length} /><Metric label="Выполняются" value={runs.items.filter((item) => ["queued", "running"].includes(item.status)).length} /><Metric label="PDF" detail={capabilities.pdf_available ? "ReportLab runtime" : capabilities.pdf_unavailable_reason} value={capabilities.pdf_available ? "Доступен" : "Недоступен"} tone={capabilities.pdf_available ? "" : "warning"} /></section><Tabs items={[{ id: "runs", label: "История", count: runs.items.length }, { id: "templates", label: "Шаблоны", count: templates.items.length }]} label="Отчеты" onChange={(value) => { setTab(value); setSelectedRun(null); setSelectedTemplate(null); }} value={tab} />{tab === "runs" ? <DataTable columns={[
+    { key: "status", title: "Статус", render: (row) => <StatusCell value={text(row.status)} /> }, { key: "name", title: "Отчет", render: (row) => <strong>{text(row.name)}</strong> }, { key: "progress", title: "Прогресс", render: (row) => { const progress = row.progress as Row; return <span>{number(progress?.percent)}%</span>; } }, { key: "owner", title: "Исполнитель" }, { key: "record_count", title: "Записей" }, { key: "duration_ms", title: "Время, мс" }, { key: "created_ts", title: "Запущен", render: (row) => formatTime(row.created_ts) },
+  ]} onOpen={(row) => setSelectedRun(row as unknown as GeneratedReportRecord)} rows={runs.items as unknown as Row[]} /> : <DataTable columns={[
+    { key: "name", title: "Шаблон", render: (row) => <strong>{text(row.name)}</strong> }, { key: "owner", title: "Владелец" }, { key: "period", title: "Период" }, { key: "formats", title: "Форматы", render: (row) => text(row.formats) }, { key: "sections", title: "Разделы", render: (row) => text(row.sections) }, { key: "schedule", title: "Расписание", render: (row) => { const schedule = row.schedule as Row; return <StatusCell value={schedule?.enabled ? `${text(schedule.frequency)} ${text(schedule.time)}` : "Выключено"} />; } }, { key: "next_run", title: "Следующий запуск", render: (row) => formatTime((row.schedule as Row)?.next_run_ts) },
+  ]} onOpen={(row) => setSelectedTemplate(row as unknown as ReportTemplateRecord)} rows={templates.items as unknown as Row[]} />}</>}</QueryBoundary>
+  <DetailDrawer actions={selectedTemplate ? <><Button icon="play" onClick={() => void run(selectedTemplate)} tone="primary">Сформировать</Button><Button icon="settings" onClick={() => { setEditing(selectedTemplate); setSelectedTemplate(null); }}>Изменить</Button><Button onClick={() => void toggleSchedule(selectedTemplate)}>{selectedTemplate.schedule.enabled ? "Выключить расписание" : "Включить расписание"}</Button><Button icon="delete" onClick={() => void removeTemplate(selectedTemplate)} tone="danger">Удалить</Button></> : null} onClose={() => setSelectedTemplate(null)} open={Boolean(selectedTemplate)} title={selectedTemplate?.name ?? "Шаблон"}>{selectedTemplate ? <><KeyValue rows={[["Владелец", selectedTemplate.owner], ["Tenant", selectedTemplate.tenant_scope.join(", ")], ["Период", selectedTemplate.period], ["Хранение", `${selectedTemplate.retention_days} дней`], ["Разделы", selectedTemplate.sections.join(", ")], ["Форматы", selectedTemplate.formats.join(", ")], ["Последний запуск", selectedTemplate.schedule.last_run_ts ? `${formatTime(selectedTemplate.schedule.last_run_ts)} · ${selectedTemplate.schedule.last_run_status}` : "Еще не запускался"], ["Следующий запуск", selectedTemplate.schedule.next_run_ts ? formatTime(selectedTemplate.schedule.next_run_ts) : "Расписание выключено"]]} />{selectedTemplate.description ? <p>{selectedTemplate.description}</p> : null}</> : null}</DetailDrawer>
+  <DetailDrawer actions={selectedRun && ["completed", "completed_with_warnings", "failed"].includes(selectedRun.status) ? <>{["json", "csv", ...(state.data?.capabilities.pdf_available ? ["pdf"] : [])].map((format) => <a className="button button-default" href={`/api/reporting/runs/${encodeURIComponent(selectedRun.id)}/artifact?format=${format}`} key={format}><span>Скачать {format.toUpperCase()}</span></a>)}</> : null} onClose={() => setSelectedRun(null)} open={Boolean(selectedRun)} title={selectedRun?.name ?? "Запуск отчета"}>{selectedRun ? <><KeyValue rows={[["Статус", <StatusCell value={selectedRun.status} />], ["Прогресс", `${selectedRun.progress?.percent ?? 0}% (${selectedRun.progress?.sections_completed ?? 0}/${selectedRun.progress?.sections_total ?? selectedRun.sections.length})`], ["Tenant", selectedRun.tenant_scope.join(", ")], ["Период", `${formatTime(selectedRun.period.from_ts)} — ${formatTime(selectedRun.period.to_ts)}`], ["Записей", selectedRun.record_count.toLocaleString("ru-RU")], ["Исполнитель", selectedRun.owner], ["Длительность", `${selectedRun.duration_ms} мс`]]} />{(selectedRun.errors ?? []).length ? <section className="panel panel-flush"><header className="panel-header"><div className="panel-title"><h2>Ошибки выполнения</h2><span>Частичные результаты сохранены</span></div></header><DataTable columns={[{ key: "section", title: "Раздел" }, { key: "error", title: "Ошибка" }]} rows={(selectedRun.errors ?? []) as unknown as Row[]} /></section> : null}</> : null}</DetailDrawer>
+  <Modal footer={<><Button onClick={() => setEditing(undefined)}>Отмена</Button><Button form="report-template-form" tone="primary" type="submit">Сохранить</Button></>} onClose={() => setEditing(undefined)} open={editing !== undefined} title={editing ? "Изменить шаблон" : "Новый шаблон отчета"}><form className="kuma-form-grid" id="report-template-form" onSubmit={(event) => { event.preventDefault(); void saveTemplate(event.currentTarget); }}><Field label="Название" wide><input defaultValue={editing?.name ?? ""} name="name" required /></Field><Field label="Описание" wide><textarea defaultValue={editing?.description ?? ""} name="description" rows={3} /></Field><Field label="Владелец"><input defaultValue={editing?.owner ?? "soc-ops"} name="owner" required /></Field><Field label="Tenant"><input disabled value="main" /></Field><Field label="Период"><select defaultValue={editing?.period ?? "24h"} name="period"><option value="12h">12 часов</option><option value="24h">24 часа</option><option value="7d">7 дней</option><option value="30d">30 дней</option></select></Field><Field label="Хранение, дней"><input defaultValue={editing?.retention_days ?? 90} max={3650} min={1} name="retention_days" type="number" /></Field><Field label="Разделы" wide><div className="kuma-checkbox-grid">{[["executive_summary", "Сводка"], ["incidents", "Инциденты"], ["sources", "Источники"], ["assets", "Активы"], ["vulnerabilities", "Уязвимости"], ["platform", "Платформа"]].map(([id, label]) => <label key={id}><input defaultChecked={editing ? editing.sections.includes(id) : ["executive_summary", "incidents", "sources"].includes(id)} name="sections" type="checkbox" value={id} /> {label}</label>)}</div></Field><Field label="Форматы" wide><div className="kuma-checkbox-grid">{["json", "csv", ...(state.data?.capabilities.pdf_available ? ["pdf"] : [])].map((format) => <label key={format}><input defaultChecked={editing ? editing.formats.includes(format as "json" | "csv" | "pdf") : format !== "pdf"} name="formats" type="checkbox" value={format} /> {format.toUpperCase()}</label>)}</div></Field><Field label="Расписание"><label><input defaultChecked={editing?.schedule.enabled ?? false} name="schedule_enabled" type="checkbox" /> Включено</label></Field><Field label="Частота"><select defaultValue={editing?.schedule.frequency ?? "daily"} name="frequency"><option value="shift">Каждую смену</option><option value="daily">Ежедневно</option><option value="weekly">Еженедельно</option><option value="monthly">Ежемесячно</option></select></Field><Field label="Время"><input defaultValue={editing?.schedule.time ?? "08:00"} name="time" required type="time" /></Field><Field label="Часовой пояс"><input defaultValue={editing?.schedule.timezone ?? "Europe/Moscow"} name="timezone" required /></Field><Field label="Получатели" wide><input defaultValue={editing?.schedule.recipients.join(", ") ?? ""} name="recipients" placeholder="soc@example.org, owner@example.org" /></Field></form></Modal></div>;
 }
 
-export function RuntimeView() {
+export function RuntimeView({ notify }: { notify: Notify }) {
   const [selected, setSelected] = useState<Row | null>(null);
   const state = useQuery("runtime", async () => {
     const [platform, health, certification, hosts, ingest, dlq] = await Promise.all([api.platformStatus(), api.healthOverview(), api.certificationHealth(), api.hostRuntimeOverview({ hours: 24, limit: 200 }), api.ingestOverview(), api.ingestDlq({ limit: 100 })]);
@@ -308,6 +351,7 @@ export function RuntimeView() {
   }, 30_000);
   return <div className="native-page"><PageHeader title="Состояние платформы" actions={<IconButton icon="refresh" label="Обновить" onClick={state.reload} />} /><QueryBoundary state={state}>{({ platform, health, certification, hosts, ingest, dlq }) => <>
     <section className="metric-grid"><Metric label="ClickHouse" value={<StatusCell value={platform.clickhouse_ok ? "Healthy" : "Degraded"} />} /><Metric label="Стабильный EPS" value={number(certification.latest_certified_ceiling_eps).toLocaleString("ru-RU")} /><Metric label="Runtime targets" value={hosts.targets?.length ?? 0} /><Metric label="Stale targets" tone={number(hosts.metrics?.stale_targets) ? "warning" : ""} value={number(hosts.metrics?.stale_targets)} /><Metric label="Ingest DLQ" tone={number(dlq.metrics?.outstanding) ? "warning" : ""} value={number(dlq.metrics?.outstanding)} /></section>
+    <ServiceLifecyclePanel notify={notify} />
     <section className="panel panel-flush"><header className="panel-header"><div className="panel-title"><h2>Узлы и сервисы</h2><span>Реальные runtime snapshots</span></div></header><DataTable columns={[
       { key: "stale", title: "Статус", render: (row) => <StatusCell value={row.stale ? "Stale" : "Healthy"} /> }, { key: "host_name", title: "Узел", render: (row) => <strong>{text(row.host_name)}</strong> }, { key: "host_role", title: "Роль" }, { key: "host_ip", title: "IP" }, { key: "last_seen_ts", title: "Последняя метрика", render: (row) => formatTime(row.last_seen_ts) }, { key: "snapshot", title: "Memory", render: (row) => `${number((row.snapshot as Row)?.memory_used_pct)}%` }, { key: "cpu", title: "CPU", render: (row) => `${number((row.snapshot as Row)?.cpu_pct)}%` },
     ]} onOpen={setSelected} rows={hosts.targets as unknown as Row[]} /></section>
@@ -421,7 +465,7 @@ export function PrimaryView({ view, navigate, notify }: { view: View; navigate: 
     case "sources": return <SourcesView notify={notify} />;
     case "tasks": return <TaskDispatcherView navigate={navigate} />;
     case "rules": return <RulesWorkspace notify={notify} />;
-    case "runtime": return <RuntimeView />;
+    case "runtime": return <RuntimeView notify={notify} />;
     case "access": return <AccessView notify={notify} />;
     case "coverage": return <CoverageView />;
     case "topology": return <TopologyView />;

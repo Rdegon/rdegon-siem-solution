@@ -1,6 +1,15 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "./runtime/api";
-import type { IncidentDetailResponse } from "./runtime/types";
+import type {
+  ActiveListImportResponse,
+  ActiveListRecord,
+  IncidentDetailResponse,
+  ResourceCatalogRecord,
+  ResourcePackageImportResponse,
+  ResourceVersionCompareResponse,
+  ResourceVersionsResponse,
+  UnifiedRuleRecord,
+} from "./runtime/types";
 import {
   formatTime,
   number,
@@ -18,11 +27,13 @@ import {
   Icon,
   IconButton,
   LoadingState,
+  Modal,
   PageHeader,
   SearchField,
   StatusCell,
 } from "./ui";
 import { RecordDetails } from "./record-details";
+export { EventsHuntingWorkspace as EventsQueryWorkspace } from "./events-hunting-workspace";
 
 type Notify = (message: string, tone?: string) => void;
 type Row = Record<string, unknown>;
@@ -500,8 +511,7 @@ export function IncidentQueueWorkspace({
   );
 }
 
-export const DEFAULT_EVENT_QUERY =
-  "SELECT *\nFROM events_view\nORDER BY ts DESC\nLIMIT 250";
+export const DEFAULT_EVENT_QUERY = "";
 
 const eventColumns: Column[] = [
   { key: "ts", title: "Время", render: (row) => formatTime(row.ts) },
@@ -550,7 +560,7 @@ function downloadTsv(data: Row[], columns: Column[]) {
   URL.revokeObjectURL(url);
 }
 
-export function EventsQueryWorkspace({ notify }: { notify: Notify }) {
+export function LegacyEventsQueryWorkspace({ notify }: { notify: Notify }) {
   const [draft, setDraft] = useState(DEFAULT_EVENT_QUERY);
   const [executed, setExecuted] = useState(DEFAULT_EVENT_QUERY);
   const [windowSize, setWindowSize] = useState("24h");
@@ -745,134 +755,280 @@ export function EventsQueryWorkspace({ notify }: { notify: Notify }) {
   );
 }
 
+export type ResourceFieldDefinition = {
+  key: string;
+  label: string;
+  type?: "text" | "textarea" | "number" | "select" | "csv" | "boolean";
+  target?: "config" | "bindings";
+  placeholder?: string;
+  hint?: string;
+  wide?: boolean;
+  rows?: number;
+  min?: number;
+  defaultValue?: string | number | boolean | string[];
+  options?: { value: string; label: string }[];
+};
+
+export type ResourceStepDefinition = {
+  id: string;
+  label: string;
+  fields?: ResourceFieldDefinition[];
+  editor?: "mapping" | "active-list" | "validation";
+};
+
 type ResourceDefinition = {
   kind: string;
   label: string;
   description: string;
   icon: string;
+  steps: ResourceStepDefinition[];
+};
+
+const resourceField = (
+  key: string,
+  label: string,
+  settings: Omit<ResourceFieldDefinition, "key" | "label"> = {},
+): ResourceFieldDefinition => ({ key, label, ...settings });
+const resourceStep = (
+  id: string,
+  label: string,
+  fields: ResourceFieldDefinition[],
+): ResourceStepDefinition => ({ id, label, fields });
+const resourceValidation = (label = "Проверка и публикация"): ResourceStepDefinition => ({
+  id: "validation",
+  label,
+  editor: "validation",
+});
+const resourceOptions = (...items: [string, string][]) =>
+  items.map(([value, label]) => ({ value, label }));
+
+const RESOURCE_SCHEMAS: Record<string, ResourceStepDefinition[]> = {
+  collector: [
+    resourceStep("main", "Подключение источников", [
+      resourceField("enabled", "Ресурс активен", { type: "boolean", defaultValue: true }),
+      resourceField("asset_group", "Группа активов", { placeholder: "linux_common" }),
+    ]),
+    resourceStep("transport", "Транспорт", [
+      resourceField("collector_profile", "Профиль коллектора", { wide: true, placeholder: "linux-auth" }),
+      resourceField("transport", "Транспорт", { type: "select", defaultValue: "http", options: resourceOptions(["http", "HTTP"], ["syslog_tcp", "Syslog TCP"], ["syslog_udp", "Syslog UDP"], ["kafka", "Kafka"]) }),
+      resourceField("endpoint", "Endpoint / topic", { placeholder: "/ingest/http или topic" }),
+      resourceField("listen_address", "Адрес прослушивания", { defaultValue: "0.0.0.0" }),
+      resourceField("port", "Порт", { type: "number", min: 1 }),
+      resourceField("workers", "Workers", { type: "number", min: 1, defaultValue: 2 }),
+      resourceField("batch_size", "Batch size", { type: "number", min: 1, defaultValue: 500 }),
+      resourceField("tls_secret_ref", "Ссылка на TLS-секрет", { placeholder: "vault:secret/data/siem/collector" }),
+    ]),
+    resourceStep("parsing", "Парсинг событий", [
+      resourceField("source_types", "Типы источников", { type: "csv", wide: true, hint: "Через запятую" }),
+      resourceField("normalizer", "Нормализатор", { target: "bindings", placeholder: "linux-auth-normalizer" }),
+      resourceField("framing", "Разделение сообщений", { type: "select", defaultValue: "line", options: resourceOptions(["line", "Одна строка — одно событие"], ["octet_counting", "Octet counting"], ["json", "JSON stream"]) }),
+    ]),
+    resourceStep("filtering", "Фильтрация событий", [
+      resourceField("filters", "Фильтры", { type: "csv", target: "bindings", wide: true }),
+      resourceField("unknown_events", "Неизвестные события", { type: "select", defaultValue: "pass", options: resourceOptions(["pass", "Пропускать"], ["tag", "Помечать"], ["drop", "Отбрасывать"]) }),
+    ]),
+    resourceStep("collector_aggregation", "Агрегация событий", [
+      resourceField("aggregation_rules", "Правила агрегации", { type: "csv", target: "bindings", wide: true }),
+      resourceField("aggregation_window_s", "Окно, секунд", { type: "number", min: 1, defaultValue: 60 }),
+      resourceField("aggregation_key", "Поля группировки", { type: "csv", placeholder: "host.name, event.code" }),
+    ]),
+    resourceStep("enrichment", "Обогащение", [
+      resourceField("enrichment_rules", "Правила обогащения", { type: "csv", target: "bindings", wide: true }),
+      resourceField("context_sources", "Активные листы и словари", { type: "csv", target: "bindings" }),
+      resourceField("ldap_mapping", "LDAP mapping"),
+    ]),
+    resourceStep("routing", "Маршрутизация", [
+      resourceField("destinations", "Точки назначения", { type: "csv", target: "bindings", wide: true }),
+      resourceField("topic", "Kafka topic", { defaultValue: "siem.raw" }),
+    ]),
+    resourceValidation("Проверка параметров"),
+  ],
+  correlator: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Ресурс активен", { type: "boolean", defaultValue: true }), resourceField("asset_group", "Группа активов")]),
+    resourceStep("engine", "Движок", [resourceField("engine", "Режим обработки", { type: "select", defaultValue: "stream", options: resourceOptions(["stream", "Потоковый"], ["batch", "Пакетный"]) }), resourceField("workers", "Workers", { type: "number", min: 1, defaultValue: 2 }), resourceField("shard_key", "Ключ шардирования", { defaultValue: "asset_group" }), resourceField("input_topic", "Входной topic", { defaultValue: "siem.normalized" })]),
+    resourceStep("bindings", "Привязка ресурсов", [resourceField("correlation_rules", "Правила корреляции", { type: "csv", target: "bindings", wide: true }), resourceField("enrichment_rules", "Правила обогащения", { type: "csv", target: "bindings" }), resourceField("response_rules", "Правила реагирования", { type: "csv", target: "bindings" }), resourceField("destinations", "Точки назначения", { type: "csv", target: "bindings" })]),
+    resourceValidation("Проверка параметров"),
+  ],
+  storage: [
+    resourceStep("main", "Политика хранения", [resourceField("storage_type", "Тип хранилища", { type: "select", defaultValue: "clickhouse", options: resourceOptions(["clickhouse", "ClickHouse"], ["elasticsearch", "Elasticsearch"], ["archive", "Архив"]) }), resourceField("retention_days", "Срок хранения, дней", { type: "number", min: 1, defaultValue: 30 }), resourceField("hot_days", "Горячий слой, дней", { type: "number", min: 1, defaultValue: 7 })]),
+    resourceStep("connection", "Подключение", [resourceField("endpoint", "Endpoint", { wide: true, placeholder: "clickhouse://siem-storage:9000" }), resourceField("database", "База данных", { defaultValue: "siem" }), resourceField("events_table", "Таблица событий", { defaultValue: "events" }), resourceField("secret_ref", "Ссылка на секрет")]),
+    resourceStep("performance", "Производительность", [resourceField("replicas", "Реплики", { type: "number", min: 1, defaultValue: 1 }), resourceField("shards", "Шарды", { type: "number", min: 1, defaultValue: 1 }), resourceField("insert_batch_size", "Размер пакета записи", { type: "number", min: 1, defaultValue: 1000 }), resourceField("flush_interval_ms", "Интервал flush, мс", { type: "number", min: 1, defaultValue: 250 })]),
+    resourceStep("bindings", "Маршрутизация", [resourceField("event_routers", "Маршрутизаторы событий", { type: "csv", target: "bindings", wide: true }), resourceField("tenant_scope", "Tenant scope", { type: "csv" })]),
+    resourceValidation(),
+  ],
+  activeList: [
+    resourceStep("main", "Основные параметры", [resourceField("list_kind", "Назначение", { type: "select", defaultValue: "watch", options: resourceOptions(["watch", "Наблюдение"], ["allow", "Разрешающий лист"], ["deny", "Блокирующий лист"]) }), resourceField("ttl_seconds", "TTL, секунд", { type: "number", min: 0, defaultValue: 0, hint: "0 — без срока" })]),
+    resourceStep("schema", "Структура записей", [resourceField("key_fields", "Ключевые поля", { type: "csv", wide: true, defaultValue: ["value"] }), resourceField("context_fields", "Контекстные поля", { type: "csv", wide: true })]),
+    { id: "entries", label: "Содержимое листа", editor: "active-list" },
+    resourceValidation(),
+  ],
+  aggregationRule: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Правило активно", { type: "boolean", defaultValue: true }), resourceField("priority", "Приоритет", { type: "number", min: 1, defaultValue: 100 })]),
+    resourceStep("selector", "Условие отбора", [resourceField("expr", "Выражение отбора", { type: "textarea", wide: true, rows: 7 })]),
+    resourceStep("aggregation", "Окно и группировка", [resourceField("group_fields", "Поля группировки", { type: "csv", wide: true }), resourceField("window_s", "Окно, секунд", { type: "number", min: 1, defaultValue: 60 }), resourceField("threshold", "Минимум событий", { type: "number", min: 1, defaultValue: 2 }), resourceField("emit_count_field", "Поле счетчика", { defaultValue: "event.count" })]),
+    resourceValidation(),
+  ],
+  connector: [
+    resourceStep("main", "Тип интеграции", [resourceField("connector_type", "Тип коннектора", { type: "select", defaultValue: "http", options: resourceOptions(["http", "HTTP API"], ["webhook", "Webhook"], ["kafka", "Kafka"], ["email", "Email"], ["telegram", "Telegram"]) }), resourceField("enabled", "Коннектор активен", { type: "boolean", defaultValue: true })]),
+    resourceStep("connection", "Подключение", [resourceField("endpoint", "Endpoint", { wide: true }), resourceField("protocol", "Протокол", { defaultValue: "https" }), resourceField("method", "HTTP-метод", { type: "select", defaultValue: "POST", options: resourceOptions(["GET", "GET"], ["POST", "POST"], ["PUT", "PUT"]) }), resourceField("secret_ref", "Ссылка на секрет")]),
+    resourceStep("delivery", "Доставка", [resourceField("timeout_s", "Timeout, секунд", { type: "number", min: 1, defaultValue: 10 }), resourceField("retries", "Повторные попытки", { type: "number", min: 0, defaultValue: 3 }), resourceField("verify_tls", "Проверять TLS", { type: "boolean", defaultValue: true })]),
+    resourceStep("bindings", "Привязки", [resourceField("destinations", "Точки назначения", { type: "csv", target: "bindings" }), resourceField("resources", "Связанные ресурсы", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  correlationRule: [
+    resourceStep("main", "Общие параметры", [resourceField("enabled", "Правило активно", { type: "boolean", defaultValue: true }), resourceField("rule_id", "Rule ID", { type: "number", min: 1 }), resourceField("rule_type", "Тип правила", { type: "select", defaultValue: "standard", options: resourceOptions(["simple", "Простое"], ["standard", "Стандартное"], ["operational", "Операционное"]) })]),
+    resourceStep("selector", "Селекторы", [resourceField("expr", "Выражение корреляции", { type: "textarea", wide: true, rows: 8 }), resourceField("mitre", "Техники MITRE", { type: "csv", placeholder: "T1110, T1021.004" })]),
+    resourceStep("aggregation", "Окно и агрегация", [resourceField("threshold", "Порог", { type: "number", min: 1, defaultValue: 1 }), resourceField("window_s", "Окно, секунд", { type: "number", min: 1, defaultValue: 300 }), resourceField("entity_field", "Поле сущности", { defaultValue: "host.name" }), resourceField("suppression_key", "Ключ дедупликации", { defaultValue: "host.name" })]),
+    resourceStep("actions", "Создание алерта", [resourceField("severity", "Важность", { type: "select", defaultValue: "medium", options: resourceOptions(["low", "Низкая"], ["medium", "Средняя"], ["high", "Высокая"], ["critical", "Критическая"]) }), resourceField("tags", "Теги", { type: "csv", wide: true }), resourceField("response_rules", "Правила реагирования", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  dictionary: [
+    resourceStep("main", "Назначение словаря", [resourceField("dictionary_type", "Тип словаря", { type: "select", defaultValue: "static", options: resourceOptions(["static", "Статический"], ["http", "HTTP"], ["file", "Файл"], ["ldap", "LDAP"]) }), resourceField("refresh_interval_s", "Интервал обновления, секунд", { type: "number", min: 0, defaultValue: 3600 })]),
+    resourceStep("schema", "Структура данных", [resourceField("key_fields", "Ключевые поля", { type: "csv", wide: true, defaultValue: ["key"] }), resourceField("value_fields", "Поля значений", { type: "csv", wide: true, defaultValue: ["value"] }), resourceField("format", "Формат", { type: "select", defaultValue: "csv", options: resourceOptions(["csv", "CSV"], ["json", "JSON"], ["tsv", "TSV"]) })]),
+    resourceStep("source", "Источник данных", [resourceField("endpoint", "URL или путь", { wide: true }), resourceField("secret_ref", "Ссылка на секрет"), resourceField("verify_tls", "Проверять TLS", { type: "boolean", defaultValue: true })]),
+    resourceStep("bindings", "Использование", [resourceField("normalizers", "Нормализаторы", { type: "csv", target: "bindings" }), resourceField("enrichment_rules", "Правила обогащения", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  enrichmentRule: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Правило активно", { type: "boolean", defaultValue: true }), resourceField("priority", "Приоритет", { type: "number", min: 1, defaultValue: 100 })]),
+    resourceStep("selector", "Условие применения", [resourceField("expr", "Выражение отбора", { type: "textarea", wide: true, rows: 7 })]),
+    resourceStep("lookup", "Поиск контекста", [resourceField("source_ref", "Словарь, лист или таблица", { wide: true }), resourceField("lookup_field", "Поле события для поиска"), resourceField("source_key", "Ключ источника", { defaultValue: "key" }), resourceField("target_field", "Целевое поле UEM"), resourceField("on_miss", "Если значение не найдено", { type: "select", defaultValue: "pass", options: resourceOptions(["pass", "Продолжить"], ["tag", "Добавить тег"], ["drop", "Отбросить событие"]) })]),
+    resourceStep("bindings", "Привязки", [resourceField("context_sources", "Источники контекста", { type: "csv", target: "bindings" }), resourceField("collectors", "Коллекторы", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  destination: [
+    resourceStep("main", "Тип назначения", [resourceField("destination_type", "Тип", { type: "select", defaultValue: "kafka", options: resourceOptions(["kafka", "Kafka"], ["clickhouse", "ClickHouse"], ["syslog", "Syslog"], ["http", "HTTP"], ["file", "Файл"]) }), resourceField("enabled", "Назначение активно", { type: "boolean", defaultValue: true })]),
+    resourceStep("connection", "Подключение", [resourceField("endpoint", "Endpoint", { wide: true }), resourceField("protocol", "Протокол"), resourceField("secret_ref", "Ссылка на секрет")]),
+    resourceStep("delivery", "Параметры доставки", [resourceField("topic", "Topic / таблица / путь", { wide: true }), resourceField("batch_size", "Размер пакета", { type: "number", min: 1, defaultValue: 500 }), resourceField("compression", "Сжатие", { type: "select", defaultValue: "none", options: resourceOptions(["none", "Без сжатия"], ["gzip", "Gzip"], ["lz4", "LZ4"]) }), resourceField("retries", "Повторные попытки", { type: "number", min: 0, defaultValue: 3 })]),
+    resourceValidation(),
+  ],
+  filter: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Фильтр активен", { type: "boolean", defaultValue: true }), resourceField("priority", "Приоритет", { type: "number", min: 1, defaultValue: 100 })]),
+    resourceStep("selector", "Условие", [resourceField("expr", "Условие фильтра", { type: "textarea", wide: true, rows: 8 })]),
+    resourceStep("actions", "Действие", [resourceField("action", "Действие", { type: "select", defaultValue: "tag", options: resourceOptions(["drop", "Отбросить"], ["tag", "Добавить тег"], ["pass", "Пропустить"]) }), resourceField("tags", "Теги", { type: "csv", wide: true }), resourceField("route", "Маршрут назначения", { target: "bindings" })]),
+    resourceValidation("Проверка параметров"),
+  ],
+  normalizer: [
+    resourceStep("main", "Схема нормализации", [resourceField("source_type", "Тип источника"), resourceField("event_matcher", "Matcher события", { type: "textarea", wide: true, rows: 4 }), resourceField("priority", "Приоритет", { type: "number", min: 1, defaultValue: 100 })]),
+    resourceStep("parser", "Парсер", [resourceField("parser_type", "Тип парсера", { type: "select", defaultValue: "regex", options: resourceOptions(["regex", "Регулярное выражение"], ["json", "JSON"], ["cef", "CEF"], ["leef", "LEEF"], ["syslog", "Syslog"]) }), resourceField("message_field", "Поле сообщения", { defaultValue: "message" }), resourceField("timezone", "Часовой пояс", { defaultValue: "UTC" }), resourceField("pattern", "Шаблон парсинга", { type: "textarea", wide: true, rows: 6 })]),
+    { id: "mapping", label: "Сопоставление полей", editor: "mapping" },
+    resourceStep("examples", "Примеры событий", [resourceField("examples", "Обезличенные raw-события", { type: "textarea", wide: true, rows: 14 })]),
+    resourceValidation("Проверка параметров"),
+  ],
+  responseRule: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Правило активно", { type: "boolean", defaultValue: true }), resourceField("severity_scope", "Минимальная важность", { type: "select", defaultValue: "high", options: resourceOptions(["low", "Низкая"], ["medium", "Средняя"], ["high", "Высокая"], ["critical", "Критическая"]) })]),
+    resourceStep("trigger", "Условие запуска", [resourceField("expr", "Условие", { type: "textarea", wide: true, rows: 7 })]),
+    resourceStep("action", "Действие", [resourceField("action_type", "Тип действия", { type: "select", defaultValue: "webhook", options: resourceOptions(["webhook", "Webhook"], ["block_ip", "Блокировка IP"], ["isolate_host", "Изоляция хоста"], ["notify", "Уведомление"], ["script", "Сценарий"]) }), resourceField("target", "Целевой сервис или endpoint", { wide: true }), resourceField("parameter_template", "Шаблон параметров", { type: "textarea", wide: true, rows: 5, hint: "Используйте поля события, например {{src.ip}}" }), resourceField("secret_ref", "Ссылка на секрет")]),
+    resourceStep("approval", "Контроль выполнения", [resourceField("requires_approval", "Требуется подтверждение", { type: "boolean", defaultValue: true }), resourceField("timeout_s", "Timeout, секунд", { type: "number", min: 1, defaultValue: 30 }), resourceField("max_retries", "Повторные попытки", { type: "number", min: 0, defaultValue: 2 })]),
+    resourceValidation(),
+  ],
+  search: [
+    resourceStep("main", "Запрос", [resourceField("language", "Язык запроса", { type: "select", defaultValue: "sql", options: resourceOptions(["sql", "SQL"], ["filter", "Конструктор фильтров"]) }), resourceField("query", "Поисковый запрос", { type: "textarea", wide: true, rows: 10 }), resourceField("time_range", "Временной диапазон", { defaultValue: "24h" })]),
+    resourceStep("presentation", "Представление", [resourceField("columns", "Колонки результата", { type: "csv", wide: true }), resourceField("sort_field", "Поле сортировки", { defaultValue: "ts" }), resourceField("sort_order", "Порядок", { type: "select", defaultValue: "desc", options: resourceOptions(["desc", "Сначала новые"], ["asc", "Сначала старые"]) })]),
+    resourceStep("sharing", "Доступ", [resourceField("visibility", "Видимость", { type: "select", defaultValue: "tenant", options: resourceOptions(["private", "Только владелец"], ["tenant", "Tenant"], ["global", "Все tenants"]) }), resourceField("tags", "Теги", { type: "csv" })]),
+    resourceValidation(),
+  ],
+  agent: [
+    resourceStep("main", "Платформа агента", [resourceField("platform", "ОС", { type: "select", defaultValue: "linux", options: resourceOptions(["linux", "Linux"], ["windows", "Windows"], ["macos", "macOS"]) }), resourceField("architecture", "Архитектура", { type: "select", defaultValue: "amd64", options: resourceOptions(["amd64", "AMD64"], ["arm64", "ARM64"]) })]),
+    resourceStep("connection", "Управляющий канал", [resourceField("manager_url", "URL управляющего сервиса", { wide: true }), resourceField("secret_ref", "Ссылка на bootstrap-секрет"), resourceField("verify_tls", "Проверять TLS", { type: "boolean", defaultValue: true })]),
+    resourceStep("deployment", "Развертывание", [resourceField("labels", "Метки", { type: "csv", wide: true }), resourceField("poll_interval_s", "Интервал опроса, секунд", { type: "number", min: 5, defaultValue: 30 }), resourceField("auto_update", "Автоматически обновлять", { type: "boolean", defaultValue: false })]),
+    resourceStep("bindings", "Назначение", [resourceField("collectors", "Коллекторы", { type: "csv", target: "bindings", wide: true }), resourceField("asset_groups", "Группы активов", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  proxy: [
+    resourceStep("main", "Тип прокси", [resourceField("proxy_type", "Тип", { type: "select", defaultValue: "http", options: resourceOptions(["http", "HTTP CONNECT"], ["socks5", "SOCKS5"], ["reverse", "Reverse proxy"]) }), resourceField("enabled", "Прокси активен", { type: "boolean", defaultValue: true })]),
+    resourceStep("connection", "Подключение", [resourceField("listen_address", "Адрес прослушивания", { defaultValue: "0.0.0.0" }), resourceField("listen_port", "Порт", { type: "number", min: 1 }), resourceField("upstream", "Upstream", { wide: true }), resourceField("secret_ref", "Ссылка на секрет")]),
+    resourceStep("network", "Сетевая политика", [resourceField("allowed_networks", "Разрешенные сети", { type: "csv", wide: true }), resourceField("verify_tls", "Проверять TLS upstream", { type: "boolean", defaultValue: true })]),
+    resourceValidation(),
+  ],
+  secret: [
+    resourceStep("main", "Ссылка на секрет", [resourceField("secret_ref", "Secret reference", { wide: true, placeholder: "vault:secret/data/siem/service" }), resourceField("provider", "Провайдер", { type: "select", defaultValue: "vault", options: resourceOptions(["vault", "HashiCorp Vault"], ["environment", "Переменная окружения"], ["file", "Защищенный файл"]) }), resourceField("purpose", "Назначение", { type: "textarea", wide: true, rows: 4 }), resourceField("rotation_days", "Период ротации, дней", { type: "number", min: 0, defaultValue: 90 })]),
+    resourceValidation(),
+  ],
+  segmentationRule: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Правило активно", { type: "boolean", defaultValue: true }), resourceField("priority", "Приоритет", { type: "number", min: 1, defaultValue: 100 })]),
+    resourceStep("selector", "Условие сегментации", [resourceField("expr", "Условие", { type: "textarea", wide: true, rows: 7 })]),
+    resourceStep("assignment", "Назначение", [resourceField("segment", "Сегмент"), resourceField("asset_group", "Группа активов"), resourceField("tenant_id", "Tenant"), resourceField("tags", "Теги", { type: "csv", wide: true })]),
+    resourceValidation(),
+  ],
+  emailTemplate: [
+    resourceStep("main", "Параметры письма", [resourceField("sender_name", "Имя отправителя"), resourceField("sender_address", "Адрес отправителя"), resourceField("locale", "Язык", { type: "select", defaultValue: "ru", options: resourceOptions(["ru", "Русский"], ["en", "English"]) })]),
+    resourceStep("content", "Содержимое", [resourceField("subject", "Тема", { wide: true }), resourceField("body", "Текст шаблона", { type: "textarea", wide: true, rows: 14 }), resourceField("content_type", "Формат", { type: "select", defaultValue: "html", options: resourceOptions(["html", "HTML"], ["text", "Обычный текст"]) })]),
+    resourceStep("bindings", "Доставка", [resourceField("connector", "Email-коннектор", { target: "bindings" }), resourceField("reports", "Шаблоны отчетов", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  contextTable: [
+    resourceStep("main", "Назначение таблицы", [resourceField("table_kind", "Тип данных", { type: "select", defaultValue: "asset", options: resourceOptions(["asset", "Активы"], ["identity", "Учетные записи"], ["threat", "Индикаторы угроз"], ["custom", "Пользовательские данные"]) }), resourceField("ttl_seconds", "TTL, секунд", { type: "number", min: 0, defaultValue: 0 })]),
+    resourceStep("schema", "Структура", [resourceField("key_fields", "Ключевые поля", { type: "csv", wide: true }), resourceField("value_fields", "Поля контекста", { type: "csv", wide: true })]),
+    resourceStep("source", "Источник и обновление", [resourceField("source_ref", "Активный лист или словарь", { wide: true }), resourceField("refresh_mode", "Режим обновления", { type: "select", defaultValue: "interval", options: resourceOptions(["interval", "По интервалу"], ["event", "По событиям"], ["manual", "Вручную"]) }), resourceField("refresh_interval_s", "Интервал, секунд", { type: "number", min: 0, defaultValue: 300 })]),
+    resourceStep("bindings", "Использование", [resourceField("correlators", "Корреляторы", { type: "csv", target: "bindings" }), resourceField("enrichment_rules", "Правила обогащения", { type: "csv", target: "bindings" })]),
+    resourceValidation(),
+  ],
+  eventRouter: [
+    resourceStep("main", "Основные параметры", [resourceField("enabled", "Маршрутизатор активен", { type: "boolean", defaultValue: true }), resourceField("priority", "Приоритет", { type: "number", min: 1, defaultValue: 100 })]),
+    resourceStep("selector", "Условие маршрута", [resourceField("expr", "Выражение отбора", { type: "textarea", wide: true, rows: 7 })]),
+    resourceStep("routes", "Направления", [resourceField("destinations", "Точки назначения", { type: "csv", target: "bindings", wide: true }), resourceField("fallback_destination", "Резервная точка", { target: "bindings" }), resourceField("continue_routing", "Продолжить проверку маршрутов", { type: "boolean", defaultValue: false })]),
+    resourceStep("performance", "Производительность", [resourceField("workers", "Workers", { type: "number", min: 1, defaultValue: 2 }), resourceField("batch_size", "Размер пакета", { type: "number", min: 1, defaultValue: 500 }), resourceField("queue_limit", "Лимит очереди", { type: "number", min: 1, defaultValue: 10000 })]),
+    resourceValidation(),
+  ],
 };
 
 export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
-  {
-    kind: "collector",
-    label: "Коллекторы",
-    description: "Прием событий и transport profiles",
-    icon: "sources",
-  },
-  {
-    kind: "correlator",
-    label: "Корреляторы",
-    description: "Stream и batch обработчики",
-    icon: "runtime",
-  },
-  {
-    kind: "correlationRule",
-    label: "Правила корреляции",
-    description: "Условия, окна и пороги",
-    icon: "rules",
-  },
-  {
-    kind: "normalizer",
-    label: "Нормализаторы",
-    description: "Разбор и UEM-сопоставление",
-    icon: "list",
-  },
-  {
-    kind: "connector",
-    label: "Коннекторы",
-    description: "Интеграции внешних систем",
-    icon: "resources",
-  },
-  {
-    kind: "destination",
-    label: "Точки назначения",
-    description: "Маршрутизация выходного потока",
-    icon: "next",
-  },
-  {
-    kind: "filter",
-    label: "Фильтры",
-    description: "Drop, tag и pass политики",
-    icon: "filter",
-  },
-  {
-    kind: "enrichmentRule",
-    label: "Правила обогащения",
-    description: "Контекст и справочники",
-    icon: "plus",
-  },
-  {
-    kind: "activeList",
-    label: "Активные листы",
-    description: "Динамические наборы значений",
-    icon: "list",
-  },
-  {
-    kind: "responseRule",
-    label: "Правила реагирования",
-    description: "Автоматические действия",
-    icon: "response",
-  },
+  { kind: "collector", label: "Коллекторы", description: "Прием и обработка входящих событий", icon: "sources", steps: RESOURCE_SCHEMAS.collector },
+  { kind: "correlator", label: "Корреляторы", description: "Потоковые и пакетные обработчики", icon: "runtime", steps: RESOURCE_SCHEMAS.correlator },
+  { kind: "storage", label: "Хранилища", description: "Хранение, ретенция и производительность", icon: "storage", steps: RESOURCE_SCHEMAS.storage },
+  { kind: "activeList", label: "Активные листы", description: "Динамические наборы значений и TTL", icon: "list", steps: RESOURCE_SCHEMAS.activeList },
+  { kind: "aggregationRule", label: "Правила агрегации", description: "Свертка повторяющихся событий", icon: "rules", steps: RESOURCE_SCHEMAS.aggregationRule },
+  { kind: "connector", label: "Коннекторы", description: "Интеграции с внешними системами", icon: "resources", steps: RESOURCE_SCHEMAS.connector },
+  { kind: "correlationRule", label: "Правила корреляции", description: "Условия, окна, пороги и алерты", icon: "rules", steps: RESOURCE_SCHEMAS.correlationRule },
+  { kind: "dictionary", label: "Словари", description: "Статические и внешние справочники", icon: "list", steps: RESOURCE_SCHEMAS.dictionary },
+  { kind: "enrichmentRule", label: "Правила обогащения", description: "Контекст и справочники", icon: "plus", steps: RESOURCE_SCHEMAS.enrichmentRule },
+  { kind: "destination", label: "Точки назначения", description: "Маршрутизация выходного потока", icon: "next", steps: RESOURCE_SCHEMAS.destination },
+  { kind: "filter", label: "Фильтры", description: "Drop, tag и pass политики", icon: "filter", steps: RESOURCE_SCHEMAS.filter },
+  { kind: "normalizer", label: "Нормализаторы", description: "Разбор и UEM-сопоставление", icon: "list", steps: RESOURCE_SCHEMAS.normalizer },
+  { kind: "responseRule", label: "Правила реагирования", description: "Автоматические и подтверждаемые действия", icon: "response", steps: RESOURCE_SCHEMAS.responseRule },
+  { kind: "search", label: "Поисковые запросы", description: "Сохраненные запросы и представления", icon: "search", steps: RESOURCE_SCHEMAS.search },
+  { kind: "agent", label: "Агенты", description: "Управляемые агенты на конечных узлах", icon: "runtime", steps: RESOURCE_SCHEMAS.agent },
+  { kind: "proxy", label: "Прокси", description: "Промежуточные сетевые соединения", icon: "resources", steps: RESOURCE_SCHEMAS.proxy },
+  { kind: "secret", label: "Ссылки на секреты", description: "Ссылки на внешнее хранилище секретов", icon: "settings", steps: RESOURCE_SCHEMAS.secret },
+  { kind: "segmentationRule", label: "Правила сегментации", description: "Автораспределение активов и событий", icon: "filter", steps: RESOURCE_SCHEMAS.segmentationRule },
+  { kind: "emailTemplate", label: "Шаблоны Email", description: "Оформление уведомлений и отчетов", icon: "response", steps: RESOURCE_SCHEMAS.emailTemplate },
+  { kind: "contextTable", label: "Контекстные таблицы", description: "Табличный контекст для корреляции", icon: "list", steps: RESOURCE_SCHEMAS.contextTable },
+  { kind: "eventRouter", label: "Маршрутизаторы событий", description: "Условная доставка потоков событий", icon: "next", steps: RESOURCE_SCHEMAS.eventRouter },
 ];
 
 function resourceLabel(kind: string) {
   return RESOURCE_DEFINITIONS.find((item) => item.kind === kind)?.label ?? kind;
 }
 
-function resourceSteps(kind: string) {
-  if (kind === "collector")
-    return [
-      ["main", "Подключение источников"],
-      ["transport", "Транспорт"],
-      ["parsing", "Парсинг событий"],
-      ["filtering", "Фильтрация событий"],
-      ["collector_aggregation", "Агрегация событий"],
-      ["enrichment", "Обогащение"],
-      ["routing", "Маршрутизация"],
-      ["validation", "Проверка параметров"],
-    ] as const;
-  if (kind === "activeList")
-    return [
-      ["main", "Основные параметры"],
-      ["schema", "Структура записей"],
-      ["entries", "Содержимое листа"],
-      ["validation", "Проверка и публикация"],
-    ] as const;
-  if (kind === "normalizer")
-    return [
-      ["main", "Схема нормализации"],
-      ["mapping", "Сопоставление полей"],
-      ["examples", "Примеры событий"],
-      ["validation", "Проверка параметров"],
-    ] as const;
-  if (kind === "correlationRule")
-    return [
-      ["main", "Общие"],
-      ["selector", "Селекторы"],
-      ["aggregation", "Окно и агрегация"],
-      ["actions", "Действия"],
-      ["validation", "Проверка и публикация"],
-    ] as const;
-  if (kind === "correlator")
-    return [
-      ["main", "Основные параметры"],
-      ["engine", "Движок"],
-      ["bindings", "Привязка правил"],
-      ["validation", "Проверка параметров"],
-    ] as const;
-  if (kind === "filter")
-    return [
-      ["main", "Основные параметры"],
-      ["selector", "Условие"],
-      ["actions", "Действие"],
-      ["validation", "Проверка параметров"],
-    ] as const;
-  return [
-    ["main", "Основные параметры"],
-    ["connection", "Конфигурация"],
-    ["bindings", "Привязки"],
-    ["validation", "Проверка параметров"],
-  ] as const;
+export function resourceSteps(kind: string): ResourceStepDefinition[] {
+  return RESOURCE_DEFINITIONS.find((item) => item.kind === kind)?.steps ?? [
+    resourceStep("main", "Основные параметры", []),
+    resourceValidation(),
+  ];
+}
+
+export function resourceDefaults(
+  kind: string,
+  target: "config" | "bindings",
+): Row {
+  const result: Row = {};
+  for (const stepDefinition of resourceSteps(kind)) {
+    for (const fieldDefinition of stepDefinition.fields ?? []) {
+      if ((fieldDefinition.target ?? "config") !== target) continue;
+      if (fieldDefinition.defaultValue !== undefined)
+        result[fieldDefinition.key] = fieldDefinition.defaultValue;
+    }
+  }
+  return result;
+}
+
+export function sanitizeResourceConfig(kind: string, config: Row): Row {
+  if (kind !== "secret") return config;
+  const allowed = new Set(["secret_ref", "provider", "purpose", "rotation_days"]);
+  return Object.fromEntries(
+    Object.entries(config).filter(([key]) => allowed.has(key)),
+  );
 }
 
 function initialResource(resource: Row): {
@@ -892,13 +1048,14 @@ function initialResource(resource: Row): {
     kind,
     tenant: text(resource.tenant_id, "main"),
     description: text(resource.description, ""),
-    config: {
+    config: sanitizeResourceConfig(kind, {
+      ...resourceDefaults(kind, "config"),
       ...objectValue(resource.config),
-      ...(kind === "collector" && !resource.config
-        ? { transport: "http", collector_profile: "" }
-        : {}),
+    }),
+    bindings: {
+      ...resourceDefaults(kind, "bindings"),
+      ...objectValue(resource.bindings),
     },
-    bindings: { ...objectValue(resource.bindings) },
   };
 }
 
@@ -961,7 +1118,22 @@ function MappingEditor({
   );
 }
 
-function ActiveListEntries({
+function activeListMutationPayload(
+  item: ActiveListRecord,
+  fallbackListName: string,
+  fallbackListKind: string,
+) {
+  return {
+    list_name: text(item.list_name, fallbackListName),
+    list_kind: text(item.list_kind, fallbackListKind || "watch"),
+    item_type: text(item.item_type, "string"),
+    item_value: text(item.item_value),
+    item_label: text(item.item_label),
+    tags: item.tags ?? [],
+  };
+}
+
+export function ActiveListEntries({
   listName,
   listKind,
   notify,
@@ -972,15 +1144,45 @@ function ActiveListEntries({
 }) {
   const state = useQuery(
     `active-list:${listName}`,
-    () => api.activeLists(),
+    () => api.activeLists({ list_name: listName, limit: 5_000 }),
     30_000,
   );
   const [itemType, setItemType] = useState("ip");
   const [itemValue, setItemValue] = useState("");
   const [itemLabel, setItemLabel] = useState("");
-  const visible = (state.data?.items ?? []).filter(
-    (item) => text(item.list_name) === listName,
-  );
+  const [bulkValues, setBulkValues] = useState("");
+  const [bulkLabel, setBulkLabel] = useState("");
+  const [bulkTags, setBulkTags] = useState("");
+  const [bulkEnabled, setBulkEnabled] = useState(true);
+  const [validatedImport, setValidatedImport] = useState<{
+    signature: string;
+    result: ActiveListImportResponse;
+  } | null>(null);
+  const [busy, setBusy] = useState("");
+  const visible = state.data?.items ?? [];
+  const importSignature = [
+    listName,
+    listKind,
+    itemType,
+    bulkValues,
+    bulkLabel,
+    bulkTags,
+    bulkEnabled,
+  ].join("\u001f");
+  const importItems = bulkValues
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => ({
+      list_name: listName,
+      list_kind: listKind || "watch",
+      item_type: itemType,
+      item_value: value,
+      item_label: bulkLabel,
+      tags: bulkTags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      enabled: bulkEnabled,
+    }));
+
   async function add() {
     if (!listName.trim() || !itemValue.trim()) {
       notify("Сначала укажите название листа и значение", "critical");
@@ -1005,6 +1207,75 @@ function ActiveListEntries({
       );
     }
   }
+
+  async function toggle(item: ActiveListRecord) {
+    const enabled = item.enabled === false;
+    setBusy(`toggle:${text(item.item_value)}`);
+    try {
+      await api.toggleActiveList({
+        ...activeListMutationPayload(item, listName, listKind),
+        enabled,
+      });
+      await state.reload();
+      notify(enabled ? "Запись активного листа включена" : "Запись активного листа отключена", "healthy");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function remove(item: ActiveListRecord) {
+    if (!window.confirm(`Удалить ${text(item.item_value)} из ${listName}?`)) return;
+    setBusy(`delete:${text(item.item_value)}`);
+    try {
+      await api.deleteActiveList(activeListMutationPayload(item, listName, listKind));
+      await state.reload();
+      notify("Запись удалена из активного листа", "healthy");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function runImport(dryRun: boolean) {
+    if (!listName.trim() || !importItems.length) {
+      notify("Укажите название листа и значения для импорта", "critical");
+      return;
+    }
+    if (!dryRun && validatedImport?.signature !== importSignature) {
+      notify("Повторите проверку изменённого набора", "critical");
+      return;
+    }
+    setBusy(dryRun ? "validate-import" : "apply-import");
+    try {
+      const result = await api.importActiveLists({ items: importItems, dry_run: dryRun });
+      if (dryRun) {
+        setValidatedImport({ signature: importSignature, result });
+        notify(`Проверено записей: ${result.rows}`, "healthy");
+      } else {
+        setBulkValues("");
+        setValidatedImport(null);
+        await state.reload();
+        notify(`Импортировано записей: ${result.rows}`, "healthy");
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function exportList(format: "csv" | "json") {
+    try {
+      const result = await api.exportActiveLists(listName, format);
+      notify(`Выгружен файл ${result.filename}`, "healthy");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    }
+  }
+
   return (
     <div className="kuma-active-list-editor">
       <div className="kuma-editor-form">
@@ -1038,6 +1309,12 @@ function ActiveListEntries({
           Добавить запись
         </Button>
       </div>
+      <div className="kuma-catalog-toolbar">
+        <strong>{listName || "Активный лист"}</strong>
+        <span>Записей: {visible.length}</span>
+        <Button disabled={!listName} onClick={() => void exportList("csv")}>CSV</Button>
+        <Button disabled={!listName} onClick={() => void exportList("json")}>JSON</Button>
+      </div>
       <div className="native-grid">
         <table>
           <thead>
@@ -1045,7 +1322,9 @@ function ActiveListEntries({
               <th>Тип</th>
               <th>Значение</th>
               <th>Контекст</th>
+              <th>Статус</th>
               <th>Обновлено</th>
+              <th aria-label="Действия" />
             </tr>
           </thead>
           <tbody>
@@ -1058,7 +1337,29 @@ function ActiveListEntries({
                   <code>{text(item.item_value)}</code>
                 </td>
                 <td>{text(item.item_label, "—")}</td>
+                <td>
+                  <StatusCell value={item.enabled === false ? "Отключено" : "Включено"} />
+                </td>
                 <td>{formatTime(item.updated_ts)}</td>
+                <td>
+                  <div className="table-actions">
+                    <label title={item.enabled === false ? "Включить" : "Отключить"}>
+                      <input
+                        aria-label={`${item.enabled === false ? "Включить" : "Отключить"} ${text(item.item_value)}`}
+                        checked={item.enabled !== false}
+                        disabled={Boolean(busy)}
+                        onChange={() => void toggle(item)}
+                        type="checkbox"
+                      />
+                    </label>
+                    <IconButton
+                      disabled={Boolean(busy)}
+                      icon="delete"
+                      label={`Удалить ${text(item.item_value)}`}
+                      onClick={() => void remove(item)}
+                    />
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1067,6 +1368,90 @@ function ActiveListEntries({
           <EmptyState detail="В листе пока нет значений" />
         ) : null}
       </div>
+      <section className="kuma-editor-section">
+        <div className="kuma-editor-section-head">
+          <div>
+            <h3>Пакетный импорт</h3>
+          </div>
+          {validatedImport?.signature === importSignature ? (
+            <StatusCell value={`Проверено: ${validatedImport.result.rows}`} />
+          ) : null}
+        </div>
+        <div className="kuma-editor-form">
+          <Field label="Тип значений">
+            <select
+              onChange={(event) => {
+                setItemType(event.target.value);
+                setValidatedImport(null);
+              }}
+              value={itemType}
+            >
+              <option value="ip">IP-адрес</option>
+              <option value="domain">Домен</option>
+              <option value="hash">Hash</option>
+              <option value="user">Пользователь</option>
+              <option value="host">Хост</option>
+              <option value="process">Процесс</option>
+              <option value="string">Строка</option>
+            </select>
+          </Field>
+          <Field label="Общий контекст" wide>
+            <input
+              onChange={(event) => {
+                setBulkLabel(event.target.value);
+                setValidatedImport(null);
+              }}
+              value={bulkLabel}
+            />
+          </Field>
+          <Field label="Теги" wide>
+            <input
+              onChange={(event) => {
+                setBulkTags(event.target.value);
+                setValidatedImport(null);
+              }}
+              value={bulkTags}
+            />
+          </Field>
+          <Field label="Начальный статус">
+            <label>
+              <input
+                checked={bulkEnabled}
+                onChange={(event) => {
+                  setBulkEnabled(event.target.checked);
+                  setValidatedImport(null);
+                }}
+                type="checkbox"
+              />
+              Включено
+            </label>
+          </Field>
+          <Field label="Значения импорта" wide>
+            <textarea
+              aria-label="Значения импорта"
+              onChange={(event) => {
+                setBulkValues(event.target.value);
+                setValidatedImport(null);
+              }}
+              rows={6}
+              value={bulkValues}
+            />
+          </Field>
+          <Button
+            disabled={Boolean(busy) || !importItems.length}
+            onClick={() => void runImport(true)}
+          >
+            Проверить импорт
+          </Button>
+          <Button
+            disabled={Boolean(busy) || validatedImport?.signature !== importSignature}
+            onClick={() => void runImport(false)}
+            tone="primary"
+          >
+            Применить импорт
+          </Button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1090,8 +1475,7 @@ function ResourceEditor({
   const [description, setDescription] = useState(initial.description);
   const [config, setConfig] = useState<Row>(initial.config);
   const [bindings, setBindings] = useState<Row>(initial.bindings);
-  const [step, setStep] = useState<string>(resourceSteps(initial.kind)[0][0]);
-  const [advanced, setAdvanced] = useState(false);
+  const [step, setStep] = useState<string>(resourceSteps(initial.kind)[0].id);
   const [validation, setValidation] = useState<Row | null>(null);
   const [deployment, setDeployment] = useState<Row | null>(null);
   const [busy, setBusy] = useState("");
@@ -1109,7 +1493,7 @@ function ResourceEditor({
       kind,
       description,
       tenant_id: tenant || "main",
-      config,
+      config: sanitizeResourceConfig(kind, config),
       bindings,
     });
     setId(saved.id);
@@ -1186,615 +1570,117 @@ function ResourceEditor({
     );
   }
 
-  function stepContent() {
-    if (step === "main")
-      return (
-        <>
-          {commonFields()}
-          {kind === "normalizer" ? (
-            <div className="kuma-editor-form">
-              <Field label="Тип источника">
-                <input
-                  onChange={(event) =>
-                    setConfigValue("source_type", event.target.value)
-                  }
-                  placeholder="linux, windows, suricata..."
-                  value={text(config.source_type, "")}
-                />
-              </Field>
-              <Field label="Matcher события" wide>
-                <textarea
-                  onChange={(event) =>
-                    setConfigValue("event_matcher", event.target.value)
-                  }
-                  placeholder="event.module == 'linux'"
-                  rows={4}
-                  value={text(config.event_matcher, "")}
-                />
-              </Field>
-              <Field label="Приоритет">
-                <input
-                  min="1"
-                  onChange={(event) =>
-                    setConfigValue("priority", Number(event.target.value))
-                  }
-                  type="number"
-                  value={number(config.priority || 100)}
-                />
-              </Field>
-            </div>
-          ) : null}
-          {kind === "activeList" ? (
-            <div className="kuma-editor-form">
-              <Field label="Назначение">
-                <select
-                  onChange={(event) =>
-                    setConfigValue("list_kind", event.target.value)
-                  }
-                  value={text(config.list_kind, "watch")}
-                >
-                  <option value="watch">Наблюдение</option>
-                  <option value="allow">Разрешающий лист</option>
-                  <option value="deny">Блокирующий лист</option>
-                </select>
-              </Field>
-              <Field label="TTL, секунд" hint="0 — без срока">
-                <input
-                  min="0"
-                  onChange={(event) =>
-                    setConfigValue("ttl_seconds", Number(event.target.value))
-                  }
-                  type="number"
-                  value={number(config.ttl_seconds)}
-                />
-              </Field>
-            </div>
-          ) : null}
-        </>
+  const selectedStep = steps.find((item) => item.id === step) ?? steps[0];
+  const variants = Array.isArray(deployment?.variants)
+    ? (deployment.variants as Row[])
+    : [];
+
+  function updateSchemaField(
+    definition: ResourceFieldDefinition,
+    value: unknown,
+  ) {
+    if ((definition.target ?? "config") === "bindings")
+      setBindingValue(definition.key, value);
+    else setConfigValue(definition.key, value);
+  }
+
+  function schemaFieldValue(definition: ResourceFieldDefinition): unknown {
+    const source =
+      (definition.target ?? "config") === "bindings" ? bindings : config;
+    return source[definition.key] ?? definition.defaultValue ?? "";
+  }
+
+  function renderSchemaField(definition: ResourceFieldDefinition) {
+    const value = schemaFieldValue(definition);
+    let control: ReactNode;
+    if (definition.type === "select") {
+      control = (
+        <select
+          aria-label={definition.label}
+          onChange={(event) => updateSchemaField(definition, event.target.value)}
+          value={text(value, "")}
+        >
+          {(definition.options ?? []).map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
       );
-    if (step === "transport")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Профиль коллектора" wide>
-            <input
-              onChange={(event) =>
-                setConfigValue("collector_profile", event.target.value)
-              }
-              placeholder="linux-auth"
-              value={text(config.collector_profile, "")}
-            />
-          </Field>
-          <Field label="Транспорт">
-            <select
-              onChange={(event) =>
-                setConfigValue("transport", event.target.value)
-              }
-              value={text(config.transport, "http")}
-            >
-              <option value="http">HTTP</option>
-              <option value="syslog_tcp">Syslog TCP</option>
-              <option value="syslog_udp">Syslog UDP</option>
-              <option value="kafka">Kafka</option>
-            </select>
-          </Field>
-          <Field label="Endpoint / topic">
-            <input
-              onChange={(event) =>
-                setConfigValue("endpoint", event.target.value)
-              }
-              placeholder="/ingest/http или topic"
-              value={text(config.endpoint, "")}
-            />
-          </Field>
-          <Field label="Workers">
-            <input
-              min="1"
-              onChange={(event) =>
-                setConfigValue("workers", Number(event.target.value))
-              }
-              type="number"
-              value={number(config.workers || 2)}
-            />
-          </Field>
-          <Field label="Batch size">
-            <input
-              min="1"
-              onChange={(event) =>
-                setConfigValue("batch_size", Number(event.target.value))
-              }
-              type="number"
-              value={number(config.batch_size || 500)}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "parsing")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Типы источников" wide hint="Через запятую">
-            <input
-              onChange={(event) =>
-                setConfigValue(
-                  "source_types",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(config.source_types, "")}
-            />
-          </Field>
-          <Field label="Нормализатор">
-            <input
-              onChange={(event) =>
-                setBindingValue("normalizer", event.target.value)
-              }
-              placeholder="linux-auth-normalizer"
-              value={text(bindings.normalizer, "")}
-            />
-          </Field>
-          <Field label="Framing">
-            <select
-              onChange={(event) =>
-                setConfigValue("framing", event.target.value)
-              }
-              value={text(config.framing, "line")}
-            >
-              <option value="line">Одна строка — одно событие</option>
-              <option value="octet_counting">Octet counting</option>
-              <option value="json">JSON stream</option>
-            </select>
-          </Field>
-        </div>
-      );
-    if (step === "filtering")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Фильтры" wide hint="Идентификаторы через запятую">
-            <input
-              onChange={(event) =>
-                setBindingValue(
-                  "filters",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(bindings.filters, "")}
-            />
-          </Field>
-          <Field label="Неизвестные события">
-            <select
-              onChange={(event) =>
-                setConfigValue("unknown_events", event.target.value)
-              }
-              value={text(config.unknown_events, "pass")}
-            >
-              <option value="pass">Пропускать</option>
-              <option value="tag">Помечать</option>
-              <option value="drop">Отбрасывать</option>
-            </select>
-          </Field>
-        </div>
-      );
-    if (step === "collector_aggregation")
-      return (
-        <div className="kuma-editor-form">
-          <Field
-            label="Правила агрегации"
-            wide
-            hint="Идентификаторы через запятую"
-          >
-            <input
-              onChange={(event) =>
-                setBindingValue(
-                  "aggregation_rules",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(bindings.aggregation_rules, "")}
-            />
-          </Field>
-          <Field label="Окно, секунд">
-            <input
-              min="1"
-              onChange={(event) =>
-                setConfigValue(
-                  "aggregation_window_s",
-                  Number(event.target.value),
-                )
-              }
-              type="number"
-              value={number(config.aggregation_window_s || 60)}
-            />
-          </Field>
-          <Field label="Группировка">
-            <input
-              onChange={(event) =>
-                setConfigValue("aggregation_key", event.target.value)
-              }
-              placeholder="host.name,event.code"
-              value={text(config.aggregation_key, "")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "enrichment")
-      return (
-        <div className="kuma-editor-form">
-          <Field
-            label="Правила обогащения"
-            wide
-            hint="Идентификаторы через запятую"
-          >
-            <input
-              onChange={(event) =>
-                setBindingValue(
-                  "enrichment_rules",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(bindings.enrichment_rules, "")}
-            />
-          </Field>
-          <Field label="Active list / dictionary">
-            <input
-              onChange={(event) =>
-                setBindingValue(
-                  "context_sources",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(bindings.context_sources, "")}
-            />
-          </Field>
-          <Field label="LDAP mapping">
-            <input
-              onChange={(event) =>
-                setConfigValue("ldap_mapping", event.target.value)
-              }
-              value={text(config.ldap_mapping, "")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "routing")
-      return (
-        <div className="kuma-editor-form">
-          <Field
-            label="Точки назначения"
-            wide
-            hint="Идентификаторы через запятую"
-          >
-            <input
-              onChange={(event) =>
-                setBindingValue(
-                  "destinations",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(bindings.destinations, "")}
-            />
-          </Field>
-          <Field label="Kafka topic">
-            <input
-              onChange={(event) => setConfigValue("topic", event.target.value)}
-              value={text(config.topic, "siem.raw")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "mapping")
-      return (
-        <MappingEditor
-          onChange={(value) => setConfigValue("uem_mapping", value)}
-          value={objectValue(config.uem_mapping)}
+    } else if (definition.type === "textarea") {
+      control = (
+        <textarea
+          aria-label={definition.label}
+          className="sentinel-code-input"
+          onChange={(event) => updateSchemaField(definition, event.target.value)}
+          placeholder={definition.placeholder}
+          rows={definition.rows ?? 6}
+          value={text(value, "")}
         />
       );
-    if (step === "examples")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Примеры событий" wide>
-            <textarea
-              className="sentinel-code-input"
-              onChange={(event) =>
-                setConfigValue("examples", event.target.value)
-              }
-              placeholder="Вставьте обезличенные raw-события для проверки парсинга"
-              rows={14}
-              value={text(config.examples, "")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "selector")
-      return (
-        <div className="kuma-editor-form">
-          <Field
-            label={
-              kind === "filter" ? "Условие фильтра" : "Выражение корреляции"
-            }
-            wide
-          >
-            <textarea
-              className="sentinel-code-input"
-              onChange={(event) => setConfigValue("expr", event.target.value)}
-              placeholder="category = 'authentication' AND event_outcome = 'failure'"
-              rows={8}
-              value={text(config.expr ?? config.event_matcher, "")}
-            />
-          </Field>
-          {kind === "correlationRule" ? (
-            <>
-              <Field label="Rule ID">
-                <input
-                  min="1"
-                  onChange={(event) =>
-                    setConfigValue("rule_id", Number(event.target.value))
-                  }
-                  type="number"
-                  value={number(config.rule_id)}
-                />
-              </Field>
-              <Field label="Техники MITRE">
-                <input
-                  onChange={(event) =>
-                    setConfigValue(
-                      "mitre",
-                      event.target.value
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean),
-                    )
-                  }
-                  placeholder="T1110, T1021.004"
-                  value={text(config.mitre, "")}
-                />
-              </Field>
-            </>
-          ) : null}
-        </div>
-      );
-    if (step === "aggregation")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Порог">
-            <input
-              min="1"
-              onChange={(event) =>
-                setConfigValue("threshold", Number(event.target.value))
-              }
-              type="number"
-              value={number(config.threshold || 1)}
-            />
-          </Field>
-          <Field label="Окно, секунд">
-            <input
-              min="60"
-              onChange={(event) =>
-                setConfigValue("window_s", Number(event.target.value))
-              }
-              type="number"
-              value={number(config.window_s || 300)}
-            />
-          </Field>
-          <Field label="Поле сущности">
-            <input
-              onChange={(event) =>
-                setConfigValue("entity_field", event.target.value)
-              }
-              value={text(config.entity_field, "host.name")}
-            />
-          </Field>
-          <Field label="Ключ дедупликации">
-            <input
-              onChange={(event) =>
-                setConfigValue("suppression_key", event.target.value)
-              }
-              value={text(config.suppression_key, "host.name")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "actions")
-      return (
-        <div className="kuma-editor-form">
-          <Field label={kind === "filter" ? "Действие" : "Важность"}>
-            <select
-              onChange={(event) =>
-                setConfigValue(
-                  kind === "filter" ? "action" : "severity",
-                  event.target.value,
-                )
-              }
-              value={text(
-                config[kind === "filter" ? "action" : "severity"],
-                kind === "filter" ? "tag" : "medium",
-              )}
-            >
-              {kind === "filter" ? (
-                <>
-                  <option value="drop">Drop</option>
-                  <option value="tag">Tag</option>
-                  <option value="pass">Pass</option>
-                </>
-              ) : (
-                <>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </>
-              )}
-            </select>
-          </Field>
-          <Field label="Теги" wide>
-            <input
-              onChange={(event) =>
-                setConfigValue(
-                  "tags",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(config.tags, "")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "engine")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Движок">
-            <select
-              onChange={(event) => setConfigValue("engine", event.target.value)}
-              value={text(config.engine, "stream")}
-            >
-              <option value="stream">Stream</option>
-              <option value="batch">Batch</option>
-            </select>
-          </Field>
-          <Field label="Workers">
-            <input
-              min="1"
-              onChange={(event) =>
-                setConfigValue("workers", Number(event.target.value))
-              }
-              type="number"
-              value={number(config.workers || 2)}
-            />
-          </Field>
-          <Field label="Shard key">
-            <input
-              onChange={(event) =>
-                setConfigValue("shard_key", event.target.value)
-              }
-              value={text(config.shard_key, "asset_group")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "bindings")
-      return (
-        <div className="kuma-editor-form">
-          <Field
-            label={
-              kind === "correlator"
-                ? "Правила корреляции"
-                : "Привязанные ресурсы"
-            }
-            wide
-            hint="Идентификаторы через запятую"
-          >
-            <input
-              onChange={(event) =>
-                setBindingValue(
-                  kind === "correlator" ? "correlation_rules" : "resources",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(
-                bindings[
-                  kind === "correlator" ? "correlation_rules" : "resources"
-                ],
-                "",
-              )}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "connection")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="URL / endpoint" wide>
-            <input
-              onChange={(event) =>
-                setConfigValue("endpoint", event.target.value)
-              }
-              value={text(config.endpoint, "")}
-            />
-          </Field>
-          <Field label="Протокол">
-            <input
-              onChange={(event) =>
-                setConfigValue("protocol", event.target.value)
-              }
-              value={text(config.protocol, "")}
-            />
-          </Field>
-          <Field label="Secret reference">
-            <input
-              onChange={(event) =>
-                setConfigValue("secret_ref", event.target.value)
-              }
-              value={text(config.secret_ref, "")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "schema")
-      return (
-        <div className="kuma-editor-form">
-          <Field label="Ключевые поля" wide hint="Через запятую">
-            <input
-              onChange={(event) =>
-                setConfigValue(
-                  "key_fields",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(config.key_fields || ["value"], "")}
-            />
-          </Field>
-          <Field label="Контекстные поля" wide hint="Через запятую">
-            <input
-              onChange={(event) =>
-                setConfigValue(
-                  "context_fields",
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
-              }
-              value={text(config.context_fields, "")}
-            />
-          </Field>
-        </div>
-      );
-    if (step === "entries")
-      return (
-        <ActiveListEntries
-          listKind={text(config.list_kind, "watch")}
-          listName={name.trim()}
-          notify={notify}
+    } else if (definition.type === "boolean") {
+      control = (
+        <input
+          aria-label={definition.label}
+          checked={Boolean(value)}
+          onChange={(event) =>
+            updateSchemaField(definition, event.target.checked)
+          }
+          type="checkbox"
         />
       );
-    const variants = Array.isArray(deployment?.variants)
-      ? (deployment.variants as Row[])
-      : [];
+    } else if (definition.type === "number") {
+      control = (
+        <input
+          aria-label={definition.label}
+          min={definition.min}
+          onChange={(event) =>
+            updateSchemaField(definition, Number(event.target.value))
+          }
+          type="number"
+          value={number(value)}
+        />
+      );
+    } else if (definition.type === "csv") {
+      control = (
+        <input
+          aria-label={definition.label}
+          onChange={(event) =>
+            updateSchemaField(
+              definition,
+              event.target.value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          }
+          placeholder={definition.placeholder}
+          value={Array.isArray(value) ? value.join(", ") : text(value, "")}
+        />
+      );
+    } else {
+      control = (
+        <input
+          aria-label={definition.label}
+          onChange={(event) => updateSchemaField(definition, event.target.value)}
+          placeholder={definition.placeholder}
+          value={text(value, "")}
+        />
+      );
+    }
+    return (
+      <Field
+        hint={definition.hint}
+        key={`${definition.target ?? "config"}:${definition.key}`}
+        label={definition.label}
+        wide={definition.wide}
+      >
+        {control}
+      </Field>
+    );
+  }
+
+  function validationContent() {
     return (
       <div className="kuma-validation-screen">
         <Icon name={validation?.valid ? "check" : "settings"} size={30} />
@@ -1865,6 +1751,34 @@ function ResourceEditor({
     );
   }
 
+  function stepContent() {
+    if (selectedStep.editor === "mapping")
+      return (
+        <MappingEditor
+          onChange={(value) => setConfigValue("uem_mapping", value)}
+          value={objectValue(config.uem_mapping)}
+        />
+      );
+    if (selectedStep.editor === "active-list")
+      return (
+        <ActiveListEntries
+          listKind={text(config.list_kind, "watch")}
+          listName={name.trim()}
+          notify={notify}
+        />
+      );
+    if (selectedStep.editor === "validation") return validationContent();
+    return (
+      <>
+        {selectedStep.id === "main" ? commonFields() : null}
+        {(selectedStep.fields ?? []).length ? (
+          <div className="kuma-editor-form">
+            {(selectedStep.fields ?? []).map(renderSchemaField)}
+          </div>
+        ) : null}
+      </>
+    );
+  }
   return (
     <div aria-modal="true" className="kuma-full-editor" role="dialog">
       <header>
@@ -1879,36 +1793,22 @@ function ResourceEditor({
       <div className="kuma-editor-body">
         <aside>
           <strong>{resourceLabel(kind)}</strong>
-          {steps.map(([idValue, label], index) => (
+          {steps.map((stepDefinition, index) => (
             <button
-              className={step === idValue ? "active" : ""}
-              key={idValue}
-              onClick={() => setStep(idValue)}
+              className={step === stepDefinition.id ? "active" : ""}
+              key={stepDefinition.id}
+              onClick={() => setStep(stepDefinition.id)}
               type="button"
             >
               <span>{index + 1}</span>
-              {label}
+              {stepDefinition.label}
             </button>
           ))}
-          <button
-            className={advanced ? "active" : ""}
-            onClick={() => setAdvanced((value) => !value)}
-            type="button"
-          >
-            <span>
-              <Icon name="settings" size={13} />
-            </span>
-            Расширенный JSON
-          </button>
         </aside>
         <main>
           <div className="kuma-editor-section-head">
             <div>
-              <h3>
-                {advanced
-                  ? "Расширенная конфигурация"
-                  : steps.find(([idValue]) => idValue === step)?.[1]}
-              </h3>
+              <h3>{selectedStep.label}</h3>
               <p>
                 Изменения сохраняются как управляемый production-ресурс
                 Sentinel.
@@ -1916,40 +1816,7 @@ function ResourceEditor({
             </div>
             <StatusCell value={id ? "draft" : "new"} />
           </div>
-          {advanced ? (
-            <div className="kuma-editor-form">
-              <Field label="Config JSON" wide>
-                <textarea
-                  className="sentinel-code-input"
-                  onBlur={(event) => {
-                    try {
-                      setConfig(JSON.parse(event.target.value));
-                    } catch {
-                      notify("Config содержит невалидный JSON", "critical");
-                    }
-                  }}
-                  defaultValue={JSON.stringify(config, null, 2)}
-                  rows={18}
-                />
-              </Field>
-              <Field label="Bindings JSON" wide>
-                <textarea
-                  className="sentinel-code-input"
-                  onBlur={(event) => {
-                    try {
-                      setBindings(JSON.parse(event.target.value));
-                    } catch {
-                      notify("Bindings содержит невалидный JSON", "critical");
-                    }
-                  }}
-                  defaultValue={JSON.stringify(bindings, null, 2)}
-                  rows={10}
-                />
-              </Field>
-            </div>
-          ) : (
-            stepContent()
-          )}
+          {stepContent()}
         </main>
       </div>
       <footer>
@@ -1983,6 +1850,163 @@ function ResourceEditor({
   );
 }
 
+function LifecycleValue({ value }: { value: unknown }) {
+  if (value === undefined) return <span>Отсутствует</span>;
+  if (value === null) return <span>NULL</span>;
+  if (Array.isArray(value)) {
+    return value.length ? (
+      <ul>{value.slice(0, 20).map((item, index) => <li key={index}><LifecycleValue value={item} /></li>)}</ul>
+    ) : <span>Пустой список</span>;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Row).slice(0, 20);
+    return entries.length ? (
+      <dl className="kuma-kv">
+        {entries.map(([key, item]) => <div key={key}><dt>{key}</dt><dd><LifecycleValue value={item} /></dd></div>)}
+      </dl>
+    ) : <span>Пустой объект</span>;
+  }
+  if (typeof value === "boolean") return <span>{value ? "true" : "false"}</span>;
+  return <code>{String(value)}</code>;
+}
+
+function ResourceLifecyclePanel({
+  resource,
+  notify,
+  onChanged,
+}: {
+  resource: ResourceCatalogRecord;
+  notify: Notify;
+  onChanged: () => void;
+}) {
+  const managed = resource.origin === "sentinel-managed" && !resource.read_only;
+  const versions = useQuery<ResourceVersionsResponse>(
+    `resource-versions:${resource.id}:${managed}`,
+    () => managed
+      ? api.resourceVersions(resource.id)
+      : Promise.resolve({
+        resource_id: resource.id,
+        tenant_id: resource.tenant_id,
+        current_version: null,
+        current_revision: null,
+        deleted: false,
+        items: [],
+        total: 0,
+      }),
+  );
+  const [fromVersion, setFromVersion] = useState(0);
+  const [toVersion, setToVersion] = useState(0);
+  const [comparison, setComparison] = useState<ResourceVersionCompareResponse | null>(null);
+  const [busy, setBusy] = useState("");
+
+  useEffect(() => {
+    const items = versions.data?.items ?? [];
+    const current = number(versions.data?.current_version ?? items[0]?.version);
+    const previous = number(items.find((item) => item.version !== current)?.version ?? current);
+    setFromVersion(previous);
+    setToVersion(current);
+    setComparison(null);
+  }, [versions.data]);
+
+  if (!managed) {
+    return (
+      <section className="kuma-editor-section">
+        <div className="kuma-editor-section-head">
+          <div><h3>Управляемый lifecycle</h3><p>Runtime и read-only ресурс необходимо дублировать в managed draft.</p></div>
+          <StatusCell value="Только чтение" />
+        </div>
+      </section>
+    );
+  }
+  if (versions.loading && !versions.data) return <LoadingState label="Загрузка версий..." />;
+  if (versions.error) return <ErrorState error={versions.error} retry={versions.reload} />;
+  const items = versions.data?.items ?? [];
+
+  async function compare() {
+    if (!fromVersion || !toVersion) return;
+    setBusy("compare");
+    try {
+      setComparison(await api.compareResourceVersions(resource.id, fromVersion, toVersion));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function rollback(targetVersion: number) {
+    const expectedRevision = number(versions.data?.current_revision ?? resource.revision ?? resource.version);
+    if (!expectedRevision || !window.confirm(`Создать новую версию из v${targetVersion}?`)) return;
+    setBusy(`rollback:${targetVersion}`);
+    try {
+      await api.rollbackResource(resource.id, {
+        target_version: targetVersion,
+        expected_revision: expectedRevision,
+      });
+      notify(`Rollback v${targetVersion} сохранен новой версией`, "healthy");
+      versions.reload();
+      onChanged();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <section className="kuma-editor-section">
+      <div className="kuma-editor-section-head">
+        <div><h3>Версии managed resource</h3><p>Текущая версия v{versions.data?.current_version ?? resource.version}, revision {versions.data?.current_revision ?? resource.revision ?? resource.version}</p></div>
+        <StatusCell value={`${items.length} версий`} />
+      </div>
+      <div className="native-grid">
+        <table>
+          <thead><tr><th>Версия</th><th>Операция</th><th>Автор</th><th>Создано</th><th /></tr></thead>
+          <tbody>{items.map((item) => <tr key={item.id}>
+            <td><strong>v{item.version}</strong>{item.version === versions.data?.current_version ? <Badge tone="healthy">Текущая</Badge> : null}</td>
+            <td>{item.action}</td>
+            <td>{item.created_by}</td>
+            <td>{formatTime(item.created_ts)}</td>
+            <td>{item.version !== versions.data?.current_version ? <Button disabled={Boolean(busy)} onClick={() => void rollback(item.version)}>Откатить к v{item.version}</Button> : null}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      {items.length >= 2 ? (
+        <>
+          <div className="kuma-editor-form">
+            <Field label="Версия до">
+              <select aria-label="Версия до" onChange={(event) => { setFromVersion(number(event.target.value)); setComparison(null); }} value={fromVersion}>
+                {items.map((item) => <option key={item.version} value={item.version}>v{item.version}</option>)}
+              </select>
+            </Field>
+            <Field label="Версия после">
+              <select aria-label="Версия после" onChange={(event) => { setToVersion(number(event.target.value)); setComparison(null); }} value={toVersion}>
+                {items.map((item) => <option key={item.version} value={item.version}>v{item.version}</option>)}
+              </select>
+            </Field>
+            <Button disabled={Boolean(busy) || fromVersion === toVersion} onClick={() => void compare()}>Сравнить версии</Button>
+          </div>
+          {comparison ? (
+            <div className="native-grid">
+              <table>
+                <thead><tr><th>Операция</th><th>JSON Pointer</th><th>До</th><th>После</th></tr></thead>
+                <tbody>{comparison.changes.map((change, index) => <tr key={`${change.path}:${index}`}>
+                  <td><StatusCell value={change.op} /></td>
+                  <td><code>{change.path}</code></td>
+                  <td><LifecycleValue value={change.before} /></td>
+                  <td><LifecycleValue value={change.after} /></td>
+                </tr>)}</tbody>
+              </table>
+              {comparison.identical ? <EmptyState detail="Версии идентичны" /> : null}
+              {comparison.truncated ? <Badge tone="warning">Список ограничен backend-лимитом</Badge> : null}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function ResourcesWorkspace({ notify }: { notify: Notify }) {
   const [display, setDisplay] = useState<"tiles" | "list">("tiles");
   const [kind, setKind] = useState("");
@@ -1990,6 +2014,10 @@ export function ResourcesWorkspace({ notify }: { notify: Notify }) {
   const [scope, setScope] = useState<"all" | "mine">("all");
   const [selected, setSelected] = useState<Row | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [packageSelection, setPackageSelection] = useState<string[]>([]);
+  const [importSummary, setImportSummary] = useState<ResourcePackageImportResponse | null>(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState("");
+  const importInput = useRef<HTMLInputElement>(null);
   const state = useQuery(
     "kuma-resources",
     () => api.resourceCatalog({ include_runtime: true }),
@@ -2005,11 +2033,69 @@ export function ResourcesWorkspace({ notify }: { notify: Notify }) {
   const selectedDefinition = RESOURCE_DEFINITIONS.find(
     (item) => item.kind === kind,
   );
+  const selectedResource = selected as unknown as ResourceCatalogRecord | null;
   const openKind = (nextKind: string) => {
     setKind(nextKind);
     setDisplay("list");
     setSelected(null);
   };
+
+  async function duplicate(resource: ResourceCatalogRecord) {
+    setLifecycleBusy("duplicate");
+    try {
+      const result = await api.duplicateResource(resource.id, { name: `${resource.name} managed` });
+      notify(`Создан managed draft ${result.resource?.name || result.resource?.id || ""}`, "healthy");
+      setSelected(null);
+      state.reload();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setLifecycleBusy("");
+    }
+  }
+
+  async function deleteDraft(resource: ResourceCatalogRecord) {
+    const revision = number(resource.revision ?? resource.version);
+    if (!revision || !window.confirm(`Удалить неопубликованный draft ${resource.name}?`)) return;
+    setLifecycleBusy("delete");
+    try {
+      await api.deleteResourceDraft(resource.id, revision);
+      notify("Неопубликованный draft удален, история версий сохранена", "healthy");
+      setSelected(null);
+      state.reload();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setLifecycleBusy("");
+    }
+  }
+
+  async function exportPackage(resourceIds: string[]) {
+    setLifecycleBusy("export");
+    try {
+      const result = await api.exportResourcePackage(resourceIds);
+      notify(`Выгружен пакет ${result.filename}`, "healthy");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setLifecycleBusy("");
+    }
+  }
+
+  async function importPackage(file: File) {
+    setLifecycleBusy("import");
+    try {
+      const result = await api.importResourcePackage(file);
+      setImportSummary(result);
+      notify(`Импортировано managed drafts: ${result.total}`, "healthy");
+      state.reload();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setLifecycleBusy("");
+      if (importInput.current) importInput.current.value = "";
+    }
+  }
 
   return (
     <div className="native-page kuma-resources-page">
@@ -2175,9 +2261,47 @@ export function ResourcesWorkspace({ notify }: { notify: Notify }) {
                     value={query}
                   />
                   <span>Всего {filtered.length}</span>
+                  <Button
+                    disabled={Boolean(lifecycleBusy) || !packageSelection.length}
+                    onClick={() => void exportPackage(packageSelection)}
+                  >
+                    Выгрузить выбранные ({packageSelection.length})
+                  </Button>
+                  <Button disabled={Boolean(lifecycleBusy)} onClick={() => importInput.current?.click()}>
+                    Импорт пакета
+                  </Button>
+                  <input
+                    accept=".json,application/json,application/vnd.rdegon-sentinel.resources+json"
+                    aria-label="Файл пакета ресурсов"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void importPackage(file);
+                    }}
+                    ref={importInput}
+                    type="file"
+                  />
                 </div>
                 <Grid
                   columns={[
+                    {
+                      key: "package_selection",
+                      title: "Пакет",
+                      render: (row) => {
+                        const resourceId = text(row.id, "");
+                        const canExport = row.origin === "sentinel-managed" && !row.read_only && row.kind !== "secret";
+                        return <input
+                          aria-label={`Выбрать ${text(row.name)} для пакета`}
+                          checked={packageSelection.includes(resourceId)}
+                          disabled={!canExport}
+                          onChange={(event) => setPackageSelection((current) => event.target.checked
+                            ? [...new Set([...current, resourceId])]
+                            : current.filter((item) => item !== resourceId))}
+                          onClick={(event) => event.stopPropagation()}
+                          type="checkbox"
+                        />;
+                      },
+                    },
                     {
                       key: "name",
                       title: "Название",
@@ -2212,19 +2336,23 @@ export function ResourcesWorkspace({ notify }: { notify: Notify }) {
       </Boundary>
       <DetailDrawer
         actions={
-          selected ? (
+          selectedResource ? (
             <>
-              <Button icon="settings" onClick={() => setEditing(selected)}>
-                {selected.read_only
-                  ? "Создать управляемую копию"
-                  : "Редактировать"}
-              </Button>
-              {!selected.read_only ? (
+              {selectedResource.read_only || selectedResource.origin !== "sentinel-managed" ? (
+                <Button disabled={Boolean(lifecycleBusy)} icon="copy" onClick={() => void duplicate(selectedResource)} tone="primary">
+                  Создать managed draft
+                </Button>
+              ) : (
+                <Button icon="settings" onClick={() => setEditing(selectedResource as unknown as Row)}>
+                  Редактировать
+                </Button>
+              )}
+              {!selectedResource.read_only && selectedResource.origin === "sentinel-managed" ? (
                 <Button
                   onClick={async () => {
                     try {
                       const result = await api.validateResource(
-                        text(selected.id),
+                        selectedResource.id,
                       );
                       notify(
                         result.valid
@@ -2243,6 +2371,16 @@ export function ResourcesWorkspace({ notify }: { notify: Notify }) {
                   Проверить
                 </Button>
               ) : null}
+              {!selectedResource.read_only && selectedResource.origin === "sentinel-managed" && selectedResource.kind !== "secret" ? (
+                <Button disabled={Boolean(lifecycleBusy)} onClick={() => void exportPackage([selectedResource.id])}>
+                  Выгрузить пакет
+                </Button>
+              ) : null}
+              {!selectedResource.read_only && selectedResource.origin === "sentinel-managed" && selectedResource.status === "draft" && !selectedResource.published_ts ? (
+                <Button disabled={Boolean(lifecycleBusy)} onClick={() => void deleteDraft(selectedResource)} tone="danger">
+                  Удалить draft
+                </Button>
+              ) : null}
             </>
           ) : null
         }
@@ -2250,8 +2388,37 @@ export function ResourcesWorkspace({ notify }: { notify: Notify }) {
         open={Boolean(selected)}
         title={selected ? text(selected.name) : "Ресурс"}
       >
-        {selected ? <RecordDetails kind="resource" value={selected} /> : null}
+        {selectedResource ? <>
+          <RecordDetails kind="resource" value={selectedResource as unknown as Row} />
+          <ResourceLifecyclePanel
+            notify={notify}
+            onChanged={() => state.reload()}
+            resource={selectedResource}
+          />
+        </> : null}
       </DetailDrawer>
+      <Modal
+        footer={<Button onClick={() => setImportSummary(null)} tone="primary">Закрыть</Button>}
+        onClose={() => setImportSummary(null)}
+        open={Boolean(importSummary)}
+        title="Импорт ресурсов завершен"
+      >
+        {importSummary ? <div className="record-details">
+          <dl className="kuma-kv">
+            <div><dt>Статус</dt><dd><StatusCell value={importSummary.status} /></dd></div>
+            <div><dt>Package ID</dt><dd><code>{importSummary.package_id}</code></dd></div>
+            <div><dt>Tenant</dt><dd>{importSummary.tenant_id}</dd></div>
+            <div><dt>Создано drafts</dt><dd>{importSummary.total}</dd></div>
+          </dl>
+          <div className="native-grid">
+            <table><thead><tr><th>Исходный ID</th><th>Managed ID</th><th>Версия</th><th>Статус</th></tr></thead>
+              <tbody>{importSummary.items.map((item) => <tr key={`${item.source_id}:${item.resource_id}`}>
+                <td><code>{item.source_id}</code></td><td><code>{item.resource_id}</code></td><td>v{item.version}</td><td><StatusCell value={item.status} /></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </div> : null}
+      </Modal>
       {editing ? (
         <ResourceEditor
           key={`${text(editing.id, "new")}-${text(editing.kind)}`}
@@ -2655,11 +2822,70 @@ function RuleEditor({
   );
 }
 
+function unifiedStatusLabel(status: string) {
+  return ({
+    active: "Активно",
+    drift: "Расхождение",
+    retired: "Выведено",
+    disabled: "Отключено",
+    unpublished: "Не опубликовано",
+    unknown: "Неизвестно",
+  } as Record<string, string>)[status] || status;
+}
+
+function unifiedIssueLabel(issue: string) {
+  return ({
+    pack_provenance_conflict: "Конфликт владельцев пакета",
+    catalog_runtime_enabled_drift: "Статус каталога расходится с runtime",
+    authored_runtime_status_drift: "Статус пакета расходится с runtime",
+    shared_runtime_id_collapsed: "Один ID используется stream и batch",
+  } as Record<string, string>)[issue] || issue;
+}
+
+function RuntimeRuleDetails({ rule }: { rule: UnifiedRuleRecord }) {
+  const noise = rule.noise ?? {};
+  return (
+    <div className="record-details">
+      <dl className="kuma-kv">
+        <div><dt>Runtime ID</dt><dd><code>{rule.identity}</code></dd></div>
+        <div><dt>Движок</dt><dd>{rule.kind}</dd></div>
+        <div><dt>Статус</dt><dd><StatusCell value={unifiedStatusLabel(rule.status)} /></dd></div>
+        <div><dt>Важность</dt><dd><Badge tone={severityTone(rule.severity)}>{rule.severity || "info"}</Badge></dd></div>
+        <div><dt>Пакет</dt><dd>{rule.pack?.title || rule.pack?.id || "—"}</dd></div>
+        <div><dt>Владелец</dt><dd>{rule.pack?.owner || "—"}</dd></div>
+        <div><dt>Алертов, 30 дней</dt><dd>{number(noise.alert_count).toLocaleString("ru-RU")}</dd></div>
+        <div><dt>False positive</dt><dd>{number(noise.false_positive_count).toLocaleString("ru-RU")} ({(number(noise.false_positive_ratio) * 100).toFixed(1)}%)</dd></div>
+        <div><dt>Подавлено</dt><dd>{number(noise.suppressed_count).toLocaleString("ru-RU")} ({(number(noise.suppressed_ratio) * 100).toFixed(1)}%)</dd></div>
+        <div><dt>Обновлено</dt><dd>{formatTime(rule.updated_ts)}</dd></div>
+      </dl>
+      {rule.description ? <section><h3>Описание</h3><p>{rule.description}</p></section> : null}
+      {rule.issues.length ? (
+        <section>
+          <h3>Расхождения</h3>
+          <div className="badge-row">
+            {rule.issues.map((issue) => <Badge key={issue} tone="warning">{unifiedIssueLabel(issue)}</Badge>)}
+          </div>
+        </section>
+      ) : null}
+      {rule.replacement?.replacement_identity ? (
+        <section>
+          <h3>Замена</h3>
+          <p><code>{rule.replacement.replacement_identity}</code> · {rule.replacement.reason || "—"}</p>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 export function RulesWorkspace({ notify }: { notify: Notify }) {
-  const [tab, setTab] = useState("drafts");
+  const [tab, setTab] = useState<"drafts" | "packs" | "runtime">("drafts");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Row | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState("");
+  const [disableTarget, setDisableTarget] = useState<UnifiedRuleRecord | null>(null);
+  const [disableReason, setDisableReason] = useState("");
+  const [replacementIdentity, setReplacementIdentity] = useState("");
   const state = useQuery(
     "kuma-rules",
     async () => {
@@ -2671,12 +2897,33 @@ export function RulesWorkspace({ notify }: { notify: Notify }) {
     },
     60_000,
   );
+  const runtimeState = useQuery(
+    "kuma-rules-runtime",
+    () => api.unifiedRules({ limit: 5_000, noise_days: 30 }),
+    60_000,
+  );
+  const needle = query.trim().toLowerCase();
   const draftRows = rows(state.data?.drafts.items).filter((row) =>
-    JSON.stringify(row).toLowerCase().includes(query.toLowerCase()),
+    JSON.stringify(row).toLowerCase().includes(needle),
   );
   const packRows = rows(state.data?.packs.items).filter((row) =>
-    JSON.stringify(row).toLowerCase().includes(query.toLowerCase()),
+    JSON.stringify(row).toLowerCase().includes(needle),
   );
+  const runtimeRules = runtimeState.data?.items ?? [];
+  const runtimeRows = runtimeRules.filter((rule) =>
+    `${rule.identity} ${rule.title} ${rule.description || ""} ${rule.pack?.id || ""}`.toLowerCase().includes(needle),
+  );
+  const activeReplacements = runtimeRules.filter((rule) =>
+    rule.enabled && rule.identity !== disableTarget?.identity,
+  );
+  const selectedRuntime = tab === "runtime" && selected
+    ? selected as UnifiedRuleRecord
+    : null;
+
+  function reloadAll() {
+    state.reload();
+    runtimeState.reload();
+  }
 
   async function packAction(
     operation: "validate" | "test" | "publish",
@@ -2694,12 +2941,47 @@ export function RulesWorkspace({ notify }: { notify: Notify }) {
         `${operation}: ${text((result as unknown as Row).status ?? (result as unknown as Row).valid, "готово")}`,
         "healthy",
       );
-      state.reload();
+      reloadAll();
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : String(error),
-        "critical",
-      );
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    }
+  }
+
+  async function runtimeAction(operation: "publish" | "enable", rule: UnifiedRuleRecord) {
+    setRuntimeBusy(`${operation}:${rule.identity}`);
+    try {
+      const result = operation === "publish"
+        ? await api.publishUnifiedRule(rule.identity)
+        : await api.setUnifiedRuleEnabled(rule.identity, { enabled: true });
+      notify(`Правило ${rule.identity}: ${text(result.status, "готово")}`, "healthy");
+      setSelected(null);
+      runtimeState.reload();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setRuntimeBusy("");
+    }
+  }
+
+  async function retireRule() {
+    if (!disableTarget || disableReason.trim().length < 8 || !replacementIdentity) return;
+    setRuntimeBusy(`disable:${disableTarget.identity}`);
+    try {
+      const result = await api.setUnifiedRuleEnabled(disableTarget.identity, {
+        enabled: false,
+        reason: disableReason.trim(),
+        replacement_identity: replacementIdentity,
+      });
+      notify(`Правило ${disableTarget.identity}: ${text(result.status, "выведено")}`, "healthy");
+      setDisableTarget(null);
+      setDisableReason("");
+      setReplacementIdentity("");
+      setSelected(null);
+      runtimeState.reload();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "critical");
+    } finally {
+      setRuntimeBusy("");
     }
   }
 
@@ -2707,166 +2989,154 @@ export function RulesWorkspace({ notify }: { notify: Notify }) {
     <div className="native-page kuma-rules-page">
       <PageHeader
         title="Правила корреляции"
-        actions={
-          <IconButton icon="refresh" label="Обновить" onClick={state.reload} />
-        }
+        actions={<IconButton icon="refresh" label="Обновить" onClick={reloadAll} />}
       />
       <Boundary state={state}>
         {() => (
           <div className="kuma-rule-catalog">
             <aside>
-              <SearchField
-                onChange={setQuery}
-                placeholder="Поиск..."
-                value={query}
-              />
+              <SearchField onChange={setQuery} placeholder="Поиск..." value={query} />
               <nav>
-                <button
-                  className={tab === "drafts" ? "active" : ""}
-                  onClick={() => {
-                    setTab("drafts");
-                    setSelected(null);
-                  }}
-                  type="button"
-                >
+                <button className={tab === "drafts" ? "active" : ""} onClick={() => { setTab("drafts"); setSelected(null); }} type="button">
                   <Icon name="rules" />
                   Черновики <b>{draftRows.length}</b>
                 </button>
-                <button
-                  className={tab === "packs" ? "active" : ""}
-                  onClick={() => {
-                    setTab("packs");
-                    setSelected(null);
-                  }}
-                  type="button"
-                >
+                <button className={tab === "packs" ? "active" : ""} onClick={() => { setTab("packs"); setSelected(null); }} type="button">
                   <Icon name="resources" />
                   Пакеты правил <b>{packRows.length}</b>
+                </button>
+                <button className={tab === "runtime" ? "active" : ""} onClick={() => { setTab("runtime"); setSelected(null); }} type="button">
+                  <Icon name="runtime" />
+                  Runtime <b>{runtimeState.data?.total ?? runtimeRows.length}</b>
                 </button>
               </nav>
             </aside>
             <section>
               <div className="kuma-catalog-toolbar">
-                <Button
-                  icon="plus"
-                  onClick={() => setEditing({ kind: "detection", blocks: [] })}
-                  tone="primary"
-                >
-                  Добавить
-                </Button>
-                <SearchField
-                  onChange={setQuery}
-                  placeholder="Поиск по названию..."
-                  value={query}
-                />
-                <span>
-                  Всего {tab === "drafts" ? draftRows.length : packRows.length}
-                </span>
+                {tab !== "runtime" ? (
+                  <Button icon="plus" onClick={() => setEditing({ kind: "detection", blocks: [] })} tone="primary">
+                    Добавить
+                  </Button>
+                ) : null}
+                <SearchField onChange={setQuery} placeholder="Поиск по названию..." value={query} />
+                <span>Всего {tab === "drafts" ? draftRows.length : tab === "packs" ? packRows.length : runtimeRows.length}</span>
+                {tab === "runtime" ? <span>Активно {runtimeState.data?.summary?.enabled_rule_count ?? 0}</span> : null}
               </div>
               {tab === "drafts" ? (
                 <Grid
                   columns={[
-                    {
-                      key: "title",
-                      title: "Название",
-                      render: (row) => <strong>{text(row.title)}</strong>,
-                    },
+                    { key: "title", title: "Название", render: (row) => <strong>{text(row.title)}</strong> },
                     { key: "kind", title: "Тип" },
-                    {
-                      key: "status",
-                      title: "Статус",
-                      render: (row) => <StatusCell value={text(row.status)} />,
-                    },
+                    { key: "status", title: "Статус", render: (row) => <StatusCell value={text(row.status)} /> },
                     { key: "version", title: "Версия" },
-                    {
-                      key: "updated_ts",
-                      title: "Последнее обновление",
-                      render: (row) => formatTime(row.updated_ts),
-                    },
-                    {
-                      key: "published_ts",
-                      title: "Опубликован",
-                      render: (row) => formatTime(row.published_ts),
-                    },
+                    { key: "updated_ts", title: "Последнее обновление", render: (row) => formatTime(row.updated_ts) },
+                    { key: "published_ts", title: "Опубликован", render: (row) => formatTime(row.published_ts) },
                   ]}
                   data={draftRows}
                   onOpen={setSelected}
                 />
-              ) : (
+              ) : tab === "packs" ? (
                 <Grid
                   columns={[
-                    {
-                      key: "title",
-                      title: "Название",
-                      render: (row) => <strong>{text(row.title)}</strong>,
-                    },
-                    {
-                      key: "status",
-                      title: "Статус",
-                      render: (row) => <StatusCell value={text(row.status)} />,
-                    },
+                    { key: "title", title: "Название", render: (row) => <strong>{text(row.title)}</strong> },
+                    { key: "status", title: "Статус", render: (row) => <StatusCell value={text(row.status)} /> },
                     { key: "version", title: "Версия" },
                     { key: "rule_count", title: "Правил" },
                     { key: "active_stream_rules", title: "Активных stream" },
                     { key: "owner", title: "Владелец" },
-                    {
-                      key: "updated_ts",
-                      title: "Изменен",
-                      render: (row) => formatTime(row.updated_ts),
-                    },
+                    { key: "updated_ts", title: "Изменен", render: (row) => formatTime(row.updated_ts) },
                   ]}
                   data={packRows}
                   onOpen={setSelected}
                 />
+              ) : (
+                <Boundary state={runtimeState}>
+                  {() => (
+                    <Grid
+                      columns={[
+                        {
+                          key: "title",
+                          title: "Правило",
+                          render: (row) => <><strong>{text(row.title)}</strong><span className="table-secondary">{text(row.identity)}</span></>,
+                        },
+                        { key: "kind", title: "Контур" },
+                        { key: "status", title: "Статус", render: (row) => <StatusCell value={unifiedStatusLabel(text(row.status))} /> },
+                        { key: "severity", title: "Важность", render: (row) => <Badge tone={severityTone(row.severity)}>{text(row.severity, "info")}</Badge> },
+                        { key: "alerts", title: "Алерты 30д", render: (row) => number((row.noise as Row | undefined)?.alert_count).toLocaleString("ru-RU") },
+                        { key: "fp", title: "FP", render: (row) => `${number((row.noise as Row | undefined)?.false_positive_count).toLocaleString("ru-RU")} · ${(number((row.noise as Row | undefined)?.false_positive_ratio) * 100).toFixed(1)}%` },
+                        { key: "suppressed", title: "Подавлено", render: (row) => number((row.noise as Row | undefined)?.suppressed_count).toLocaleString("ru-RU") },
+                        { key: "pack", title: "Пакет / владелец", render: (row) => { const pack = row.pack as Row | undefined; return <><strong>{text(pack?.id, "—")}</strong><span className="table-secondary">{text(pack?.owner, "—")}</span></>; } },
+                        { key: "issues", title: "Проблемы", render: (row) => { const issues = Array.isArray(row.issues) ? row.issues : []; return issues.length ? <Badge tone="warning">{issues.length}</Badge> : <StatusCell value="Норма" />; } },
+                      ]}
+                      data={runtimeRows}
+                      empty="Runtime-правила не найдены"
+                      onOpen={setSelected}
+                    />
+                  )}
+                </Boundary>
               )}
             </section>
           </div>
         )}
       </Boundary>
       <DetailDrawer
-        actions={
-          selected ? (
-            tab === "drafts" ? (
-              <Button icon="settings" onClick={() => setEditing(selected)}>
-                Редактировать
-              </Button>
-            ) : (
-              <>
-                <Button onClick={() => void packAction("validate", selected)}>
-                  Validate
-                </Button>
-                <Button
-                  icon="play"
-                  onClick={() => void packAction("test", selected)}
-                >
-                  Shadow test
-                </Button>
-                <Button
-                  onClick={() => void packAction("publish", selected)}
-                  tone="primary"
-                >
-                  Publish
-                </Button>
-              </>
-            )
+        actions={selected ? (
+          tab === "drafts" ? (
+            <Button icon="settings" onClick={() => setEditing(selected)}>Редактировать</Button>
+          ) : tab === "packs" ? (
+            <>
+              <Button onClick={() => void packAction("validate", selected)}>Validate</Button>
+              <Button icon="play" onClick={() => void packAction("test", selected)}>Shadow test</Button>
+              <Button onClick={() => void packAction("publish", selected)} tone="primary">Publish</Button>
+            </>
+          ) : selectedRuntime ? (
+            <>
+              {selectedRuntime.capabilities.publish ? (
+                <Button disabled={Boolean(runtimeBusy)} onClick={() => void runtimeAction("publish", selectedRuntime)}>Опубликовать</Button>
+              ) : null}
+              {!selectedRuntime.enabled && selectedRuntime.capabilities.enable ? (
+                <Button disabled={Boolean(runtimeBusy)} onClick={() => void runtimeAction("enable", selectedRuntime)} tone="primary">Включить</Button>
+              ) : null}
+              {selectedRuntime.enabled && selectedRuntime.capabilities.disable ? (
+                <Button disabled={Boolean(runtimeBusy)} onClick={() => { setDisableTarget(selectedRuntime); setDisableReason(""); setReplacementIdentity(""); }} tone="danger">Вывести правило</Button>
+              ) : null}
+            </>
           ) : null
-        }
+        ) : null}
         onClose={() => setSelected(null)}
         open={Boolean(selected)}
         title={selected ? text(selected.title) : "Правило"}
       >
-        {selected ? <RecordDetails kind="rule" value={selected} /> : null}
+        {selected ? (selectedRuntime ? <RuntimeRuleDetails rule={selectedRuntime} /> : <RecordDetails kind="rule" value={selected} />) : null}
       </DetailDrawer>
+      <Modal
+        footer={<>
+          <Button onClick={() => setDisableTarget(null)}>Отмена</Button>
+          <Button disabled={Boolean(runtimeBusy) || disableReason.trim().length < 8 || !replacementIdentity} onClick={() => void retireRule()} tone="danger">Подтвердить отключение</Button>
+        </>}
+        onClose={() => setDisableTarget(null)}
+        open={Boolean(disableTarget)}
+        title="Вывод правила из runtime"
+      >
+        <div className="kuma-editor-form">
+          <Field label="Причина" wide>
+            <textarea aria-label="Причина" onChange={(event) => setDisableReason(event.target.value)} rows={4} value={disableReason} />
+          </Field>
+          <Field label="Активное правило-замена" wide>
+            <select aria-label="Активное правило-замена" onChange={(event) => setReplacementIdentity(event.target.value)} value={replacementIdentity}>
+              <option value="">Не выбрано</option>
+              {activeReplacements.map((rule) => <option key={rule.identity} value={rule.identity}>{rule.identity} · {rule.title}</option>)}
+            </select>
+          </Field>
+        </div>
+      </Modal>
       {editing ? (
         <RuleEditor
           draft={editing}
           key={text(editing.id, "new")}
           notify={notify}
           onClose={() => setEditing(null)}
-          onSaved={() => {
-            state.reload();
-            setSelected(null);
-          }}
+          onSaved={() => { reloadAll(); setSelected(null); }}
         />
       ) : null}
     </div>

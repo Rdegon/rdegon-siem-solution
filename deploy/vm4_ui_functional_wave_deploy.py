@@ -36,22 +36,15 @@ def _tree_files(relative_root: str) -> tuple[str, ...]:
         path.relative_to(ROOT).as_posix()
         for path in sorted(root.rglob("*"))
         if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix.lower() not in {".pyc", ".pyo"}
     )
 
 
 BACKEND_AND_RUNTIME_FILES = (
-    "services/web/app/deps.py",
-    "services/web/app/security.py",
-    "services/web/app/control_plane_access_ops.py",
-    "services/web/app/control_plane_report_ops.py",
-    "services/web/app/control_plane_source_policy_ops.py",
-    "services/web/app/host_runtime_runtime.py",
-    "services/web/app/security_services_runtime.py",
-    "services/web/app/routes/console_assets_routes.py",
-    "services/web/app/routes/alerts.py",
-    "services/web/app/routes/console_reporting_routes.py",
-    "services/web/app/routes/console_router_registry.py",
-    "services/web/app/routes/console_source_policy_routes.py",
+    *_tree_files("services/web/app"),
+    *_tree_files("services/filter"),
+    "services/web/requirements-web.txt",
     "services/web/maintenance/report_scheduler.py",
     "deploy/systemd/siem-report-scheduler.service",
     "deploy/systemd/siem-report-scheduler.timer",
@@ -96,6 +89,12 @@ def main() -> int:
     with Proxmox() as pve:
         for relative in release_files:
             _push_file(pve, relative, backup_root=backup_root)
+        dependency_output = pve.guest_exec(
+            VMID,
+            f"{shlex.quote(WEB_PYTHON)} -m pip install --disable-pip-version-check --no-input "
+            f"-r {shlex.quote(_remote_path('services/web/requirements-web.txt'))}",
+            timeout=600,
+        )
         compile_output = pve.guest_exec(
             VMID,
             f"{shlex.quote(WEB_PYTHON)} -m py_compile "
@@ -126,6 +125,7 @@ def main() -> int:
                 "vmid": VMID,
                 "files": len(release_files),
                 "backup": backup_root,
+                "dependencies": dependency_output.strip().splitlines()[-3:] or ["ok"],
                 "compile": compile_output.strip() or "ok",
                 "frontend": local_build.stdout.strip().splitlines()[-1:] or ["ok"],
                 "services": state_output.strip().splitlines(),

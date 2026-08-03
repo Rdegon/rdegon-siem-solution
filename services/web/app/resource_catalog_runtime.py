@@ -5,23 +5,42 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 from .content_store import load_list, save_list
+from .control_plane_governance_runtime import append_audit_event
+from .tenant_scope_runtime import validate_tenant_scope_header
 
 RESOURCE_KINDS = {
     "collector",
     "correlator",
+    "storage",
+    "agent",
+    "proxy",
     "correlationRule",
+    "aggregationRule",
     "normalizer",
     "filter",
     "connector",
     "destination",
     "enrichmentRule",
     "activeList",
+    "dictionary",
+    "contextTable",
+    "search",
+    "secret",
+    "segmentationRule",
+    "emailTemplate",
+    "eventRouter",
     "responseRule",
 }
 RESOURCE_FILE = Path(os.getenv("SIEM_RESOURCE_CATALOG_FILE", "/opt/siem/runtime-docs/platform_resources.json"))
+RUNTIME_RESOURCE_FILE = Path(
+    os.getenv("SIEM_RESOURCE_RUNTIME_FILE", "/opt/siem/runtime-docs/platform_resource_runtime.json")
+)
+_RESOURCE_ID_PATTERN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}")
+RESOURCE_MUTATION_LOCK = RLock()
 
 
 def _deps():
@@ -46,6 +65,67 @@ def _stored_resources() -> list[dict[str, Any]]:
 
 def _save_resources(rows: list[dict[str, Any]]) -> None:
     save_list("platform_resources", RESOURCE_FILE, rows)
+
+
+def _runtime_registry() -> list[dict[str, Any]]:
+    RUNTIME_RESOURCE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return load_list("platform_resource_runtime", RUNTIME_RESOURCE_FILE, [])
+
+
+def _save_runtime_registry(rows: list[dict[str, Any]]) -> None:
+    save_list("platform_resource_runtime", RUNTIME_RESOURCE_FILE, rows)
+
+
+_INLINE_SECRET_KEYS = {
+    "password",
+    "passwd",
+    "token",
+    "auth_token",
+    "bearer_token",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "apikey",
+    "client_secret",
+    "credential",
+    "credentials",
+    "passphrase",
+    "ssh_key",
+    "privatekey",
+    "private_key",
+    "secret",
+    "authorization",
+    "cookie",
+}
+
+
+def _sanitize_config(value: Any, *, key: str = "") -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for child_key, child_value in value.items():
+            normalized = str(child_key).strip().lower()
+            if normalized in _INLINE_SECRET_KEYS and normalized not in {"secret_ref"}:
+                continue
+            result[str(child_key)] = _sanitize_config(child_value, key=normalized)
+        return result
+    if isinstance(value, list):
+        return [_sanitize_config(item, key=key) for item in value]
+    return value
+
+
+def _inline_secret_paths(value: Any, *, prefix: str = "config") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for child_key, child_value in value.items():
+            normalized = str(child_key).strip().lower()
+            path = f"{prefix}.{child_key}"
+            if normalized in _INLINE_SECRET_KEYS and child_value not in (None, "", False):
+                paths.append(path)
+            paths.extend(_inline_secret_paths(child_value, prefix=path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_inline_secret_paths(item, prefix=f"{prefix}[{index}]"))
+    return paths
 
 
 def _runtime_resources() -> tuple[list[dict[str, Any]], list[str]]:
@@ -235,20 +315,41 @@ def get_resource(resource_id: str) -> dict[str, Any]:
     raise ValueError(f"Resource not found: {safe_id}")
 
 
-def save_resource(payload: dict[str, Any], *, actor: str) -> dict[str, Any]:
+def _save_resource(payload: dict[str, Any], *, actor: str) -> dict[str, Any]:
     kind = str(payload.get("kind") or "").strip()
     name = str(payload.get("name") or "").strip()
     if kind not in RESOURCE_KINDS:
         raise ValueError(f"Unsupported resource kind: {kind}")
     if not name:
         raise ValueError("Resource name is required")
+    inline_secrets = _inline_secret_paths(dict(payload.get("config") or {}))
+    if inline_secrets:
+        raise ValueError(f"Inline secrets are forbidden; use secret_ref: {', '.join(inline_secrets[:5])}")
+    tenant_ids = validate_tenant_scope_header(str(payload.get("tenant_id") or "main"))
+    if len(tenant_ids) != 1:
+        raise ValueError("Exactly one tenant is required")
+    tenant_id = tenant_ids[0]
     rows = _stored_resources()
     requested_id = str(payload.get("id") or "").strip()
+    if requested_id and not _RESOURCE_ID_PATTERN.fullmatch(requested_id):
+        raise ValueError("Resource id contains unsupported characters")
     resource_id = requested_id if requested_id and not requested_id.startswith("runtime-") else f"{kind.lower()}-{_slug(name)}"
     existing = next((item for item in rows if str(item.get("id") or "") == resource_id), None)
+    if existing and str(existing.get("kind") or "") != kind:
+        raise ValueError("A managed resource kind cannot be changed")
+    if existing and str(existing.get("tenant_id") or "main") != tenant_id:
+        raise ValueError("A managed resource cannot be moved between tenants")
+    if existing and payload.get("expected_revision") is not None:
+        expected_revision = int(payload.get("expected_revision") or 0)
+        current_revision = int(existing.get("revision") or existing.get("version") or 0)
+        if expected_revision != current_revision:
+            raise ValueError(
+                f"Resource changed concurrently: expected revision {expected_revision}, current revision {current_revision}"
+            )
     now = _now_iso()
     history = [dict(item) for item in list((existing or {}).get("history") or []) if isinstance(item, dict)]
     version = max(1, int((existing or {}).get("version") or 0) + 1)
+    revision = max(1, int((existing or {}).get("revision") or (existing or {}).get("version") or 0) + 1)
     history.insert(0, {"ts": now, "actor": actor, "action": "save", "version": version})
     item = {
         "id": resource_id,
@@ -257,19 +358,36 @@ def save_resource(payload: dict[str, Any], *, actor: str) -> dict[str, Any]:
         "description": str(payload.get("description") or "").strip(),
         "status": "draft",
         "version": version,
+        "revision": revision,
         "origin": "sentinel-managed",
-        "tenant_id": str(payload.get("tenant_id") or "main"),
+        "tenant_id": tenant_id,
         "updated_ts": now,
         "published_ts": str((existing or {}).get("published_ts") or ""),
-        "config": dict(payload.get("config") or {}),
+        "config": _sanitize_config(dict(payload.get("config") or {})),
         "bindings": dict(payload.get("bindings") or {}),
         "history": history[:25],
         "read_only": False,
     }
+    from .resource_lifecycle_runtime import record_resource_version
+
+    record_resource_version(item, actor=actor, action="save")
     rows = [row for row in rows if str(row.get("id") or "") != resource_id]
     rows.append(item)
     _save_resources(rows)
+    append_audit_event(
+        actor=actor,
+        action="resource.saved",
+        object_type="platform_resource",
+        object_id=resource_id,
+        summary=f"Saved managed {kind} resource {resource_id} as version {version}",
+        details={"tenant_id": tenant_id, "version": version, "revision": revision, "status": "draft"},
+    )
     return item
+
+
+def save_resource(payload: dict[str, Any], *, actor: str) -> dict[str, Any]:
+    with RESOURCE_MUTATION_LOCK:
+        return _save_resource(payload, actor=actor)
 
 
 def validate_resource_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -283,6 +401,9 @@ def validate_resource_payload(payload: dict[str, Any]) -> dict[str, Any]:
         errors.append(f"Unsupported resource kind: {kind}")
     if not name:
         errors.append("name is required")
+    inline_secrets = _inline_secret_paths(config)
+    if inline_secrets:
+        errors.append(f"Inline secrets are forbidden; use secret_ref: {', '.join(inline_secrets[:5])}")
     if kind == "collector":
         if str(config.get("transport") or "") not in {"http", "syslog_tcp", "syslog_udp", "kafka"}:
             errors.append("collector transport must be http, syslog_tcp, syslog_udp or kafka")
@@ -322,6 +443,70 @@ def validate_resource_payload(payload: dict[str, Any]) -> dict[str, Any]:
         key_fields = config.get("key_fields") or []
         if not isinstance(key_fields, list) or not [item for item in key_fields if str(item).strip()]:
             errors.append("active list key_fields requires at least one key field")
+    elif kind == "storage":
+        if str(config.get("engine") or "clickhouse") not in {"clickhouse", "s3", "minio", "filesystem"}:
+            errors.append("storage engine must be clickhouse, s3, minio or filesystem")
+        if not str(config.get("endpoint") or config.get("path") or "").strip():
+            errors.append("storage endpoint or path is required")
+    elif kind == "aggregationRule":
+        if not str(config.get("expr") or "").strip():
+            errors.append("aggregation rule expr is required")
+        if int(config.get("window_s") or 0) <= 0:
+            errors.append("aggregation rule window_s must be positive")
+        if not list(config.get("group_by") or []):
+            errors.append("aggregation rule group_by requires at least one field")
+    elif kind in {"dictionary", "contextTable"}:
+        if not list(config.get("key_fields") or []):
+            errors.append(f"{kind} key_fields requires at least one field")
+        if not str(config.get("source") or config.get("endpoint") or "manual").strip():
+            errors.append(f"{kind} source is required")
+    elif kind == "connector":
+        if not str(config.get("block_type") or config.get("protocol") or "").strip():
+            errors.append("connector block_type or protocol is required")
+        if not str(config.get("endpoint") or config.get("operation") or "").strip():
+            errors.append("connector endpoint or operation is required")
+    elif kind == "destination":
+        if str(config.get("protocol") or "") not in {"kafka", "clickhouse", "webhook", "syslog_tcp", "syslog_udp", "s3", "minio"}:
+            errors.append("destination protocol is unsupported")
+        if not str(config.get("endpoint") or config.get("topic") or "").strip():
+            errors.append("destination endpoint or topic is required")
+    elif kind == "enrichmentRule":
+        if not str(config.get("expr") or "").strip():
+            errors.append("enrichment rule expr is required")
+        if not dict(config.get("set_fields") or {}) and not str(config.get("lookup") or "").strip():
+            errors.append("enrichment rule requires set_fields or lookup")
+    elif kind == "responseRule":
+        if not str(config.get("action_id") or config.get("kind") or "").strip():
+            errors.append("response rule action_id or kind is required")
+        if not str(config.get("trigger") or "").strip():
+            errors.append("response rule trigger is required")
+    elif kind == "search":
+        if not str(config.get("query") or "").strip():
+            errors.append("search query is required")
+    elif kind == "agent":
+        if str(config.get("platform") or "") not in {"linux", "windows", "container", "network"}:
+            errors.append("agent platform must be linux, windows, container or network")
+        if not str(config.get("collector_profile") or "").strip():
+            errors.append("agent collector_profile is required")
+    elif kind == "proxy":
+        if not str(config.get("listen") or "").strip() or not str(config.get("upstream") or "").strip():
+            errors.append("proxy listen and upstream are required")
+    elif kind == "secret":
+        if not str(config.get("secret_ref") or "").strip():
+            errors.append("secret_ref is required")
+    elif kind == "segmentationRule":
+        if not str(config.get("expr") or "").strip():
+            errors.append("segmentation rule expr is required")
+        if not str(config.get("tenant_id") or config.get("segment") or "").strip():
+            errors.append("segmentation rule tenant_id or segment is required")
+    elif kind == "emailTemplate":
+        if not str(config.get("subject") or "").strip() or not str(config.get("body") or "").strip():
+            errors.append("email template subject and body are required")
+    elif kind == "eventRouter":
+        if not str(config.get("expr") or "").strip():
+            errors.append("event router expr is required")
+        if not list(bindings.get("destinations") or []):
+            errors.append("event router requires at least one destination binding")
     return {"valid": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -409,6 +594,107 @@ def _publish_correlation_rule(resource: dict[str, Any], *, actor: str) -> dict[s
         actor=actor,
     )
     return publish_correlation_pack(pack_id)
+
+
+def _publish_connector(resource: dict[str, Any], *, actor: str) -> dict[str, Any]:
+    from .control_plane_connector_ops import save_connector_definition
+
+    config = dict(resource.get("config") or {})
+    endpoint = str(config.get("endpoint") or "").strip()
+    runtime = dict(config.get("runtime") or {})
+    if endpoint:
+        request = dict(runtime.get("request") or {})
+        request.setdefault("url", endpoint)
+        runtime["request"] = request
+    runtime.setdefault("operation", str(config.get("operation") or "collect"))
+    saved = save_connector_definition(
+        {
+            "id": str(resource.get("id") or ""),
+            "title": str(resource.get("name") or ""),
+            "description": str(resource.get("description") or ""),
+            "family": str(config.get("family") or "source"),
+            "block_type": str(config.get("block_type") or config.get("protocol") or "custom_connector"),
+            "stage": str(config.get("stage") or "ingest"),
+            "group": str(config.get("group") or "managed"),
+            "source_family": str(config.get("source_family") or "custom_api"),
+            "protocols": list(config.get("protocols") or ([config.get("protocol")] if config.get("protocol") else [])),
+            "mode": str(config.get("mode") or "push"),
+            "enabled": True,
+            "status": "ready",
+            "runtime": runtime,
+            "mappings": dict(config.get("mappings") or {}),
+            "secret_requirements": list(config.get("secret_requirements") or []),
+            "_audit_actor": actor,
+        }
+    )
+    return {
+        "state": "applied",
+        "applied": True,
+        "runtime": "connector_control_plane",
+        "runtime_id": str(saved.get("id") or ""),
+        "status": str(saved.get("status") or "ready"),
+    }
+
+
+def _publish_response_rule(resource: dict[str, Any], *, actor: str) -> dict[str, Any]:
+    from .control_plane_response_ops import save_response_action
+
+    config = dict(resource.get("config") or {})
+    trigger = str(config.get("trigger") or "manual").strip().lower()
+    saved = save_response_action(
+        {
+            "id": str(config.get("action_id") or resource.get("id") or ""),
+            "title": str(resource.get("name") or ""),
+            "description": str(resource.get("description") or ""),
+            "kind": str(config.get("kind") or "webhook"),
+            "enabled": True,
+            "dangerous": bool(config.get("dangerous", False)),
+            "approval_required": bool(config.get("approval_required", config.get("dangerous", False))),
+            "target": dict(config.get("target") or {}),
+            "steps": list(config.get("steps") or []),
+            "trigger_kinds": [trigger],
+            "owners": [actor],
+            "secret_requirements": list(config.get("secret_requirements") or []),
+            "_audit_actor": actor,
+        }
+    )
+    return {
+        "state": "applied",
+        "applied": True,
+        "runtime": "response_control_plane",
+        "runtime_id": str(saved.get("id") or ""),
+        "approval_required": bool(saved.get("approval_required")),
+    }
+
+
+def _publish_runtime_descriptor(resource: dict[str, Any], *, actor: str) -> dict[str, Any]:
+    """Register resource contracts without claiming that an absent worker applied them."""
+    now = _now_iso()
+    resource_id = str(resource.get("id") or "")
+    descriptor = {
+        "id": resource_id,
+        "kind": str(resource.get("kind") or ""),
+        "name": str(resource.get("name") or ""),
+        "version": int(resource.get("version") or 1),
+        "tenant_id": str(resource.get("tenant_id") or "main"),
+        "config": _sanitize_config(dict(resource.get("config") or {})),
+        "bindings": dict(resource.get("bindings") or {}),
+        "state": "registered",
+        "applied": False,
+        "issue": "No executable runtime adapter is registered for this resource kind",
+        "actor": actor,
+        "updated_ts": now,
+    }
+    rows = [item for item in _runtime_registry() if str(item.get("id") or "") != resource_id]
+    rows.append(descriptor)
+    _save_runtime_registry(rows)
+    return {
+        "state": descriptor["state"],
+        "applied": descriptor["applied"],
+        "runtime": "resource_registry",
+        "runtime_id": resource_id,
+        "issue": descriptor["issue"],
+    }
 
 
 def _collector_endpoint() -> str:
@@ -505,7 +791,7 @@ def build_collector_deployment(resource_id: str) -> dict[str, Any]:
     }
 
 
-def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
+def _publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
     resource = get_resource(resource_id)
     if bool(resource.get("read_only")):
         raise ValueError("Runtime-discovered resources are read-only; duplicate one to create a managed version")
@@ -525,13 +811,18 @@ def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
             enabled=True,
         )
         activation["table"] = "siem.normalizer_rules"
+        activation.update({"state": "applied", "applied": True})
     elif kind == "filter":
         activation = _publish_filter(resource)
+        activation.update({"state": "applied", "applied": True})
     elif kind == "correlationRule":
         activation = _publish_correlation_rule(resource, actor=actor)
+        activation.update({"state": "applied", "applied": True})
     elif kind == "collector":
         profile = str(config.get("collector_profile") or "")
         activation = {
+            "state": "applied",
+            "applied": True,
             "collector_profile": profile,
             "transport": str(config.get("transport") or ""),
             "ingest_contract": {
@@ -542,6 +833,8 @@ def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
     elif kind == "activeList":
         _deps().ensure_active_list_support()
         activation = {
+            "state": "applied",
+            "applied": True,
             "table": str(getattr(_deps(), "ACTIVE_LIST_TABLE", "siem.active_list_items")),
             "list_name": str(resource.get("name") or ""),
             "list_kind": str(config.get("list_kind") or "watch"),
@@ -552,22 +845,57 @@ def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
         }
     elif kind == "correlator":
         activation = {
+            "state": "registered",
+            "applied": False,
             "engine": str(config.get("engine") or ""),
             "rule_ids": list(dict(resource.get("bindings") or {}).get("correlation_rules") or []),
-            "reload": "automatic",
+            "issue": "Bind this definition to a managed correlation service instance before activation",
         }
+    elif kind == "connector":
+        activation = _publish_connector(resource, actor=actor)
+    elif kind == "responseRule":
+        activation = _publish_response_rule(resource, actor=actor)
     else:
-        activation = {"catalog_only": True, "kind": kind}
+        activation = _publish_runtime_descriptor(resource, actor=actor)
     rows = _stored_resources()
     now = _now_iso()
     published = dict(resource)
-    published["status"] = "active"
+    published["status"] = "active" if bool(activation.get("applied")) else "registered"
     published["published_ts"] = now
     published["updated_ts"] = now
+    published["revision"] = max(1, int(resource.get("revision") or resource.get("version") or 0) + 1)
     published["activation"] = activation
     history = [dict(item) for item in list(published.get("history") or []) if isinstance(item, dict)]
     history.insert(0, {"ts": now, "actor": actor, "action": "publish", "version": int(published.get("version") or 1)})
     published["history"] = history[:25]
     rows = [published if str(item.get("id") or "") == resource_id else item for item in rows]
     _save_resources(rows)
-    return {"status": "published", "resource": published, "activation": activation, "validation": validation}
+    append_audit_event(
+        actor=actor,
+        action="resource.published" if bool(activation.get("applied")) else "resource.registered",
+        object_type="platform_resource",
+        object_id=resource_id,
+        summary=(
+            f"Published managed resource {resource_id}"
+            if bool(activation.get("applied"))
+            else f"Registered managed resource {resource_id}; runtime adapter has not applied it"
+        ),
+        details={
+            "tenant_id": str(published.get("tenant_id") or "main"),
+            "version": int(published.get("version") or 0),
+            "revision": int(published.get("revision") or 0),
+            "state": str(activation.get("state") or ""),
+            "applied": bool(activation.get("applied")),
+        },
+    )
+    return {
+        "status": "published" if bool(activation.get("applied")) else "registered",
+        "resource": published,
+        "activation": activation,
+        "validation": validation,
+    }
+
+
+def publish_resource(resource_id: str, *, actor: str) -> dict[str, Any]:
+    with RESOURCE_MUTATION_LOCK:
+        return _publish_resource(resource_id, actor=actor)

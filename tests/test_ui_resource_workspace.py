@@ -12,9 +12,21 @@ os.environ.setdefault("SIEM_CH_PASSWORD", "test")
 os.environ.setdefault("SIEM_JWT_SECRET", "test-jwt-secret")
 os.environ.setdefault("SIEM_ADMIN_DEFAULT_PASSWORD", "test-admin-password")
 
-from app import kuma_integration_runtime, resource_catalog_runtime, tenant_scope_runtime
+from app import kuma_integration_runtime, resource_catalog_runtime, resource_lifecycle_runtime, tenant_scope_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def isolated_resource_versions(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshots: list[dict[str, Any]] = []
+    monkeypatch.setattr(resource_lifecycle_runtime, "_load_snapshots", lambda: [dict(item) for item in snapshots])
+    monkeypatch.setattr(
+        resource_lifecycle_runtime,
+        "_save_snapshots",
+        lambda rows: snapshots.__setitem__(slice(None), [dict(item) for item in rows]),
+    )
+    monkeypatch.setattr(resource_catalog_runtime, "append_audit_event", lambda **kwargs: dict(kwargs))
 
 
 def test_tenant_scope_uses_production_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,6 +94,56 @@ def test_managed_resource_is_versioned_validated_and_published(
     assert deployment["collector_profile"] == "production-http"
     assert {item["id"] for item in deployment["variants"]} == {"linux", "windows", "container", "application"}
     assert any("rsyslog" in command for command in deployment["variants"][0]["commands"])
+
+
+def test_resource_save_rejects_inline_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(resource_catalog_runtime, "_stored_resources", lambda: [])
+
+    with pytest.raises(ValueError, match="Inline secrets are forbidden"):
+        resource_catalog_runtime.save_resource(
+            {
+                "name": "Unsafe connector",
+                "kind": "connector",
+                "config": {"block_type": "webhook", "endpoint": "https://example.invalid", "token": "secret"},
+            },
+            actor="tester",
+        )
+
+
+def test_resource_without_runtime_adapter_is_registered_not_fake_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored: list[dict[str, Any]] = []
+    registry: list[dict[str, Any]] = []
+    monkeypatch.setattr(resource_catalog_runtime, "_stored_resources", lambda: [dict(item) for item in stored])
+    monkeypatch.setattr(
+        resource_catalog_runtime,
+        "_save_resources",
+        lambda rows: stored.__setitem__(slice(None), [dict(item) for item in rows]),
+    )
+    monkeypatch.setattr(resource_catalog_runtime, "_runtime_resources", lambda: ([], []))
+    monkeypatch.setattr(resource_catalog_runtime, "_runtime_registry", lambda: [dict(item) for item in registry])
+    monkeypatch.setattr(
+        resource_catalog_runtime,
+        "_save_runtime_registry",
+        lambda rows: registry.__setitem__(slice(None), [dict(item) for item in rows]),
+    )
+    resource = resource_catalog_runtime.save_resource(
+        {
+            "name": "SOC archive",
+            "kind": "storage",
+            "config": {"engine": "s3", "endpoint": "https://archive.invalid", "secret_ref": "kv/siem/archive"},
+        },
+        actor="tester",
+    )
+
+    published = resource_catalog_runtime.publish_resource(resource["id"], actor="tester")
+
+    assert published["status"] == "registered"
+    assert published["resource"]["status"] == "registered"
+    assert published["activation"]["applied"] is False
+    assert "catalog_only" not in published["activation"]
+    assert registry[0]["config"]["secret_ref"] == "kv/siem/archive"
 
 
 def test_kuma_package_workflows_follow_supported_api_sequence(

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, setApiTenantScope, type BootstrapResponse, type TenantScopeResponse } from "./runtime/api";
 import {
   commandHints, mainNavigation, platformNavigation, securityNavigation, securityNavigationGroups,
@@ -18,7 +18,7 @@ function scopeFromUrl(available: TenantScopeResponse["available"]) {
   return [...new Set(requested.map((item) => item.trim()).filter((id) => available.some((tenant) => tenant.id === id)))];
 }
 
-function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange, collapsed, setCollapsed, mobileOpen, setMobileOpen, darkTheme, toggleTheme, navigate }: {
+export function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange, collapsed, setCollapsed, mobileOpen, setMobileOpen, darkTheme, toggleTheme, navigate }: {
   current: View;
   bootstrap: BootstrapResponse;
   tenants: TenantScopeResponse;
@@ -35,7 +35,10 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
   const [tenantMenuOpen, setTenantMenuOpen] = useState(false);
   const [securityMenuOpen, setSecurityMenuOpen] = useState(() => viewMeta[current].group === "security");
   const [tenantDraft, setTenantDraft] = useState(selectedTenants);
-  const navigationRef = useRef<HTMLElement | null>(null);
+  const navigationScrollRef = useRef<HTMLDivElement | null>(null);
+  const securityBackRef = useRef<HTMLButtonElement | null>(null);
+  const securityTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const focusSecurityMenuRef = useRef(false);
   const securityActive = securityNavigation.includes(current);
   const selected = tenants.available.filter((tenant) => selectedTenants.includes(tenant.id));
   const draft = tenants.available.filter((tenant) => tenantDraft.includes(tenant.id));
@@ -43,22 +46,30 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
     ? "Все рабочие пространства"
     : selected.length === 1 ? selected[0].name : `${selected.length} пространства`;
   const currentSecurityLabel = securityActive ? viewMeta[current].short : `${securityNavigation.length} модулей`;
+  const closeSecurityMenu = useCallback(({ restoreFocus = true }: { restoreFocus?: boolean } = {}) => {
+    setSecurityMenuOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => securityTriggerRef.current?.focus({ preventScroll: true }));
+    }
+  }, []);
 
   useEffect(() => {
     const closeTransientNavigation = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setTenantMenuOpen(false);
-      setSecurityMenuOpen(false);
+      if (securityMenuOpen) closeSecurityMenu();
     };
     window.addEventListener("keydown", closeTransientNavigation);
     return () => window.removeEventListener("keydown", closeTransientNavigation);
-  }, []);
+  }, [closeSecurityMenu, securityMenuOpen]);
 
-  useEffect(() => {
-    if (!securityMenuOpen) return;
-    const frame = window.requestAnimationFrame(() => navigationRef.current?.scrollTo({ top: 0, behavior: "auto" }));
-    return () => window.cancelAnimationFrame(frame);
-  }, [securityMenuOpen]);
+  useLayoutEffect(() => {
+    navigationScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    if (securityMenuOpen && focusSecurityMenuRef.current) {
+      securityBackRef.current?.focus({ preventScroll: true });
+      focusSecurityMenuRef.current = false;
+    }
+  }, [collapsed, mobileOpen, securityMenuOpen]);
 
   function open(view: View) {
     navigate(view);
@@ -89,7 +100,13 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
   function openSecurityMenu() {
     if (collapsed) setCollapsed(false);
     setTenantMenuOpen(false);
-    setSecurityMenuOpen((value) => !value);
+    if (securityMenuOpen) {
+      closeSecurityMenu();
+      return;
+    }
+    navigationScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    focusSecurityMenuRef.current = true;
+    setSecurityMenuOpen(true);
   }
 
   function toggleTenant(id: string) {
@@ -105,7 +122,7 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
           label={mobileOpen ? "Закрыть меню" : collapsed ? "Развернуть меню" : "Свернуть меню"}
           onClick={() => {
             if (mobileOpen && window.matchMedia("(max-width: 820px)").matches) { setMobileOpen(false); return; }
-            setSecurityMenuOpen(false);
+            closeSecurityMenu({ restoreFocus: false });
             setTenantMenuOpen(false);
             setCollapsed(!collapsed);
           }}
@@ -149,18 +166,18 @@ function Sidebar({ current, bootstrap, tenants, selectedTenants, onTenantChange,
         </footer>
       </section> : null}
 
-      <nav aria-label="Основная навигация" className="app-navigation" ref={navigationRef}>
-        {securityMenuOpen ? <div className="security-nav-subsection" id="security-systems-navigation">
+      <nav aria-label="Основная навигация" className="app-navigation">
+        {securityMenuOpen ? <div className="security-nav-subsection" id="security-systems-navigation" ref={navigationScrollRef}>
           <header>
-            <button aria-label="Вернуться в основную навигацию" className="security-nav-back" onClick={() => setSecurityMenuOpen(false)} type="button"><Icon name="next" size={15} /><span>Основная навигация</span></button>
+            <button aria-label="Вернуться в основную навигацию" className="security-nav-back" onClick={() => closeSecurityMenu()} ref={securityBackRef} type="button"><Icon name="next" size={15} /><span>Основная навигация</span></button>
             <div><Icon name="coverage" size={19} /><span><strong>Средства защиты</strong><small>Единая точка доступа к {securityNavigation.length} модулям</small></span></div>
           </header>
           {securityNavigationGroups.map((group) => <section key={group.id}><h2>{group.title}</h2>{group.items.map(navButton)}</section>)}
-        </div> : <>
+        </div> : <div className="app-navigation-scroll" ref={navigationScrollRef}>
           <section>{!collapsed ? <h2>SOC</h2> : null}{mainNavigation.map(navButton)}</section>
-          <section className="security-nav-cluster"><button aria-controls="security-systems-navigation" aria-expanded={securityMenuOpen} className={securityActive ? "active security-nav-trigger" : "security-nav-trigger"} onClick={openSecurityMenu} title="Средства защиты" type="button"><Icon name="coverage" size={17} />{!collapsed ? <span><strong>Средства защиты</strong><small>{currentSecurityLabel}</small></span> : null}{!collapsed ? <Icon name="next" size={13} /> : null}</button></section>
+          <section className="security-nav-cluster"><button aria-controls="security-systems-navigation" aria-expanded={securityMenuOpen} className={securityActive ? "active security-nav-trigger" : "security-nav-trigger"} onClick={openSecurityMenu} ref={securityTriggerRef} title="Средства защиты" type="button"><Icon name="coverage" size={17} />{!collapsed ? <span><strong>Средства защиты</strong><small>{currentSecurityLabel}</small></span> : null}{!collapsed ? <Icon name="next" size={13} /> : null}</button></section>
           <section>{!collapsed ? <h2>Платформа</h2> : null}{platformNavigation.map(navButton)}</section>
-        </>}
+        </div>}
       </nav>
 
       <button aria-label={darkTheme ? "Включить светлую тему" : "Включить темную тему"} className="sidebar-theme-toggle" onClick={toggleTheme} title={darkTheme ? "Светлая тема" : "Темная тема"} type="button"><span aria-hidden="true" className="theme-glyph">{darkTheme ? "☀" : "☾"}</span>{!collapsed ? <span>{darkTheme ? "Светлая тема" : "Темная тема"}</span> : null}</button>

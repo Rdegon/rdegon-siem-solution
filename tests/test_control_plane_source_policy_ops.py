@@ -119,6 +119,27 @@ class ControlPlaneSourcePolicyOpsTests(unittest.TestCase):
         self.assertEqual(unmatched[0]["evaluation_status"], "unmatched")
         self.assertEqual(unmatched[1]["evaluation_status"], "disabled")
 
+    def test_wildcard_policy_matches_all_real_sources(self) -> None:
+        result = self.module.evaluate_source_policies(
+            [
+                {"source_name": "linux-01", "source_type": "Linux audit", "events": 4, "last_seen_ts": "2026-07-31T11:59:00Z"},
+                {"source_name": "windows-01", "source_type": "Windows events", "events": 8, "last_event_ts": "2026-07-31T11:59:00Z"},
+            ],
+            policies=[{
+                "id": "all-sources",
+                "name": "All sources",
+                "source_pattern": "*",
+                "enabled": True,
+                "min_events": 1,
+                "max_events": 0,
+                "stale_after_minutes": 30,
+            }],
+            now=datetime(2026, 7, 31, 12, 0, tzinfo=timezone.utc),
+        )[0]
+
+        self.assertEqual(result["matched_sources"], 2)
+        self.assertEqual(result["evaluation_status"], "healthy")
+
 
 if __name__ == "__main__":
     unittest.main()

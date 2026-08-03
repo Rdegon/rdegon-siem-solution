@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import os
@@ -50,12 +51,24 @@ except ImportError:  # pragma: no cover - local test fallback
         from asset_catalog_runtime import fetch_source_inventory  # type: ignore[no-redef]
     except ImportError:  # pragma: no cover - tests without runtime DB
         fetch_source_inventory = None  # type: ignore[assignment]
+try:
+    from .ingest_runtime import list_ingest_sources
+except ImportError:  # pragma: no cover - local test fallback
+    try:
+        from ingest_runtime import list_ingest_sources  # type: ignore[no-redef]
+    except ImportError:  # pragma: no cover - tests without ingest runtime
+        list_ingest_sources = None  # type: ignore[assignment]
 
 DISCOVERY_CANDIDATES_COLLECTION = "source_discovery_candidates"
 DISCOVERY_JOBS_COLLECTION = "source_discovery_jobs"
 DEFAULT_DISCOVERY_CIDRS = "192.168.3.0/24,10.20.10.0/24,10.20.20.0/24,10.20.30.0/24,10.20.40.0/24"
 DEFAULT_SCAN_PORTS = (22, 80, 135, 139, 161, 389, 443, 445, 514, 1514, 2375, 2376, 3389, 5985, 5986, 6443, 8006, 8080, 8443)
 CONNECTED_SOURCE_CACHE_TTL_SECONDS = 30.0
+NORMALIZED_INVENTORY_WINDOW_HOURS = 168
+CONNECTED_EVENT_MAX_AGE_SECONDS = max(
+    300,
+    int(os.getenv("SIEM_DISCOVERY_CONNECTED_EVENT_MAX_AGE_SECONDS", "86400") or "86400"),
+)
 PORT_HINTS = {
     22: "ssh",
     80: "http",
@@ -106,8 +119,18 @@ APPLICATION_SOURCE_HINTS = {
     "zeek",
 }
 
+NETWORK_SEGMENTS = (
+    (ipaddress.ip_network("10.20.10.0/24"), "sec", "SEC"),
+    (ipaddress.ip_network("10.20.20.0/24"), "servers-games", "SERVERS / GAMES"),
+    (ipaddress.ip_network("10.20.30.0/24"), "lab", "LAB"),
+    (ipaddress.ip_network("10.20.40.0/24"), "users", "USERS"),
+    (ipaddress.ip_network("192.168.3.0/24"), "mgmt", "MGMT"),
+)
+
 _CONNECTED_SOURCE_CACHE: list[dict[str, Any]] = []
 _CONNECTED_SOURCE_CACHE_TS = 0.0
+_INGEST_SOURCE_CACHE: list[dict[str, Any]] = []
+_INGEST_SOURCE_CACHE_TS = 0.0
 
 
 def _now() -> datetime:
@@ -393,7 +416,7 @@ def _load_connected_source_inventory(timeout_seconds: float | None = None) -> li
     timeout_budget = 0.0 if timeout_seconds is None else max(0.05, float(timeout_seconds or 0.0))
 
     def load() -> list[dict[str, Any]]:
-        rows = fetch_source_inventory(limit=500, hours=168)  # type: ignore[misc]
+        rows = fetch_source_inventory(limit=500, hours=NORMALIZED_INVENTORY_WINDOW_HOURS)  # type: ignore[misc]
         if not isinstance(rows, list):
             return []
         return [dict(item) for item in rows if isinstance(item, dict)]
@@ -431,6 +454,210 @@ def _load_connected_source_inventory(timeout_seconds: float | None = None) -> li
     _CONNECTED_SOURCE_CACHE = [dict(item) for item in rows]
     _CONNECTED_SOURCE_CACHE_TS = time.monotonic()
     return rows
+
+
+def _load_ingest_source_health(timeout_seconds: float = 0.75) -> list[dict[str, Any]]:
+    global _INGEST_SOURCE_CACHE, _INGEST_SOURCE_CACHE_TS
+    now = time.monotonic()
+    if _INGEST_SOURCE_CACHE and now - _INGEST_SOURCE_CACHE_TS <= CONNECTED_SOURCE_CACHE_TTL_SECONDS:
+        return [dict(item) for item in _INGEST_SOURCE_CACHE]
+    if list_ingest_sources is None:
+        return []
+    result_queue: queue.Queue[list[dict[str, Any]]] = queue.Queue(maxsize=1)
+
+    def load() -> None:
+        try:
+            payload = list_ingest_sources(limit=500)  # type: ignore[misc]
+            rows = [dict(item) for item in payload.get("items") or [] if isinstance(item, dict)]
+        except Exception:  # noqa: BLE001
+            rows = []
+        try:
+            result_queue.put_nowait(rows)
+        except queue.Full:
+            return
+
+    thread = threading.Thread(target=load, daemon=True)
+    thread.start()
+    thread.join(max(0.05, min(float(timeout_seconds or 0.75), 2.0)))
+    if thread.is_alive():
+        return [dict(item) for item in _INGEST_SOURCE_CACHE]
+    try:
+        rows = result_queue.get_nowait()
+    except queue.Empty:
+        return [dict(item) for item in _INGEST_SOURCE_CACHE]
+    _INGEST_SOURCE_CACHE = [dict(item) for item in rows]
+    _INGEST_SOURCE_CACHE_TS = time.monotonic()
+    return rows
+
+
+def _record_tokens(item: dict[str, Any]) -> set[str]:
+    values: list[Any] = [
+        item.get("id"),
+        item.get("source"),
+        item.get("source_alias"),
+        item.get("source_name"),
+        item.get("ip"),
+        item.get("source_ip"),
+        item.get("hostname"),
+        item.get("host_name"),
+        item.get("cmdb_ip"),
+        item.get("cmdb_asset_id"),
+        item.get("connected_source"),
+        *(item.get("aliases") or []),
+        *(item.get("source_ips") or []),
+    ]
+    tokens: set[str] = set()
+    for value in values:
+        raw = _string(value)
+        if not raw:
+            continue
+        tokens.add(raw.lower())
+        tokens.add(_normalize_token(raw))
+        alias = _string(SOURCE_ALIAS_OVERRIDES.get(raw))
+        if alias:
+            tokens.add(alias.lower())
+            tokens.add(_normalize_token(alias))
+    return {token for token in tokens if token}
+
+
+def _match_record(candidate: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidate_tokens = _record_tokens(candidate)
+    if not candidate_tokens:
+        return None
+    matches = [item for item in rows if candidate_tokens & _record_tokens(item)]
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda item: (
+            _safe_int(item.get("accepted_total")),
+            _safe_int(item.get("events")),
+            _string(item.get("last_event_ts") or item.get("last_seen")),
+        ),
+        reverse=True,
+    )
+    return dict(matches[0])
+
+
+def _first_ip(item: dict[str, Any]) -> str:
+    values = [item.get("ip"), item.get("source_ip"), item.get("cmdb_ip"), *(item.get("source_ips") or [])]
+    for value in values:
+        raw = _string(value)
+        try:
+            return str(ipaddress.ip_address(raw))
+        except ValueError:
+            continue
+    return ""
+
+
+def _segment_for_record(item: dict[str, Any]) -> dict[str, str]:
+    explicit = _string(item.get("network_segment") or item.get("segment"))
+    if explicit:
+        return {"network_segment": explicit.lower(), "segment_label": explicit.upper()}
+    ip_text = _first_ip(item)
+    try:
+        address = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return {"network_segment": "unassigned", "segment_label": "UNASSIGNED"}
+    for network, segment_id, label in NETWORK_SEGMENTS:
+        if address in network:
+            return {"network_segment": segment_id, "segment_label": label}
+    return {"network_segment": "external", "segment_label": "EXTERNAL"}
+
+
+def _event_lag_seconds(value: Any, *, now: datetime | None = None) -> int:
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return -1
+    return max(0, int(((now or _now()) - parsed).total_seconds()))
+
+
+def _source_telemetry(
+    candidate: dict[str, Any],
+    normalized_sources: list[dict[str, Any]],
+    ingest_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    normalized = _match_record(candidate, normalized_sources)
+    ingest = _match_record(candidate, ingest_sources)
+    last_event = _string(
+        (normalized or {}).get("last_seen")
+        or (ingest or {}).get("last_event_ts")
+        or (ingest or {}).get("last_seen_ts")
+    )
+    accepted = _safe_int((ingest or {}).get("accepted_total"), _safe_int((normalized or {}).get("events")))
+    rejected = _safe_int((ingest or {}).get("rejected_total"))
+    events = _safe_int((normalized or {}).get("events"), _safe_int((ingest or {}).get("events_total")))
+    observed_seconds = NORMALIZED_INVENTORY_WINDOW_HOURS * 3600
+    first_seen = _parse_timestamp((ingest or {}).get("first_seen_ts"))
+    if first_seen is not None:
+        observed_seconds = max(1, min(observed_seconds, int((_now() - first_seen).total_seconds())))
+    lag = _safe_int((ingest or {}).get("event_lag_seconds"), _event_lag_seconds(last_event))
+    ingest_status = _string((ingest or {}).get("status")) or ("observed" if ingest else "not_connected")
+    rejected_ratio = rejected / max(1, accepted + rejected)
+    parsing_health = "degraded" if rejected_ratio > 0.01 else "healthy" if ingest and accepted > 0 else "unknown"
+    normalization_health = "healthy" if normalized else "pending" if ingest and accepted > 0 else "not_connected"
+    return {
+        "last_event_ts": last_event,
+        "events": events,
+        "eps": round(events / observed_seconds, 3) if events > 0 else 0.0,
+        "eps_window_hours": NORMALIZED_INVENTORY_WINDOW_HOURS,
+        "event_lag_seconds": lag,
+        "ingest_health": ingest_status,
+        "parsing_health": parsing_health,
+        "normalization_health": normalization_health,
+        "accepted_total": accepted,
+        "rejected_total": rejected,
+        "last_error": _string((ingest or {}).get("last_error")),
+        "collector": _string((ingest or {}).get("collector") or (normalized or {}).get("collector_name")),
+        "collector_profile": _string(
+            (ingest or {}).get("collector_profile")
+            or (ingest or {}).get("ingest_profile")
+            or (normalized or {}).get("collector_id")
+        ),
+        "source_record": normalized or ingest or None,
+        "normalized_event_seen": bool(normalized),
+        "ingest_event_seen": bool(ingest and accepted > 0),
+    }
+
+
+def _candidate_from_normalized_source(source: dict[str, Any]) -> dict[str, Any]:
+    source_name = _string(source.get("source_name") or source.get("source") or source.get("id"))
+    ip_text = _first_ip(source)
+    digest = hashlib.sha256(source_name.encode("utf-8")).hexdigest()[:12]
+    now_iso = _string(source.get("last_seen")) or _now_iso()
+    source_type = _string(source.get("source_type") or "application")
+    lowered = source_type.lower()
+    os_family = "windows" if "windows" in lowered else "linux" if "linux" in lowered else "application"
+    candidate = {
+        "id": f"source-{digest}",
+        "ip": ip_text,
+        "hostname": source_name,
+        "status": "connected",
+        "monitoring_status": "verified",
+        "connected": True,
+        "connected_source": source_name,
+        "last_seen_ts": now_iso,
+        "discovered_ts": now_iso,
+        "first_seen_ts": now_iso,
+        "seen_count": 1,
+        "open_ports": [],
+        "port_summary": "",
+        "os_family": os_family,
+        "probable_role": source_type,
+        "source_family": "event_source",
+        "confidence": 1.0,
+        "log_capable": True,
+        "relevance_score": 100,
+        "relevance_reason": "Источник подтвержден нормализованными production-событиями",
+        "recommendation": {
+            "collector_profile": _string(source.get("collector_id")),
+            "auto_monitoring_supported": False,
+            "title": "Production source",
+        },
+        "origin": "normalized_event_inventory",
+        "asset_id": _string(source.get("cmdb_asset_id")),
+    }
+    candidate.update(_segment_for_record({**source, **candidate}))
+    return candidate
 
 
 def _candidate_override_match(candidate: dict[str, Any], overrides: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -582,9 +809,17 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 
 def _candidate_lifecycle(item: dict[str, Any], *, now: datetime | None = None) -> str:
-    if bool(item.get("connected")):
-        return "connected"
     observed_now = now or _now()
+    telemetry = dict(item.get("source_telemetry") or {})
+    event_lag = _safe_int(telemetry.get("event_lag_seconds"), -1)
+    event_seen = bool(telemetry.get("ingest_event_seen") or telemetry.get("normalized_event_seen"))
+    if event_seen:
+        ingest_health = _string(telemetry.get("ingest_health")).lower()
+        if ingest_health == "stale" or event_lag > CONNECTED_EVENT_MAX_AGE_SECONDS:
+            return "stale"
+        return "connected"
+    if not bool(item.get("log_capable", True)):
+        return "low_priority"
     last_seen = _parse_timestamp(item.get("last_seen_ts"))
     first_seen = _parse_timestamp(item.get("first_seen_ts") or item.get("discovered_ts"))
     if not last_seen or (observed_now - last_seen).total_seconds() > 7 * 86400:
@@ -594,8 +829,11 @@ def _candidate_lifecycle(item: dict[str, Any], *, now: datetime | None = None) -
     return "known"
 
 
-def _supersede_jobs_for_connected_candidate(candidate: dict[str, Any], jobs: list[dict[str, Any]], *, actor: str) -> bool:
-    if not bool(candidate.get("connected")):
+def _reconcile_jobs_for_candidate(candidate: dict[str, Any], jobs: list[dict[str, Any]], *, actor: str) -> bool:
+    telemetry = dict(candidate.get("source_telemetry") or {})
+    normalized_seen = bool(telemetry.get("normalized_event_seen"))
+    ingest_seen = bool(telemetry.get("ingest_event_seen"))
+    if not normalized_seen and not ingest_seen:
         return False
     candidate_id = str(candidate.get("id") or "").strip()
     if not candidate_id:
@@ -604,12 +842,19 @@ def _supersede_jobs_for_connected_candidate(candidate: dict[str, Any], jobs: lis
     for job in jobs:
         if str(job.get("candidate_id") or "").strip() != candidate_id:
             continue
-        if str(job.get("status") or "").strip() not in {"prepared", "dry_run", "pending", "manual_required"}:
+        if str(job.get("status") or "").strip() in {"failed", "verified"}:
             continue
-        job["status"] = "superseded"
+        job["status"] = "verified" if normalized_seen else "connected"
         job["updated_ts"] = _now_iso()
-        job["superseded_reason"] = "candidate_connected"
-        job["superseded_by"] = str(actor or "system")
+        job["verified_by"] = str(actor or "system")
+        job["verification"] = {
+            "ingest_event_seen": ingest_seen,
+            "normalized_event_seen": normalized_seen,
+            "last_event_ts": _string(telemetry.get("last_event_ts")),
+            "collector_profile": _string(telemetry.get("collector_profile")),
+            "parsing_health": _string(telemetry.get("parsing_health")),
+            "normalization_health": _string(telemetry.get("normalization_health")),
+        }
         touched = True
     return touched
 
@@ -618,11 +863,15 @@ def list_source_discovery_candidates(
     limit: int = 200,
     *,
     connected_sources: list[dict[str, Any]] | None = None,
+    ingest_sources: list[dict[str, Any]] | None = None,
     inventory_timeout_seconds: float | None = 2.0,
 ) -> dict[str, Any]:
     raw_rows = _load_rows(DISCOVERY_CANDIDATES_COLLECTION)
     if connected_sources is None:
         connected_sources = _load_connected_source_inventory(timeout_seconds=inventory_timeout_seconds)
+    connected_sources = [dict(item) for item in connected_sources if isinstance(item, dict)]
+    if ingest_sources is None:
+        ingest_sources = _load_ingest_source_health()
     connected_tokens = _connected_markers(connected_sources)
     jobs = sorted(_load_rows(DISCOVERY_JOBS_COLLECTION), key=lambda item: str(item.get("updated_ts") or ""), reverse=True)
     rows: list[dict[str, Any]] = []
@@ -630,10 +879,27 @@ def list_source_discovery_candidates(
     jobs_changed = False
     for item in raw_rows:
         reconciled, changed = _reconcile_candidate_connection(item, connected_tokens)
+        telemetry = _source_telemetry(reconciled, connected_sources, ingest_sources)
+        reconciled["source_telemetry"] = telemetry
+        reconciled["connected"] = bool(telemetry.get("normalized_event_seen"))
+        if telemetry.get("normalized_event_seen"):
+            reconciled["monitoring_status"] = "verified"
+        elif telemetry.get("ingest_event_seen"):
+            reconciled["monitoring_status"] = "connected"
         rows.append(reconciled)
         rows_changed = rows_changed or changed
-        if changed:
-            jobs_changed = _supersede_jobs_for_connected_candidate(reconciled, jobs, actor="inventory-reconcile") or jobs_changed
+        jobs_changed = _reconcile_jobs_for_candidate(reconciled, jobs, actor="inventory-reconcile") or jobs_changed
+
+    represented_tokens: set[str] = set()
+    for item in rows:
+        represented_tokens.update(_record_tokens(item))
+    for source in connected_sources:
+        if represented_tokens & _record_tokens(source):
+            continue
+        candidate = _candidate_from_normalized_source(source)
+        candidate["source_telemetry"] = _source_telemetry(candidate, connected_sources, ingest_sources)
+        rows.append(candidate)
+        represented_tokens.update(_record_tokens(candidate))
     if rows_changed:
         _save_rows(DISCOVERY_CANDIDATES_COLLECTION, rows)
     if jobs_changed:
@@ -652,7 +918,6 @@ def list_source_discovery_candidates(
     overridden_total = 0
     for item in rows:
         enriched = dict(item)
-        enriched["lifecycle_state"] = _candidate_lifecycle(enriched)
         if "log_capable" not in enriched:
             classification = _classify_candidate(
                 _string(enriched.get("ip")),
@@ -673,6 +938,10 @@ def list_source_discovery_candidates(
             enriched["binding_override"] = None
             enriched["binding_override_id"] = ""
             enriched["binding_target"] = _string(enriched.get("hostname")) or _string(enriched.get("ip"))
+        source_record = dict(dict(enriched.get("source_telemetry") or {}).get("source_record") or {})
+        enriched["asset_id"] = _string(enriched.get("asset_id") or source_record.get("cmdb_asset_id") or enriched.get("binding_target"))
+        enriched.update(_segment_for_record({**source_record, **enriched}))
+        enriched["lifecycle_state"] = _candidate_lifecycle(enriched)
         enriched_rows.append(enriched)
     items = enriched_rows[: max(1, min(int(limit), 500))]
     connected_total = sum(1 for item in rows if bool(item.get("connected")))
@@ -680,7 +949,7 @@ def list_source_discovery_candidates(
     last_scan_ts = max((str(item.get("last_seen_ts") or "") for item in rows), default="")
     lifecycle_counts = {
         state: sum(1 for item in enriched_rows if item.get("lifecycle_state") == state)
-        for state in ("new", "known", "connected", "stale")
+        for state in ("new", "known", "connected", "stale", "low_priority")
     }
     return {
         "items": items,
@@ -698,7 +967,9 @@ def list_source_discovery_candidates(
                 1 for item in enriched_rows if not bool(item.get("connected")) and not bool(item.get("binding_override_id"))
             ),
             "prepared": sum(1 for item in rows if str(item.get("monitoring_status") or "") == "prepared"),
-            "applied": sum(1 for item in rows if str(item.get("monitoring_status") or "") == "applied"),
+            "installing": sum(1 for item in rows if str(item.get("monitoring_status") or "") == "installing"),
+            "verified": sum(1 for item in rows if str(item.get("monitoring_status") or "") == "verified"),
+            "failed": sum(1 for item in rows if str(item.get("monitoring_status") or "") == "failed"),
             "last_scan_ts": last_scan_ts,
         },
     }
@@ -745,12 +1016,12 @@ def scan_source_candidates(
             merged = _merge_candidate(existing_rows.get(str(row.get("ip") or "")), row)
             merged_rows[str(merged.get("ip") or "")] = merged
             discovered.append(merged)
-            jobs_changed = _supersede_jobs_for_connected_candidate(merged, jobs, actor=str(actor or "system")) or jobs_changed
+            jobs_changed = _reconcile_jobs_for_candidate(merged, jobs, actor=str(actor or "system")) or jobs_changed
     _save_rows(DISCOVERY_CANDIDATES_COLLECTION, list(merged_rows.values()))
     if jobs_changed:
         _save_rows(DISCOVERY_JOBS_COLLECTION, jobs)
     duration_seconds = round(time.perf_counter() - start, 2)
-    payload = list_source_discovery_candidates(connected_sources=connected_sources)
+    payload = list_source_discovery_candidates(connected_sources=connected_sources, ingest_sources=[])
     payload["scan"] = {
         "cidr": ",".join(str(network) for network in networks),
         "hosts_scanned": len(hosts),
@@ -830,6 +1101,19 @@ def _windows_package_dir(job_id: str) -> Path:
 def _windows_package_zip_path(job_id: str) -> Path:
     package_dir = _windows_package_dir(job_id)
     return package_dir.parent / f"{package_dir.name}.zip"
+
+
+def source_onboarding_package_path(job_id: str) -> Path:
+    job = next((item for item in _load_rows(DISCOVERY_JOBS_COLLECTION) if _string(item.get("id")) == _string(job_id)), None)
+    if not job:
+        raise ValueError(f"Onboarding job not found: {job_id}")
+    if _string(job.get("method")) != "windows_onboarding_package":
+        raise ValueError("Onboarding job does not provide a Windows package")
+    path = _windows_package_zip_path(_string(job.get("id"))).resolve()
+    root = _windows_package_root().resolve()
+    if root not in path.parents or not path.is_file():
+        raise ValueError("Windows onboarding package is not ready")
+    return path
 
 
 def _windows_install_cmd(spec: dict[str, Any]) -> str:
@@ -1115,36 +1399,71 @@ def execute_source_onboarding(
         "actor": str(actor or "system"),
         "dry_run": bool(dry_run),
         "ts": _now_iso(),
-        "status": "dry_run" if dry_run else "pending",
+        "status": "dry_run" if dry_run else "installing",
         "requested_telemetry": telemetry_selection,
         "telemetry_selection": telemetry_selection,
     }
     method = str(job.get("method") or "")
-    if dry_run:
-        execution["summary"] = str(job.get("summary") or "Preview only")
-        if method == "windows_onboarding_package":
-            execution["package_spec"] = dict(job.get("package_spec") or {})
+    if not dry_run:
+        job["status"] = "installing"
+        job["updated_ts"] = _now_iso()
+        job["last_execution"] = execution
+        for item in candidates:
+            if str(item.get("id") or "") == str(job.get("candidate_id") or ""):
+                item["monitoring_status"] = "installing"
+                item["updated_ts"] = _now_iso()
+                break
+        _save_rows(DISCOVERY_JOBS_COLLECTION, jobs)
+        _save_rows(DISCOVERY_CANDIDATES_COLLECTION, candidates)
+
+    try:
+        if dry_run:
+            execution["summary"] = str(job.get("summary") or "Preview only")
+            if method == "windows_onboarding_package":
+                execution["package_spec"] = dict(job.get("package_spec") or {})
+            elif method == "network_cli_ssh":
+                execution["network_vendor"] = str(job.get("network_vendor") or "")
+                execution["commands"] = list(job.get("network_commands") or [])
+        elif method == "linux_rsyslog_ssh":
+            execution.update(_execute_linux_job(str(job.get("ip") or ""), credentials or {}))
+            execution["status"] = "installing"
+            execution["execution_status"] = "executed"
+            execution["summary"] = "Linux forwarding applied; waiting for a production event"
+        elif method == "windows_onboarding_package":
+            if not candidate:
+                raise ValueError(f"Candidate not found for onboarding job: {job_id}")
+            execution["artifacts"] = _generate_windows_onboarding_package(job, candidate)
+            execution["status"] = "package_generated"
+            execution["delivery_stage"] = "package_ready"
+            execution["summary"] = "Windows package generated; installation is not yet confirmed"
         elif method == "network_cli_ssh":
-            execution["network_vendor"] = str(job.get("network_vendor") or "")
-            execution["commands"] = list(job.get("network_commands") or [])
-    elif method == "linux_rsyslog_ssh":
-        execution.update(_execute_linux_job(str(job.get("ip") or ""), credentials or {}))
-        execution["status"] = "executed"
-    elif method == "windows_onboarding_package":
-        if not candidate:
-            raise ValueError(f"Candidate not found for onboarding job: {job_id}")
-        execution["artifacts"] = _generate_windows_onboarding_package(job, candidate)
-        execution["status"] = "package_generated"
-        execution["summary"] = "Windows native-agent package generated"
-    elif method == "network_cli_ssh":
-        execution.update(_execute_network_job(job, credentials or {}))
-        execution["status"] = "executed"
-        execution["summary"] = f"Network syslog automation applied via {execution.get('network_vendor') or job.get('network_vendor') or 'ssh'}"
-    else:
-        execution["status"] = "manual_required"
-        execution["summary"] = "This onboarding path currently requires operator confirmation and credentials outside the UI."
+            execution.update(_execute_network_job(job, credentials or {}))
+            execution["status"] = "installing"
+            execution["execution_status"] = "executed"
+            execution["summary"] = f"Network syslog configuration applied via {execution.get('network_vendor') or job.get('network_vendor') or 'ssh'}; waiting for an event"
+        else:
+            execution["status"] = "manual_required"
+            execution["delivery_stage"] = "manual_required"
+            execution["summary"] = "Manual installation is required; no connection has been claimed."
+    except Exception as exc:  # noqa: BLE001
+        execution["status"] = "failed"
+        execution["summary"] = "Onboarding execution failed"
+        execution["error"] = str(exc)
+        job["updated_ts"] = _now_iso()
+        job["status"] = "failed"
+        job["last_execution"] = execution
+        for item in candidates:
+            if str(item.get("id") or "") == str(job.get("candidate_id") or ""):
+                item["monitoring_status"] = "failed"
+                item["updated_ts"] = _now_iso()
+                break
+        _save_rows(DISCOVERY_JOBS_COLLECTION, jobs)
+        _save_rows(DISCOVERY_CANDIDATES_COLLECTION, candidates)
+        raise RuntimeError(str(exc)) from exc
+
     job["updated_ts"] = _now_iso()
-    job["status"] = str(execution.get("status") or job.get("status") or "prepared")
+    execution_status = str(execution.get("status") or "prepared")
+    job["status"] = "prepared" if dry_run or execution_status in {"package_generated", "manual_required"} else execution_status
     job["last_execution"] = execution
     _save_rows(DISCOVERY_JOBS_COLLECTION, jobs)
 
@@ -1152,12 +1471,83 @@ def execute_source_onboarding(
         if str(item.get("id") or "") == str(job.get("candidate_id") or ""):
             item["last_job_id"] = str(job.get("id") or "")
             item["updated_ts"] = _now_iso()
-            if job["status"] == "executed":
-                item["monitoring_status"] = "applied"
-            elif job["status"] == "package_generated":
-                item["monitoring_status"] = "package_ready"
-            elif job["status"] == "dry_run":
+            if job["status"] == "installing":
+                item["monitoring_status"] = "installing"
+            elif job["status"] == "prepared":
                 item["monitoring_status"] = "prepared"
             break
     _save_rows(DISCOVERY_CANDIDATES_COLLECTION, candidates)
     return {"job": job, "execution": execution}
+
+
+def verify_source_onboarding(
+    job_id: str,
+    *,
+    actor: str = "system",
+    normalized_sources: list[dict[str, Any]] | None = None,
+    ingest_sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    jobs = _load_rows(DISCOVERY_JOBS_COLLECTION)
+    job = next((item for item in jobs if _string(item.get("id")) == _string(job_id)), None)
+    if not job:
+        raise ValueError(f"Onboarding job not found: {job_id}")
+    candidates = _load_rows(DISCOVERY_CANDIDATES_COLLECTION)
+    candidate = next((item for item in candidates if _string(item.get("id")) == _string(job.get("candidate_id"))), None)
+    if not candidate:
+        raise ValueError(f"Candidate not found for onboarding job: {job_id}")
+
+    if normalized_sources is None:
+        if fetch_source_inventory is None:
+            normalized_sources = []
+        else:
+            try:
+                normalized_sources = [
+                    dict(item)
+                    for item in fetch_source_inventory(limit=500, hours=NORMALIZED_INVENTORY_WINDOW_HOURS)  # type: ignore[misc]
+                    if isinstance(item, dict)
+                ]
+            except Exception:  # noqa: BLE001
+                normalized_sources = []
+    if ingest_sources is None:
+        ingest_sources = _load_ingest_source_health()
+
+    telemetry = _source_telemetry(candidate, normalized_sources, ingest_sources)
+    candidate["source_telemetry"] = telemetry
+    if telemetry.get("normalized_event_seen"):
+        state = "verified"
+        candidate["connected"] = True
+        candidate["connected_source"] = _string(
+            dict(telemetry.get("source_record") or {}).get("source_name")
+            or candidate.get("connected_source")
+            or candidate.get("hostname")
+        )
+    elif telemetry.get("ingest_event_seen"):
+        state = "connected"
+    elif _string(job.get("status")) == "failed":
+        state = "failed"
+    else:
+        state = "installing" if _string(job.get("status")) == "installing" else "prepared"
+    candidate["monitoring_status"] = state
+    candidate["updated_ts"] = _now_iso()
+    job["status"] = state
+    job["updated_ts"] = _now_iso()
+    job["verification"] = {
+        "checked_ts": _now_iso(),
+        "checked_by": str(actor or "system"),
+        "ingest_event_seen": bool(telemetry.get("ingest_event_seen")),
+        "normalized_event_seen": bool(telemetry.get("normalized_event_seen")),
+        "last_event_ts": _string(telemetry.get("last_event_ts")),
+        "event_lag_seconds": _safe_int(telemetry.get("event_lag_seconds"), -1),
+        "parsing_health": _string(telemetry.get("parsing_health")),
+        "normalization_health": _string(telemetry.get("normalization_health")),
+    }
+    _save_rows(DISCOVERY_CANDIDATES_COLLECTION, candidates)
+    _save_rows(DISCOVERY_JOBS_COLLECTION, jobs)
+    return {
+        "verified": state == "verified",
+        "connected": state in {"connected", "verified"},
+        "status": state,
+        "candidate": candidate,
+        "job": job,
+        "telemetry": telemetry,
+    }

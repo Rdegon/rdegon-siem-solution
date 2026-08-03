@@ -6,6 +6,7 @@ export type ResourceCatalogRecord = {
   kind: string;
   status: string;
   version: number;
+  revision?: number;
   origin: string;
   tenant_id: string;
   updated_ts: string;
@@ -39,6 +40,73 @@ export type ResourcePublishResponse = {
   resource: ResourceCatalogRecord;
   activation: RuntimeBlob;
   validation: ResourceValidationResponse;
+};
+
+export type ResourceVersionRecord = {
+  id: string;
+  resource_id: string;
+  tenant_id: string;
+  version: number;
+  definition_hash: string;
+  created_ts: string;
+  created_by: string;
+  action: string;
+  immutable: true;
+};
+
+export type ResourceVersionsResponse = {
+  resource_id: string;
+  tenant_id: string;
+  current_version?: number | null;
+  current_revision?: number | null;
+  deleted: boolean;
+  items: ResourceVersionRecord[];
+  total: number;
+};
+
+export type ResourceVersionChange = {
+  op: "add" | "remove" | "replace" | string;
+  path: string;
+  before?: unknown;
+  after?: unknown;
+};
+
+export type ResourceVersionCompareResponse = {
+  resource_id: string;
+  tenant_id: string;
+  from_version: number;
+  to_version: number;
+  identical: boolean;
+  changes: ResourceVersionChange[];
+  truncated: boolean;
+};
+
+export type ResourceLifecycleMutationResponse = RuntimeBlob & {
+  status?: string;
+  resource?: ResourceCatalogRecord;
+  source_id?: string;
+  resource_id?: string;
+  deleted_revision?: number;
+  version_history_retained?: boolean;
+  rolled_back_from_version?: number;
+  idempotent_replay?: boolean;
+};
+
+export type ResourcePackageImportItem = {
+  source_id: string;
+  resource_id: string;
+  version: number;
+  revision: number;
+  status: string;
+};
+
+export type ResourcePackageImportResponse = {
+  status: string;
+  package_id: string;
+  tenant_id: string;
+  items: ResourcePackageImportItem[];
+  total: number;
+  idempotent_replay?: boolean;
 };
 
 export type CollectorDeploymentVariant = {
@@ -1058,7 +1126,7 @@ export type DiscoveryCandidate = {
   last_seen_ts?: string;
   source_family?: string;
   confidence?: number;
-  lifecycle_state?: "new" | "known" | "connected" | "stale" | string;
+  lifecycle_state?: "new" | "known" | "connected" | "stale" | "low_priority" | string;
   log_capable?: boolean;
   relevance_score?: number;
   relevance_reason?: string;
@@ -1068,6 +1136,27 @@ export type DiscoveryCandidate = {
   binding_target?: string;
   binding_override_id?: string;
   binding_override?: AssetBindingOverrideRecord | null;
+  asset_id?: string;
+  network_segment?: string;
+  segment_label?: string;
+  source_telemetry?: {
+    last_event_ts?: string;
+    events?: number;
+    eps?: number;
+    eps_window_hours?: number;
+    event_lag_seconds?: number;
+    ingest_health?: string;
+    parsing_health?: string;
+    normalization_health?: string;
+    accepted_total?: number;
+    rejected_total?: number;
+    last_error?: string;
+    collector?: string;
+    collector_profile?: string;
+    normalized_event_seen?: boolean;
+    ingest_event_seen?: boolean;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 };
 
@@ -1110,6 +1199,10 @@ export type DiscoveryMetrics = {
   known?: number;
   connected?: number;
   stale?: number;
+  low_priority?: number;
+  installing?: number;
+  verified?: number;
+  failed?: number;
   [key: string]: unknown;
 };
 
@@ -1315,6 +1408,7 @@ export type SourceOnboardingPreparedResponse = {
 };
 
 export type SourceOnboardingExecutionResponse = {
+  job?: DiscoveryJob;
   execution?: {
     summary?: string;
     status?: string;
@@ -1324,6 +1418,15 @@ export type SourceOnboardingExecutionResponse = {
     commands?: string[];
     [key: string]: unknown;
   };
+};
+
+export type SourceOnboardingVerificationResponse = {
+  verified: boolean;
+  connected: boolean;
+  status: string;
+  candidate?: DiscoveryCandidate;
+  job?: DiscoveryJob;
+  telemetry?: DiscoveryCandidate["source_telemetry"];
 };
 
 export type IngestOverviewResponse = {
@@ -1430,6 +1533,80 @@ export type EventsFacetsResponse = {
   from_ts?: string;
   to_ts?: string;
   base_sql?: string;
+};
+
+export type HuntingFilter = {
+  field: string;
+  operator: "eq" | "neq" | "contains" | "not_contains" | "in" | "not_in" | "exists" | "gt" | "gte" | "lt" | "lte";
+  value?: string;
+  values?: string[];
+};
+
+export type HuntingSpecification = {
+  source: string;
+  window: string;
+  from_ts?: string;
+  to_ts?: string;
+  filters: HuntingFilter[];
+  expert_query: string;
+  limit: number;
+};
+
+export type HuntingCapabilitiesResponse = {
+  items: Array<{ id: string; label: string; table: string; available: boolean }>;
+  default: string;
+  facets: string[];
+  max_range_hours: number;
+  max_page_size: number;
+};
+
+export type HuntingQueryResponse = {
+  rows: EventRow[];
+  row_count: number;
+  total_count?: number | null;
+  total_count_is_estimate: boolean;
+  source: string;
+  from_ts: string;
+  to_ts: string;
+  limit: number;
+  offset: number;
+  cursor: string;
+  next_cursor: string;
+  has_more: boolean;
+  pagination: "cursor" | "offset";
+};
+
+export type HuntingFacetValue = { value: string; count: number };
+
+export type HuntingFacetsResponse = {
+  facets: Record<string, HuntingFacetValue[]>;
+  source: string;
+  from_ts: string;
+  to_ts: string;
+};
+
+export type HuntingEventDetailResponse = {
+  event: EventRow;
+  sections: Record<string, Record<string, unknown>>;
+  raw_json_available: false;
+  source: string;
+};
+
+export type HuntingSavedSearchRecord = {
+  id: string;
+  name: string;
+  description: string;
+  specification: HuntingSpecification;
+  tenant_id: string;
+  owner: string;
+  revision: number;
+  updated_at: string;
+};
+
+export type HuntingSavedSearchesResponse = {
+  items: HuntingSavedSearchRecord[];
+  tenant_id: string;
+  owner: string;
 };
 
 export type ThreatIntelOverviewResponse = {
@@ -1944,10 +2121,13 @@ export type VulnReportDetailResponse = {
 
 export type ReportSchedule = {
   enabled: boolean;
-  frequency: string;
+  frequency: "shift" | "daily" | "weekly" | "monthly";
   time: string;
   timezone: string;
   recipients: string[];
+  next_run_ts?: string;
+  last_run_ts?: string;
+  last_run_status?: string;
 };
 
 export type ReportTemplateRecord = {
@@ -1960,7 +2140,7 @@ export type ReportTemplateRecord = {
   period: "12h" | "24h" | "7d" | "30d";
   retention_days: number;
   sections: string[];
-  formats: Array<"json" | "csv">;
+  formats: Array<"json" | "csv" | "pdf">;
   schedule: ReportSchedule;
   created_ts?: string;
   updated_ts?: string;
@@ -1989,8 +2169,17 @@ export type GeneratedReportRecord = {
   section_count: number;
   record_count: number;
   errors: Array<{ section: string; error: string }>;
+  progress: {
+    phase: string;
+    percent: number;
+    sections_total: number;
+    sections_completed: number;
+    current_section: string;
+  };
   snapshot?: RuntimeBlob;
   created_ts: string;
+  started_ts?: string;
+  heartbeat_ts?: string;
   completed_ts: string;
   duration_ms: number;
 };
@@ -2001,6 +2190,85 @@ export type GeneratedReportsResponse = {
 
 export type GeneratedReportDetailResponse = {
   item: GeneratedReportRecord;
+};
+
+export type ReportRunCreateResponse = {
+  item: GeneratedReportRecord;
+  created: boolean;
+  idempotent_replay: boolean;
+};
+
+export type ReportingCapabilities = {
+  formats: Array<"json" | "csv" | "pdf">;
+  pdf_available: boolean;
+  pdf_unavailable_reason: string;
+  periods: Array<"12h" | "24h" | "7d" | "30d">;
+  max_range_hours: number;
+  tenants: string[];
+  frequencies: Array<"shift" | "daily" | "weekly" | "monthly">;
+};
+
+export type RetroscanCapabilities = {
+  dry_run: boolean;
+  commit: boolean;
+  commit_reason: string;
+  engines: string[];
+  event_table: string;
+  rule_table: string;
+  max_range_hours: number;
+  max_rows: number;
+  preview_limit: number;
+};
+
+export type RetroscanProgress = {
+  phase: string;
+  percent: number;
+  events_available: number;
+  events_scanned: number;
+  matched_events: number;
+  candidate_alerts: number;
+};
+
+export type RetroscanRunRecord = RuntimeBlob & {
+  id: string;
+  run_id: string;
+  type: "retroscan_run";
+  status: string;
+  owner: string;
+  mode: "dry_run";
+  request: {
+    from_ts: string;
+    to_ts: string;
+    max_rows: number;
+    rule_ids: number[];
+    dry_run: true;
+    commit: false;
+  };
+  capabilities: RetroscanCapabilities;
+  progress: RetroscanProgress;
+  result?: RuntimeBlob | null;
+  error?: RuntimeBlob | null;
+  cancel_requested: boolean;
+  created_ts: string;
+  started_ts: string;
+  heartbeat_ts: string;
+  completed_ts: string;
+  duration_ms: number;
+};
+
+export type RetroscanRunsResponse = {
+  items: RetroscanRunRecord[];
+  capabilities: RetroscanCapabilities;
+};
+
+export type RetroscanRunDetailResponse = {
+  item: RetroscanRunRecord;
+  capabilities: RetroscanCapabilities;
+};
+
+export type RetroscanCreateResponse = RetroscanRunDetailResponse & {
+  created: boolean;
+  idempotent_replay: boolean;
 };
 
 export type VulnIntegrationContractEntity = {
@@ -2391,6 +2659,69 @@ export type HostRuntimeOverviewResponse = {
   };
 };
 
+export type ServiceLifecycleAction = "start" | "stop" | "restart" | "reload";
+
+export type ServiceLifecycleInstance = {
+  instance_id: string;
+  title: string;
+  node: string;
+  node_ip?: string;
+  vmid: number;
+  guest_type: string;
+  service_type: string;
+  unit: string;
+  status: string;
+  active_state: string;
+  sub_state?: string;
+  load_state?: string;
+  result?: string;
+  unit_file_state?: string;
+  version?: string;
+  restarts?: number;
+  eps?: number | null;
+  lag?: number | null;
+  last_seen_ts?: string;
+  stale?: boolean;
+  status_source: string;
+  management_state: "managed" | "read_only" | "unavailable";
+  capabilities: ServiceLifecycleAction[];
+  unavailable_reason?: string;
+  fleet_state?: string;
+  audit_trail?: RuntimeBlob[];
+};
+
+export type ServiceLifecycleRegistryResponse = {
+  generated_ts: string;
+  items: ServiceLifecycleInstance[];
+  metrics: {
+    total: number;
+    active: number;
+    failed: number;
+    managed: number;
+    read_only: number;
+    unavailable: number;
+  };
+  adapter: {
+    kind: string;
+    configured: boolean;
+    errors: Array<{ vmid: number; error: string }>;
+  };
+};
+
+export type ServiceLifecycleActionResponse = {
+  instance_id: string;
+  action: ServiceLifecycleAction;
+  status: "completed" | "failed";
+  verified: boolean;
+  before?: { active_state?: string; sub_state?: string };
+  after?: { active_state?: string; sub_state?: string };
+  completed_ts: string;
+  idempotent_replay?: boolean;
+  audit_recorded?: boolean;
+  error?: string;
+  code?: string;
+};
+
 export type CertificationHealthResponse = RuntimeBlob & {
   healthy?: boolean;
   latest_certified_ceiling_eps?: number;
@@ -2405,15 +2736,106 @@ export type CertificationHealthResponse = RuntimeBlob & {
 export type ActiveListRecord = {
   id?: string;
   list_name?: string;
+  list_kind?: "watch" | "allow" | "deny" | string;
   item_type?: string;
   item_value?: string;
   item_label?: string;
   tags?: string[] | string;
+  enabled?: boolean;
+  updated_ts?: string;
   [key: string]: unknown;
 };
 
 export type ActiveListsResponse = {
   items: ActiveListRecord[];
+};
+
+export type ActiveListMutationResponse = ActiveListRecord & {
+  status?: "enabled" | "disabled" | "deleted" | string;
+};
+
+export type ActiveListImportResponse = {
+  status: "validated" | "imported" | string;
+  dry_run: boolean;
+  rows: number;
+  duplicates_removed: number;
+};
+
+export type UnifiedRuleNoiseMetrics = {
+  window_days?: number;
+  alert_count?: number;
+  hit_count?: number;
+  unique_alerts?: number;
+  unique_entities?: number;
+  false_positive_count?: number;
+  false_positive_ratio?: number;
+  suppressed_count?: number;
+  suppressed_ratio?: number;
+  last_alert_ts?: string;
+  source?: string;
+};
+
+export type UnifiedRuleRecord = {
+  identity: string;
+  rule_id: number;
+  title: string;
+  description?: string;
+  enabled: boolean;
+  status: "active" | "drift" | "retired" | "disabled" | "unpublished" | "unknown" | string;
+  severity?: string;
+  kind: "stream" | "batch" | "catalog" | "hybrid" | string;
+  engines: string[];
+  version?: string;
+  source?: string;
+  pack: {
+    id?: string;
+    title?: string;
+    version?: string;
+    owner?: string;
+    provenance?: RuntimeBlob[];
+  };
+  runtime?: RuntimeBlob;
+  replacement?: {
+    replacement_identity?: string;
+    reason?: string;
+  };
+  noise: UnifiedRuleNoiseMetrics;
+  issues: string[];
+  capabilities: {
+    publish?: boolean;
+    enable?: boolean;
+    disable?: boolean;
+    batch_write?: boolean;
+  };
+  updated_ts?: string;
+  [key: string]: unknown;
+};
+
+export type UnifiedRulesResponse = {
+  items: UnifiedRuleRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary?: {
+    rule_count?: number;
+    enabled_rule_count?: number;
+    published_runtime_count?: number;
+    coverage_count?: number;
+    stream_count?: number;
+    batch_count?: number;
+    catalog_count?: number;
+    linked_processing?: RuntimeBlob[];
+  };
+  diagnostics?: RuntimeBlob;
+  generated_ts?: string;
+};
+
+export type UnifiedRuleMutationResponse = RuntimeBlob & {
+  status?: string;
+  identity?: string;
+  enabled?: boolean;
+  pack_id?: string;
+  replacement_identity?: string;
 };
 
 export type SecretRequirementRecord = {
@@ -2578,6 +3000,50 @@ export type RemoteAccessStateResponse = {
   issues: string[];
 };
 
+export type XuiClientRecord = RuntimeBlob & {
+  id: string;
+  email: string;
+  enable: boolean;
+  flow?: string;
+  limitIp?: number;
+  totalGB?: number;
+  expiryTime?: number;
+  inbound_id?: number;
+  inbound_remark?: string;
+  traffic?: RuntimeBlob;
+};
+
+export type XuiInboundRecord = RuntimeBlob & {
+  id: number;
+  remark: string;
+  enable: boolean;
+  protocol: string;
+  port: number;
+  protected?: boolean;
+  listen?: string;
+  up?: number;
+  down?: number;
+  total?: number;
+  expiry_time?: number;
+  settings?: RuntimeBlob;
+  stream_settings?: RuntimeBlob;
+  sniffing?: RuntimeBlob;
+  clients: XuiClientRecord[];
+};
+
+export type XuiStateResponse = {
+  configured: boolean;
+  status: string;
+  version?: string;
+  generated_at?: string;
+  capabilities: string[];
+  issue?: string;
+  inbounds: XuiInboundRecord[];
+  clients: XuiClientRecord[];
+  online?: string[];
+  traffic?: { up?: number; down?: number };
+};
+
 export type SecurityControlMutationResponse = RuntimeBlob & {
   status?: string;
   operation?: string;
@@ -2657,10 +3123,34 @@ export type IncidentDetailResponse = {
   technical_debug?: RuntimeBlob;
   json_view?: RuntimeBlob;
   permissions?: RuntimeBlob;
+  workflow?: IncidentWorkflowState;
 };
 
 export type IncidentUpdateResponse = RuntimeBlob & {
   item?: IncidentRecord | null;
+};
+
+export type IncidentWorkflowState = RuntimeBlob & {
+  revision?: string;
+  manual?: boolean;
+  merged_into?: string;
+  alert_ids?: string[];
+  operations?: IncidentHistoryEntry[];
+};
+
+export type IncidentWorkflowResponse = RuntimeBlob & {
+  status?: string;
+  operation?: "create" | "severity" | "link" | "unlink" | "merge" | string;
+  incident_id?: string;
+  target_incident_id?: string;
+  alert_id?: string;
+  severity?: string;
+  revision?: string;
+  target_revision?: string;
+  idempotent?: boolean;
+  event_id?: string;
+  merged_alerts?: number;
+  item?: IncidentRecord;
 };
 
 export type RuleTestResponse = RuntimeBlob;
