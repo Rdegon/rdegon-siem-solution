@@ -42,8 +42,8 @@ def parse_vless_uri(value: str) -> dict:
     security = str(query.get("security") or "none").lower()
     if network not in {"tcp", "ws", "grpc"}:
         raise BridgeConfigError(f"Unsupported VLESS transport: {network}")
-    if security not in {"none", "tls", "reality"}:
-        raise BridgeConfigError(f"Unsupported VLESS security: {security}")
+    if security not in {"tls", "reality"}:
+        raise BridgeConfigError("The management VLESS bridge requires TLS or Reality")
     if str(query.get("encryption") or "none") != "none":
         raise BridgeConfigError("Only VLESS encryption=none is supported")
     if security == "reality" and not (query.get("pbk") and query.get("sni")):

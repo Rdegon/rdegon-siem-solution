@@ -11,9 +11,12 @@ SIEM-WEB -> 127.0.0.1:18787 -> Xray VLESS bridge -> existing VLESS port
          -> VPS 127.0.0.1:8787 controller -> VPS 127.0.0.1:<panel> 3x-ui
 ```
 
-The VLESS bridge is a fixed-target `dokodemo-door`: it can reach only the
-controller loopback port. It is not a general-purpose SOCKS proxy. The older
-reverse-SSH service remains an optional fallback only when its complete
+The VLESS bridge uses a fixed-target `dokodemo-door`, but that client-side
+setting is not a security boundary. The VPS must use a dedicated management
+VLESS identity on a dedicated inbound/tag. Server-side Xray routing must allow
+that identity to reach only `127.0.0.1:8787` and must blackhole every other
+destination. Never reuse a user/data-plane UUID for controller transport. The
+older reverse-SSH service remains an optional fallback only when its complete
 private path to the SIEM-WEB host is independently verified.
 
 On its first successful start, the controller takes an atomic snapshot of all
@@ -23,9 +26,11 @@ Sentinel. Only an inbound created by Sentinel after the snapshot can be
 structurally managed, and inbound creation is disabled by default. Client
 profile CRUD inside an existing VLESS inbound remains available.
 
-The controller never returns 3x-ui credentials or Reality private keys. The
-SIEM API accepts only an HTTP loopback controller URL and authenticates every
-request using a dedicated secret-store token.
+The controller never returns 3x-ui credentials or Reality private keys. Its
+monitoring DTO also excludes client UUIDs, raw settings, subscription IDs and
+Telegram IDs. The SIEM API accepts only an HTTP loopback controller URL and
+authenticates every request using a dedicated secret-store token. The bridge
+rejects unencrypted VLESS profiles; TLS or Reality is mandatory.
 
 ## Runtime blocker
 
@@ -76,9 +81,39 @@ starts listening and persists the immutable baseline with mode 0600.
 
 ## One-time SIEM bridge installation
 
-Use a dedicated working VLESS profile as a secret. It may point to an existing
-protected inbound; the installation does not alter that inbound. Prepare
-`xui-vless-bridge.env.example` and a one-line URI file with `umask 077`:
+Create a dedicated management VLESS identity on a dedicated server inbound/tag.
+It must not share a UUID with an existing protected or user-facing inbound.
+Before installing the bridge, apply an equivalent server-side Xray policy and
+verify rule order (first match wins):
+
+```json
+{
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["sentinel-management-vless"],
+        "user": ["sentinel-management"],
+        "ip": ["127.0.0.1/32"],
+        "port": "8787",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["sentinel-management-vless"],
+        "outboundTag": "blocked"
+      }
+    ]
+  }
+}
+```
+
+The dedicated inbound must contain only the management identity, use TLS or
+Reality, and must not have a fallback that bypasses these routing rules. Test
+that the management identity can reach `127.0.0.1:8787` and cannot reach the
+3x-ui panel port, SSH, metadata endpoints or any other loopback/LAN/Internet
+destination. Prepare `xui-vless-bridge.env.example` and a one-line URI file
+with `umask 077`:
 
 ```bash
 sudo python3 deploy/vless/install_xui_vless_bridge.py \
@@ -92,7 +127,7 @@ sudo python3 deploy/vless/install_xui_vless_bridge.py \
   --enable --apply
 ```
 
-The renderer validates UUID, VLESS transport and Reality/TLS parameters,
+The renderer validates UUID, VLESS transport and mandatory Reality/TLS parameters,
 creates an ephemeral Xray config under `/run`, and binds only
 `127.0.0.1:18787`. The URI secret remains mode 0600 and is never printed.
 
@@ -106,23 +141,35 @@ SIEM_VLESS_PUBLIC_ENDPOINT=45.89.111.208:443/TCP
 
 ## Verification
 
-1. On the VPS, verify `siem-xui-controller.service` and authenticated
+1. On the VPS, verify the dedicated management inbound and its allow-one,
+   deny-all routing policy. Attempts to reach the panel port and SSH with the
+   management UUID must fail.
+2. Verify `siem-xui-controller.service` and authenticated
    `http://127.0.0.1:8787/state`.
-2. Confirm the state reports `immutable-baseline` and the expected baseline
+3. Confirm the state reports `immutable-baseline` and the expected baseline
    count before any profile mutation.
-3. On SIEM-WEB, verify `siem-xui-vless-bridge.service` and loopback port 18787.
-4. Open **VPN -> VLESS / Reality**. Confirm transport, panel and protection
+4. On SIEM-WEB, verify `siem-xui-vless-bridge.service` and loopback port 18787.
+5. Open **VPN -> VLESS / Reality**. Confirm transport, panel and protection
    states are active and existing inbounds are marked immutable.
-5. Create one short-lived client profile in an existing inbound, edit it,
+6. Create one short-lived client profile in an existing inbound, edit it,
    obtain its URI, connect it, verify counters, and delete only this test
    client.
-6. Confirm the baseline inbound ID, port, protocol, enable flag and Reality
+7. Confirm the baseline inbound ID, port, protocol, enable flag and Reality
    settings did not change.
 
-If the server-side Xray routing policy denies destinations in `127.0.0.0/8`,
-the VLESS bridge cannot reach the controller. That policy must be inspected
-during the authorized VPS session. It must not be changed automatically or by
-this installer.
+Do not globally allow `127.0.0.0/8` for an existing data-plane inbound. Only
+the dedicated management inbound and identity may reach the single controller
+socket. This policy must be inspected during the authorized VPS session and is
+not changed automatically by this installer.
+
+## Platform permissions
+
+- `vpn:view`: credential-free status, counters and inbound summaries.
+- `vpn:manage`: management inventory through opaque `client_ref` values and
+  client/inbound mutations. Viewer and analyst roles do not receive it by
+  default.
+- `vpn:profile:issue`: returns a complete client profile. Only the admin role
+  receives it by default.
 
 Rollback stops only `siem-xui-vless-bridge.service` and
 `siem-xui-controller.service`. It must not stop 3x-ui/Xray or delete the

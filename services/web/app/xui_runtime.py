@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import ipaddress
 import json
 import os
-import ipaddress
 from typing import Any
 from urllib import error as url_error
 from urllib import parse as url_parse
@@ -26,6 +28,30 @@ _CAPABILITIES = (
     "traffic.read",
     "online.read",
 )
+_MONITORING_CAPABILITIES = ("inbounds.read", "traffic.read", "online.read")
+_MONITORING_INBOUND_FIELDS = (
+    "id",
+    "remark",
+    "enable",
+    "protocol",
+    "port",
+    "up",
+    "down",
+    "total",
+    "expiry_time",
+    "protected",
+    "managed_by_sentinel",
+)
+_PUBLIC_CLIENT_FIELDS = (
+    "email",
+    "enable",
+    "flow",
+    "limitIp",
+    "totalGB",
+    "expiryTime",
+    "traffic",
+)
+_MANAGEMENT_CLIENT_FIELDS = (*_PUBLIC_CLIENT_FIELDS, "tgId", "reset")
 
 
 class XuiControllerError(RuntimeError):
@@ -63,6 +89,27 @@ def _settings() -> tuple[str, str, float]:
 def controller_configured() -> bool:
     base_url, token, _ = _settings()
     return bool(base_url and token)
+
+
+def client_fingerprint(client_id: str) -> str:
+    """Create an opaque, token-bound reference without exposing a VLESS UUID."""
+    _, token, _ = _settings()
+    if not token:
+        raise XuiControllerError("VLESS controller token is not configured")
+    return _client_fingerprint_with_token(client_id, token)
+
+
+def _client_fingerprint_with_token(client_id: str, token: str) -> str:
+    digest = hmac.new(token.encode("utf-8"), str(client_id).encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"client-{digest[:24]}"
+
+
+def audit_fingerprint(value: str) -> str:
+    _, token, _ = _settings()
+    if not token:
+        raise XuiControllerError("VLESS controller token is not configured")
+    digest = hmac.new(token.encode("utf-8"), f"audit:{value}".encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"fp-{digest[:24]}"
 
 
 def _request(path: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -109,54 +156,129 @@ def _request(path: str, *, method: str = "GET", payload: dict[str, Any] | None =
     return result
 
 
-def xui_state() -> dict[str, Any]:
+def _unavailable_state(*, configured: bool, issue: str) -> dict[str, Any]:
+    return {
+        "configured": configured,
+        "status": "degraded" if configured else "unavailable",
+        "capabilities": [],
+        "issue": issue,
+        "inbounds": [],
+        "clients": [],
+        "client_count": 0,
+        "online_count": 0,
+    }
+
+
+def _public_client(client: dict[str, Any], *, management: bool, token: str = "") -> dict[str, Any]:
+    fields = _MANAGEMENT_CLIENT_FIELDS if management else _PUBLIC_CLIENT_FIELDS
+    public = {key: client.get(key) for key in fields if key in client}
+    if management:
+        raw_id = str(client.get("id") or "")
+        if raw_id:
+            if not token:
+                raise XuiControllerError("VLESS controller token is not configured")
+            public["client_ref"] = _client_fingerprint_with_token(raw_id, token)
+    return public
+
+
+def _public_inbound(inbound: dict[str, Any], *, management: bool, token: str = "") -> dict[str, Any]:
+    public = {key: inbound.get(key) for key in _MONITORING_INBOUND_FIELDS if key in inbound}
+    raw_clients = inbound.get("clients") if isinstance(inbound.get("clients"), list) else []
+    public["client_count"] = int(inbound.get("client_count") or len(raw_clients))
+    if management:
+        public["listen"] = str(inbound.get("listen") or "")
+        public["stream_settings"] = dict(inbound.get("stream_settings") or {})
+        public["sniffing"] = dict(inbound.get("sniffing") or {})
+        public["clients"] = [
+            _public_client(client, management=True, token=token)
+            for client in raw_clients
+            if isinstance(client, dict)
+        ]
+    return public
+
+
+def _state(*, management: bool) -> dict[str, Any]:
     configured = controller_configured()
     if not configured:
-        return {
-            "configured": False,
-            "status": "unavailable",
-            "capabilities": [],
-            "issue": "Set SIEM_VLESS_CONTROLLER_URL and SIEM_VLESS_CONTROLLER_TOKEN on SIEM-WEB",
-            "inbounds": [],
-            "clients": [],
-        }
+        return _unavailable_state(
+            configured=False,
+            issue="Set SIEM_VLESS_CONTROLLER_URL and SIEM_VLESS_CONTROLLER_TOKEN on SIEM-WEB",
+        )
     try:
-        snapshot = _request("/state")
+        snapshot = _request("/state" if management else "/monitoring")
     except XuiControllerError as exc:
-        return {
-            "configured": True,
-            "status": "degraded",
-            "capabilities": list(_CAPABILITIES),
-            "issue": str(exc),
-            "inbounds": [],
-            "clients": [],
-            "connectivity": {"controller": "unreachable", "panel": "unknown"},
-            "protection": {"state": "unknown"},
-        }
-    health = snapshot
-    inventory = snapshot
-    inbounds = inventory.get("inbounds") if isinstance(inventory.get("inbounds"), list) else []
+        state = _unavailable_state(configured=True, issue=str(exc))
+        state["connectivity"] = {"controller": "unreachable", "panel": "unknown"}
+        state["protection"] = {"state": "unknown"}
+        return state
+    _, token, _ = _settings()
+    raw_inbounds = snapshot.get("inbounds") if isinstance(snapshot.get("inbounds"), list) else []
+    inbounds = [
+        _public_inbound(inbound, management=management, token=token)
+        for inbound in raw_inbounds
+        if isinstance(inbound, dict)
+    ]
     clients: list[dict[str, Any]] = []
-    for inbound in inbounds:
-        if not isinstance(inbound, dict):
-            continue
-        for client in inbound.get("clients", []) if isinstance(inbound.get("clients"), list) else []:
-            if isinstance(client, dict):
-                clients.append({**client, "inbound_id": inbound.get("id"), "inbound_remark": inbound.get("remark")})
+    if management:
+        for inbound in inbounds:
+            for client in inbound.get("clients", []) if isinstance(inbound.get("clients"), list) else []:
+                if isinstance(client, dict):
+                    clients.append({**client, "inbound_id": inbound.get("id"), "inbound_remark": inbound.get("remark")})
+    client_count = sum(int(inbound.get("client_count") or 0) for inbound in inbounds)
+    online = list(snapshot.get("online") or []) if management else []
     return {
         "configured": True,
-        "status": str(health.get("status") or "active"),
-        "version": str(health.get("version") or ""),
-        "generated_at": health.get("generated_at"),
-        "capabilities": list(health.get("capabilities") or _CAPABILITIES),
-        "issue": str(health.get("issue") or ""),
+        "status": str(snapshot.get("status") or "active"),
+        "version": str(snapshot.get("version") or ""),
+        "generated_at": snapshot.get("generated_at"),
+        "capabilities": list(snapshot.get("capabilities") or _CAPABILITIES) if management else list(_MONITORING_CAPABILITIES),
+        "issue": str(snapshot.get("issue") or ""),
         "inbounds": inbounds,
         "clients": clients,
-        "online": list(inventory.get("online") or []),
-        "traffic": dict(inventory.get("traffic") or {}),
+        "client_count": client_count,
+        "online": online,
+        "online_count": int(snapshot.get("online_count") or len(online)),
+        "traffic": dict(snapshot.get("traffic") or {}),
         "connectivity": dict(snapshot.get("connectivity") or {}),
         "protection": dict(snapshot.get("protection") or {}),
     }
+
+
+def xui_state() -> dict[str, Any]:
+    """Return the credential-free monitoring DTO."""
+    return _state(management=False)
+
+
+def xui_management_state() -> dict[str, Any]:
+    return _state(management=True)
+
+
+def _resolve_client_id(inbound_id: int, client_ref: str) -> str:
+    expected_ref = str(client_ref or "").strip()
+    if not expected_ref.startswith("client-") or len(expected_ref) != 31:
+        raise ValueError("Invalid VLESS client reference")
+    _, token, _ = _settings()
+    if not token:
+        raise XuiControllerError("VLESS controller token is not configured")
+    snapshot = _request("/state")
+    for inbound in snapshot.get("inbounds", []) if isinstance(snapshot.get("inbounds"), list) else []:
+        if not isinstance(inbound, dict) or int(inbound.get("id") or 0) != int(inbound_id):
+            continue
+        for client in inbound.get("clients", []) if isinstance(inbound.get("clients"), list) else []:
+            if isinstance(client, dict):
+                raw_id = str(client.get("id") or "")
+                if raw_id and hmac.compare_digest(_client_fingerprint_with_token(raw_id, token), expected_ref):
+                    return raw_id
+    raise ValueError("VLESS client reference was not found in the requested inbound")
+
+
+def _public_client_mutation(result: dict[str, Any]) -> dict[str, Any]:
+    public = dict(result)
+    client = public.get("client")
+    if isinstance(client, dict):
+        _, token, _ = _settings()
+        public["client"] = _public_client(client, management=True, token=token)
+    return public
 
 
 def create_inbound(payload: dict[str, Any]) -> dict[str, Any]:
@@ -172,26 +294,32 @@ def delete_inbound(inbound_id: int) -> dict[str, Any]:
 
 
 def create_client(inbound_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return _request(f"/inbounds/{int(inbound_id)}/clients", method="POST", payload=payload)
+    safe_payload = dict(payload or {})
+    safe_payload.pop("id", None)
+    return _public_client_mutation(
+        _request(f"/inbounds/{int(inbound_id)}/clients", method="POST", payload=safe_payload)
+    )
 
 
-def update_client(inbound_id: int, client_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    safe_id = url_parse.quote(client_id, safe="")
-    return _request(f"/inbounds/{int(inbound_id)}/clients/{safe_id}", method="PUT", payload=payload)
+def update_client(inbound_id: int, client_ref: str, payload: dict[str, Any]) -> dict[str, Any]:
+    safe_id = url_parse.quote(_resolve_client_id(inbound_id, client_ref), safe="")
+    return _public_client_mutation(
+        _request(f"/inbounds/{int(inbound_id)}/clients/{safe_id}", method="PUT", payload=payload)
+    )
 
 
-def delete_client(inbound_id: int, client_id: str) -> dict[str, Any]:
-    safe_id = url_parse.quote(client_id, safe="")
+def delete_client(inbound_id: int, client_ref: str) -> dict[str, Any]:
+    safe_id = url_parse.quote(_resolve_client_id(inbound_id, client_ref), safe="")
     return _request(f"/inbounds/{int(inbound_id)}/clients/{safe_id}", method="DELETE")
 
 
-def client_profile(inbound_id: int, client_id: str) -> dict[str, Any]:
-    safe_id = url_parse.quote(client_id, safe="")
+def client_profile(inbound_id: int, client_ref: str) -> dict[str, Any]:
+    safe_id = url_parse.quote(_resolve_client_id(inbound_id, client_ref), safe="")
     return _request(f"/inbounds/{int(inbound_id)}/clients/{safe_id}/profile")
 
 
-def reset_client_traffic(inbound_id: int, client_id: str) -> dict[str, Any]:
-    safe_id = url_parse.quote(client_id, safe="")
+def reset_client_traffic(inbound_id: int, client_ref: str) -> dict[str, Any]:
+    safe_id = url_parse.quote(_resolve_client_id(inbound_id, client_ref), safe="")
     return _request(f"/inbounds/{int(inbound_id)}/clients/{safe_id}/reset-traffic", method="POST", payload={})
 
 

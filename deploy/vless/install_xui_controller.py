@@ -143,6 +143,23 @@ def validate_controller_env(path: Path) -> dict[str, str]:
         raise InstallError("SIEM_XUI_LISTEN_PORT must be an integer") from exc
     if not 1024 <= listen_port <= 65535:
         raise InstallError("SIEM_XUI_LISTEN_PORT must be an unprivileged TCP port")
+    integer_limits = {
+        "SIEM_XUI_MAX_BODY_BYTES": (1024, 1024 * 1024, 256 * 1024),
+        "SIEM_XUI_MAX_CONCURRENT_REQUESTS": (1, 256, 32),
+    }
+    for name, (minimum, maximum, default) in integer_limits.items():
+        try:
+            value = int(values.get(name, str(default)))
+        except ValueError as exc:
+            raise InstallError(f"{name} must be an integer") from exc
+        if not minimum <= value <= maximum:
+            raise InstallError(f"{name} must be between {minimum} and {maximum}")
+    try:
+        request_timeout = float(values.get("SIEM_XUI_REQUEST_TIMEOUT_SECONDS", "10"))
+    except ValueError as exc:
+        raise InstallError("SIEM_XUI_REQUEST_TIMEOUT_SECONDS must be numeric") from exc
+    if not 1 <= request_timeout <= 60:
+        raise InstallError("SIEM_XUI_REQUEST_TIMEOUT_SECONDS must be between 1 and 60")
     return values
 
 

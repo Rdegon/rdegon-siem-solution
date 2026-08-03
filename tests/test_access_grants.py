@@ -107,6 +107,15 @@ class AccessGrantTests(unittest.TestCase):
         self.assertIn("resources:view", set(resolved["permissions"]))
         self.assertIn("vuln:operate", set(resolved["permissions"]))
 
+    def test_vpn_section_preserves_admin_only_management_defaults(self) -> None:
+        self.assertEqual(
+            {"vpn:view", "vpn:manage", "vpn:profile:issue"},
+            access_ops.SIEM_SECTION_PERMISSIONS["vpn"],
+        )
+        self.assertIn("vpn:view", access_ops._FALLBACK_ROLE_PERMISSIONS["analyst"])
+        self.assertNotIn("vpn:manage", access_ops._FALLBACK_ROLE_PERMISSIONS["analyst"])
+        self.assertIn("vpn:manage", access_ops._FALLBACK_ROLE_PERMISSIONS["admin"])
+
     def test_admin_sources_and_docs_grant_includes_resource_write(self) -> None:
         runtime = _FakeKeycloakRuntime()
         with tempfile.TemporaryDirectory() as temp_dir:

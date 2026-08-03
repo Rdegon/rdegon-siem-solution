@@ -51,6 +51,14 @@ def test_bridge_rejects_public_management_targets() -> None:
         renderer.render_config(renderer.parse_vless_uri(_uri()), listen_host="0.0.0.0")
 
 
+def test_bridge_rejects_unencrypted_management_profiles() -> None:
+    renderer = _module("render_xui_vless_bridge.py", "xui_bridge_plaintext_reject")
+    plaintext = _uri().replace("security=reality", "security=none")
+
+    with pytest.raises(ValueError, match="TLS or Reality"):
+        renderer.parse_vless_uri(plaintext)
+
+
 def test_bridge_installer_is_plan_only_by_default_and_keeps_secrets_private() -> None:
     installer = _module("install_xui_vless_bridge.py", "xui_bridge_installer")
     with tempfile.TemporaryDirectory() as temporary:
@@ -134,3 +142,6 @@ def test_bridge_unit_uses_a_fixed_exec_wrapper() -> None:
     assert "ExecStart=/usr/bin/python3 /opt/rdegon-sentinel/run_xui_vless_bridge.py" in unit
     assert "ExecStart=${XUI_BRIDGE_XRAY_BINARY}" not in unit
     assert "os.execv" in wrapper
+    assert "NoNewPrivileges=true" in unit
+    assert "CapabilityBoundingSet=" in unit
+    assert "ProtectProc=invisible" in unit

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import tempfile
 import threading
@@ -28,6 +30,9 @@ CONTROLLER_TOKEN = str(os.getenv("SIEM_XUI_CONTROLLER_TOKEN") or "")
 PUBLIC_HOST = str(os.getenv("XUI_PUBLIC_HOST") or "").strip()
 LISTEN_HOST = str(os.getenv("SIEM_XUI_LISTEN_HOST") or "127.0.0.1")
 LISTEN_PORT = int(os.getenv("SIEM_XUI_LISTEN_PORT") or "8787")
+MAX_BODY_BYTES = max(1024, min(int(os.getenv("SIEM_XUI_MAX_BODY_BYTES") or str(256 * 1024)), 1024 * 1024))
+MAX_CONCURRENT_REQUESTS = max(1, min(int(os.getenv("SIEM_XUI_MAX_CONCURRENT_REQUESTS") or "32"), 256))
+REQUEST_TIMEOUT_SECONDS = max(1.0, min(float(os.getenv("SIEM_XUI_REQUEST_TIMEOUT_SECONDS") or "10"), 60.0))
 STATE_PATH = Path(os.getenv("XUI_PROTECTION_STATE") or "/var/lib/siem-xui-controller/protection.json")
 ALLOW_INBOUND_CREATE = str(os.getenv("XUI_ALLOW_INBOUND_CREATE") or "false").strip().lower() in {
     "1",
@@ -45,8 +50,30 @@ _STATE_LOCK = threading.RLock()
 _PROTECTION_STATE: dict[str, Any] | None = None
 
 
+class RequestBodyTooLarge(ValueError):
+    pass
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _fingerprint(value: str) -> str:
+    digest = hmac.new(
+        CONTROLLER_TOKEN.encode("utf-8"),
+        str(value).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"client-{digest[:24]}"
+
+
+def _safe_log_path(value: str) -> str:
+    path = url_parse.urlparse(str(value or "/")).path
+    parts = path.split("/")
+    for index, part in enumerate(parts[:-1]):
+        if part == "clients" and parts[index + 1]:
+            parts[index + 1] = _fingerprint(url_parse.unquote(parts[index + 1]))
+    return "/".join(parts) or "/"
 
 
 def _validate_config() -> None:
@@ -563,21 +590,120 @@ def _controller_state() -> dict[str, Any]:
     }
 
 
+def _monitoring_state() -> dict[str, Any]:
+    state = _controller_state()
+    inbounds = []
+    client_count = 0
+    for inbound in state["inbounds"]:
+        clients = inbound.get("clients") if isinstance(inbound.get("clients"), list) else []
+        client_count += len(clients)
+        inbounds.append(
+            {
+                key: inbound.get(key)
+                for key in (
+                    "id",
+                    "remark",
+                    "enable",
+                    "protocol",
+                    "port",
+                    "up",
+                    "down",
+                    "total",
+                    "expiry_time",
+                    "protected",
+                    "managed_by_sentinel",
+                )
+            }
+            | {"client_count": len(clients)}
+        )
+    return {
+        "success": True,
+        "status": state["status"],
+        "version": state["version"],
+        "generated_at": state["generated_at"],
+        "capabilities": ["inbounds.read", "traffic.read", "online.read"],
+        "connectivity": state["connectivity"],
+        "protection": state["protection"],
+        "inbounds": inbounds,
+        "client_count": client_count,
+        "online_count": len(state["online"]),
+        "traffic": state["traffic"],
+    }
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        request_handler_class: type[BaseHTTPRequestHandler],
+        *,
+        max_concurrent_requests: int,
+        request_timeout: float,
+    ) -> None:
+        self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
+        self._request_timeout = request_timeout
+        super().__init__(server_address, request_handler_class)
+
+    def get_request(self):
+        request, client_address = super().get_request()
+        request.settimeout(self._request_timeout)
+        return request, client_address
+
+    def process_request(self, request, client_address) -> None:
+        if not self._request_slots.acquire(blocking=False):
+            try:
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Connection: close\r\nContent-Length: 0\r\n\r\n"
+                )
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "RdegonXuiController/1.0"
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print(f"xui-controller: {fmt % args}", flush=True)
+        status = str(args[1]) if len(args) > 1 else "-"
+        command = str(getattr(self, "command", "-") or "-")
+        path = str(getattr(self, "path", "/") or "/")
+        print(f"xui-controller: {command} {_safe_log_path(path)} {status}", flush=True)
 
     def _authorized(self) -> bool:
         supplied = self.headers.get("Authorization", "").removeprefix("Bearer ")
         return bool(supplied) and hmac.compare_digest(supplied, CONTROLLER_TOKEN)
 
     def _body(self) -> dict[str, Any]:
-        length = min(int(self.headers.get("Content-Length") or 0), 1024 * 1024)
+        if self.headers.get("Transfer-Encoding"):
+            raise ValueError("Transfer-Encoding is not supported")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError as exc:
+            raise ValueError("Content-Length must be an integer") from exc
+        if length < 0:
+            raise ValueError("Content-Length cannot be negative")
+        if length > MAX_BODY_BYTES:
+            raise RequestBodyTooLarge(f"Request body exceeds the {MAX_BODY_BYTES}-byte limit")
         if not length:
             return {}
-        parsed = json.loads(self.rfile.read(length).decode("utf-8"))
+        body = self.rfile.read(length)
+        if len(body) != length:
+            raise ValueError("Request body ended before Content-Length bytes were received")
+        parsed = json.loads(body.decode("utf-8"))
         if not isinstance(parsed, dict):
             raise ValueError("JSON object required")
         return parsed
@@ -604,6 +730,8 @@ class Handler(BaseHTTPRequestHandler):
             } | {"inbounds": len(state["inbounds"])}
         if path == "/state" and self.command == "GET":
             return _controller_state()
+        if path == "/monitoring" and self.command == "GET":
+            return _monitoring_state()
         if path == "/inbounds" and self.command == "GET":
             state = _controller_state()
             return {
@@ -681,11 +809,16 @@ class Handler(BaseHTTPRequestHandler):
         raise KeyError("Unknown controller operation")
 
     def _handle(self) -> None:
-        request_id = str(self.headers.get("X-Request-ID") or uuid4().hex)[:64]
+        supplied_request_id = str(self.headers.get("X-Request-ID") or "")[:64]
+        request_id = supplied_request_id if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied_request_id) else uuid4().hex
         if not self._authorized():
             self._send(HTTPStatus.UNAUTHORIZED, {"success": False, "code": "unauthorized", "error": "Unauthorized", "request_id": request_id}); return
         try:
             self._send(HTTPStatus.OK, {**self._dispatch(), "request_id": request_id})
+        except RequestBodyTooLarge as exc:
+            self._send(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"success": False, "code": "body_too_large", "error": str(exc), "request_id": request_id})
+        except (TimeoutError, socket.timeout):
+            self._send(HTTPStatus.REQUEST_TIMEOUT, {"success": False, "code": "request_timeout", "error": "Request timed out", "request_id": request_id})
         except KeyError as exc:
             self._send(HTTPStatus.NOT_FOUND, {"success": False, "code": "not_found", "error": str(exc).strip("'"), "request_id": request_id})
         except (ValueError, json.JSONDecodeError) as exc:
@@ -702,8 +835,12 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     _validate_config()
     _initialize_protection_state(_raw_inventory())
-    server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
-    server.daemon_threads = True
+    server = BoundedThreadingHTTPServer(
+        (LISTEN_HOST, LISTEN_PORT),
+        Handler,
+        max_concurrent_requests=MAX_CONCURRENT_REQUESTS,
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     server.serve_forever()
 
 

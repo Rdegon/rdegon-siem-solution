@@ -218,6 +218,18 @@ class SecurityRuntimeTests(unittest.TestCase):
         self.assertEqual(summary["local_users_plaintext"], 1)
         self.assertEqual(summary["local_users_hashed"], 0)
 
+    def test_vpn_permissions_are_read_only_for_viewer_and_analyst_by_default(self) -> None:
+        module = self._load_security_module()
+
+        self.assertIn("vpn:view", module.ROLE_PERMISSIONS["viewer"])
+        self.assertIn("vpn:view", module.ROLE_PERMISSIONS["analyst"])
+        self.assertNotIn("vpn:manage", module.ROLE_PERMISSIONS["viewer"])
+        self.assertNotIn("vpn:manage", module.ROLE_PERMISSIONS["analyst"])
+        self.assertNotIn("vpn:profile:issue", module.ROLE_PERMISSIONS["analyst"])
+        self.assertTrue(
+            {"vpn:view", "vpn:manage", "vpn:profile:issue"}.issubset(module.ROLE_PERMISSIONS["admin"])
+        )
+
     def test_hashed_user_records_verify_without_plaintext_storage(self) -> None:
         module = self._load_security_module()
         password_hash = module.hash_password("hashed-secret")

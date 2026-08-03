@@ -53,7 +53,6 @@ function clientPayload(form: HTMLFormElement, existing?: XuiClientRecord) {
   const expiryValue = text(data.get("expiry_days"), "").trim();
   const expiryDays = Math.max(0, number(expiryValue));
   return {
-    id: existing?.id,
     email: text(data.get("email"), existing?.email),
     enable: data.get("enable") === "on",
     flow: text(data.get("flow"), existing?.flow || "xtls-rprx-vision"),
@@ -65,7 +64,12 @@ function clientPayload(form: HTMLFormElement, existing?: XuiClientRecord) {
 }
 
 export function VlessManagement({ notify }: { notify: Notify }) {
-  const state = useQuery("xui-management", api.xuiState, 20_000);
+  const state = useQuery("xui-management", async () => {
+    const me = await api.authMe();
+    return me.principal.permissions.includes("vpn:manage")
+      ? api.xuiManagementState()
+      : api.xuiState();
+  }, 20_000);
   const [tab, setTab] = useState("clients");
   const [inboundModal, setInboundModal] = useState(false);
   const [clientModal, setClientModal] = useState(false);
@@ -106,13 +110,13 @@ export function VlessManagement({ notify }: { notify: Notify }) {
         <div className="vless-management-actions">
           <StatusCell value={data.status} />
           {capabilities.has("inbounds.create") ? <Button icon="plus" onClick={() => setInboundModal(true)}>Inbound</Button> : null}
-          <Button icon="user" onClick={() => setClientModal(true)} tone="primary" disabled={!inbounds.length || !capabilities.has("clients.create")}>Профиль</Button>
+          {capabilities.has("clients.create") ? <Button icon="user" onClick={() => setClientModal(true)} tone="primary" disabled={!inbounds.length}>Профиль</Button> : null}
         </div>
       </header>
       <div className="vless-summary-strip">
         <span><small>Inbounds</small><strong>{inbounds.length}</strong></span>
-        <span><small>Профили</small><strong>{clients.length}</strong></span>
-        <span><small>Онлайн</small><strong>{online.size}</strong></span>
+        <span><small>Профили</small><strong>{number(data.client_count) || clients.length}</strong></span>
+        <span><small>Онлайн</small><strong>{number(data.online_count) || online.size}</strong></span>
         <span><small>Принято</small><strong>{bytes(data.traffic?.up)}</strong></span>
         <span><small>Передано</small><strong>{bytes(data.traffic?.down)}</strong></span>
         <span><small>Панель</small><strong>{text(data.connectivity?.panel, "unknown")}</strong></span>
@@ -130,8 +134,8 @@ export function VlessManagement({ notify }: { notify: Notify }) {
       {tab === "clients" ? (
         clients.length ? (
           <div className="native-grid"><table><thead><tr><th>Профиль</th><th>Inbound</th><th>Состояние</th><th>Лимит IP</th><th>Трафик</th><th>Срок</th></tr></thead><tbody>
-            {clients.map((client) => <tr className="sentinel-clickable-row" key={`${client.inbound_id}:${client.id}`} onClick={() => setSelectedClient(client)}>
-              <td><strong>{client.email}</strong><small className="table-secondary">{client.id}</small></td>
+            {clients.map((client) => <tr className="sentinel-clickable-row" key={`${client.inbound_id}:${client.client_ref}`} onClick={() => setSelectedClient(client)}>
+              <td><strong>{client.email}</strong><small className="table-secondary">{client.client_ref}</small></td>
               <td>{client.inbound_remark}</td>
               <td><Badge tone={client.enable ? "healthy" : "neutral"}>{online.has(client.email) ? "online" : client.enable ? "active" : "disabled"}</Badge></td>
               <td>{number(client.limitIp) || "Без лимита"}</td>
@@ -147,7 +151,7 @@ export function VlessManagement({ notify }: { notify: Notify }) {
               <td><strong>{inbound.remark}</strong>{inbound.protected ? <Badge tone="healthy">защищенный production inbound</Badge> : null}<small className="table-secondary">ID {inbound.id}</small></td>
               <td>{inbound.port}</td><td>{inbound.protocol}</td>
               <td><StatusCell value={inbound.enable ? "active" : "disabled"} /></td>
-              <td>{inbound.clients.length}</td><td>{bytes(number(inbound.up) + number(inbound.down))}</td>
+              <td>{number(inbound.client_count) || inbound.clients?.length || 0}</td><td>{bytes(number(inbound.up) + number(inbound.down))}</td>
             </tr>)}
           </tbody></table></div>
         ) : <EmptyState title="Нет inbounds" />
@@ -177,13 +181,13 @@ export function VlessManagement({ notify }: { notify: Notify }) {
       </Modal>
 
       <Modal open={Boolean(selectedClient)} title={selectedClient?.email || "VLESS-профиль"} onClose={() => setSelectedClient(null)} footer={selectedClient ? <>
-        {capabilities.has("traffic.reset") ? <Button onClick={() => void mutate(() => api.resetXuiClientTraffic(number(selectedClient.inbound_id), selectedClient.id), "Счетчик трафика сброшен")}>Сбросить трафик</Button> : null}
-        {capabilities.has("clients.profile") ? <Button onClick={() => void mutate(async () => { const result = await api.xuiClientProfile(number(selectedClient.inbound_id), selectedClient.id); if (!result.profile) throw new Error(result.issue || "Ссылка профиля недоступна"); await navigator.clipboard.writeText(result.profile); }, "VLESS-ссылка скопирована")} icon="copy">Скопировать ссылку</Button> : null}
-        {capabilities.has("clients.delete") ? <Button tone="danger" onClick={() => { if (window.confirm(`Удалить профиль ${selectedClient.email}?`)) void mutate(() => api.deleteXuiClient(number(selectedClient.inbound_id), selectedClient.id), "VLESS-профиль удален"); }}>Удалить</Button> : null}
+        {capabilities.has("traffic.reset") ? <Button onClick={() => void mutate(() => api.resetXuiClientTraffic(number(selectedClient.inbound_id), selectedClient.client_ref), "Счетчик трафика сброшен")}>Сбросить трафик</Button> : null}
+        {capabilities.has("clients.profile") ? <Button onClick={() => void mutate(async () => { const result = await api.xuiClientProfile(number(selectedClient.inbound_id), selectedClient.client_ref); if (!result.profile) throw new Error(result.issue || "Ссылка профиля недоступна"); await navigator.clipboard.writeText(result.profile); }, "VLESS-ссылка скопирована")} icon="copy">Скопировать ссылку</Button> : null}
+        {capabilities.has("clients.delete") ? <Button tone="danger" onClick={() => { if (window.confirm(`Удалить профиль ${selectedClient.email}?`)) void mutate(() => api.deleteXuiClient(number(selectedClient.inbound_id), selectedClient.client_ref), "VLESS-профиль удален"); }}>Удалить</Button> : null}
         {capabilities.has("clients.update") ? <Button form="xui-client-edit-form" type="submit" tone="primary">Сохранить</Button> : null}
       </> : undefined}>
-        {selectedClient ? <form id="xui-client-edit-form" className="kuma-form-grid" onSubmit={(event) => { event.preventDefault(); const payload = clientPayload(event.currentTarget, selectedClient); void mutate(() => api.updateXuiClient(number(selectedClient.inbound_id), selectedClient.id, payload), "VLESS-профиль обновлен"); }}>
-          <label><span>ID</span><input value={selectedClient.id} disabled /></label>
+        {selectedClient ? <form id="xui-client-edit-form" className="kuma-form-grid" onSubmit={(event) => { event.preventDefault(); const payload = clientPayload(event.currentTarget, selectedClient); void mutate(() => api.updateXuiClient(number(selectedClient.inbound_id), selectedClient.client_ref, payload), "VLESS-профиль обновлен"); }}>
+          <label><span>Reference</span><input value={selectedClient.client_ref} disabled /></label>
           <label><span>Inbound</span><input value={selectedClient.inbound_remark} disabled /></label>
           <label><span>Имя / email</span><input name="email" defaultValue={selectedClient.email} required /></label>
           <label><span>Лимит IP</span><input name="limit_ip" type="number" min="0" defaultValue={number(selectedClient.limitIp)} /></label>
@@ -201,7 +205,7 @@ export function VlessManagement({ notify }: { notify: Notify }) {
         {selectedInbound.managed_by_sentinel && capabilities.has("traffic.reset") ? <Button onClick={() => void mutate(() => api.resetXuiInboundTraffic(selectedInbound.id), "Трафик inbound сброшен")}>Сбросить трафик</Button> : null}
         {selectedInbound.managed_by_sentinel && capabilities.has("inbounds.delete") ? <Button tone="danger" onClick={() => { if (window.confirm(`Удалить inbound ${selectedInbound.remark}?`)) void mutate(() => api.deleteXuiInbound(selectedInbound.id), "Inbound удален"); }}>Удалить</Button> : null}
       </> : undefined}>
-        {selectedInbound ? <><dl className="kuma-kv"><div><dt>ID</dt><dd>{selectedInbound.id}</dd></div><div><dt>Порт</dt><dd>{selectedInbound.port}</dd></div><div><dt>Протокол</dt><dd>{selectedInbound.protocol}</dd></div><div><dt>Клиенты</dt><dd>{selectedInbound.clients.length}</dd></div></dl>{selectedInbound.protected ? <Badge tone="healthy">неизменяемый production baseline</Badge> : selectedInbound.managed_by_sentinel ? <Badge tone="info">управляется Sentinel</Badge> : <Badge tone="warning">внешний inbound, только чтение</Badge>}</> : null}
+        {selectedInbound ? <><dl className="kuma-kv"><div><dt>ID</dt><dd>{selectedInbound.id}</dd></div><div><dt>Порт</dt><dd>{selectedInbound.port}</dd></div><div><dt>Протокол</dt><dd>{selectedInbound.protocol}</dd></div><div><dt>Клиенты</dt><dd>{number(selectedInbound.client_count) || selectedInbound.clients?.length || 0}</dd></div></dl>{selectedInbound.protected ? <Badge tone="healthy">неизменяемый production baseline</Badge> : selectedInbound.managed_by_sentinel ? <Badge tone="info">управляется Sentinel</Badge> : <Badge tone="warning">внешний inbound, только чтение</Badge>}</> : null}
       </Modal>
     </section>
   );

@@ -930,6 +930,7 @@ export const api = {
     return parseResponse<{ deleted: boolean; id: string }>(response);
   },
   xuiState: () => getJson<XuiStateResponse>("/api/security-services/vpn/vless"),
+  xuiManagementState: () => getJson<XuiStateResponse>("/api/security-services/vpn/vless/management"),
   createXuiInbound: (body: Record<string, unknown>) =>
     postJson<RuntimeBlob>("/api/security-services/vpn/vless/inbounds", body),
   updateXuiInbound: (inboundId: number, body: Record<string, unknown>) =>

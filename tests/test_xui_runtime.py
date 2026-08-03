@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import socket
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,58 +53,103 @@ def test_xui_runtime_rejects_non_loopback_controller(monkeypatch: pytest.MonkeyP
     assert "loopback" in state["issue"]
 
 
-def test_xui_state_flattens_real_clients_and_preserves_inbound_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_xui_monitoring_state_never_exposes_client_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(xui_runtime, "controller_configured", lambda: True)
 
     def fake_request(path: str, **_: object) -> dict:
-        if path == "/health":
-            return {"status": "active", "version": "2.6.4", "capabilities": ["clients.create"]}
+        assert path == "/monitoring"
         return {
+            "status": "active",
+            "version": "2.6.4",
+            "capabilities": ["clients.create", "clients.profile"],
             "inbounds": [
                 {
                     "id": 4,
                     "remark": "reality-main",
-                    "clients": [{"id": "client-id", "email": "operator", "enable": True}],
+                    "client_count": 1,
+                    "settings": {"clients": [{"id": "raw-client-credential", "subId": "private-subscription"}]},
+                    "clients": [{"id": "raw-client-credential", "subId": "private-subscription", "tgId": "42"}],
                 }
             ],
             "traffic": {"up": 10, "down": 20},
             "online": ["operator"],
+            "online_count": 1,
         }
 
     monkeypatch.setattr(xui_runtime, "_request", fake_request)
     state = xui_runtime.xui_state()
 
     assert state["status"] == "active"
-    assert state["clients"] == [
-        {
-            "id": "client-id",
-            "email": "operator",
-            "enable": True,
-            "inbound_id": 4,
-            "inbound_remark": "reality-main",
-        }
-    ]
+    assert state["clients"] == []
+    assert state["inbounds"] == [{"id": 4, "remark": "reality-main", "client_count": 1}]
+    assert state["capabilities"] == ["inbounds.read", "traffic.read", "online.read"]
+    assert state["online"] == []
+    assert state["online_count"] == 1
     assert state["traffic"] == {"up": 10, "down": 20}
+    serialized = str(state)
+    assert "raw-client-credential" not in serialized
+    assert "private-subscription" not in serialized
+    assert "tgId" not in serialized
+    assert "settings" not in serialized
 
 
-def test_xui_client_operations_encode_identifier(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_xui_management_state_uses_opaque_client_references(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(xui_runtime, "controller_configured", lambda: True)
+    monkeypatch.setattr(xui_runtime, "_settings", lambda: ("http://127.0.0.1:18787", "test-controller-token", 3.0))
+    raw_id = "86ddcb83-1b80-4f4f-8144-2be5809d054e"
+    monkeypatch.setattr(
+        xui_runtime,
+        "_request",
+        lambda path, **_: {
+            "status": "active",
+            "capabilities": ["clients.update", "clients.profile"],
+            "inbounds": [{
+                "id": 4,
+                "remark": "reality-main",
+                "settings": {"clients": [{"id": raw_id}]},
+                "clients": [{"id": raw_id, "email": "operator", "enable": True, "subId": "private-sub", "tgId": "42"}],
+            }],
+        } if path == "/state" else {},
+    )
+
+    state = xui_runtime.xui_management_state()
+
+    client = state["clients"][0]
+    assert client["client_ref"].startswith("client-")
+    assert "id" not in client
+    assert "subId" not in client
+    assert client["tgId"] == "42"
+    assert "settings" not in state["inbounds"][0]
+    assert raw_id not in str(state)
+
+
+def test_xui_client_operations_resolve_opaque_reference(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
+    raw_id = "86ddcb83-1b80-4f4f-8144-2be5809d054e"
+    monkeypatch.setattr(xui_runtime, "_settings", lambda: ("http://127.0.0.1:18787", "test-controller-token", 3.0))
+    client_ref = xui_runtime.client_fingerprint(raw_id)
 
     def fake_request(path: str, *, method: str = "GET", payload: dict | None = None) -> dict:
         calls.append((path, method))
+        if path == "/state":
+            return {"inbounds": [{"id": 7, "clients": [{"id": raw_id, "email": "operator"}]}]}
         return {"success": True, "payload": payload}
 
     monkeypatch.setattr(xui_runtime, "_request", fake_request)
-    xui_runtime.update_client(7, "client/id value", {"email": "operator"})
-    xui_runtime.delete_client(7, "client/id value")
-    xui_runtime.client_profile(7, "client/id value")
-    xui_runtime.reset_client_traffic(7, "client/id value")
+    xui_runtime.update_client(7, client_ref, {"email": "operator"})
+    xui_runtime.delete_client(7, client_ref)
+    xui_runtime.client_profile(7, client_ref)
+    xui_runtime.reset_client_traffic(7, client_ref)
 
     assert calls == [
-        ("/inbounds/7/clients/client%2Fid%20value", "PUT"),
-        ("/inbounds/7/clients/client%2Fid%20value", "DELETE"),
-        ("/inbounds/7/clients/client%2Fid%20value/profile", "GET"),
-        ("/inbounds/7/clients/client%2Fid%20value/reset-traffic", "POST"),
+        ("/state", "GET"),
+        (f"/inbounds/7/clients/{raw_id}", "PUT"),
+        ("/state", "GET"),
+        (f"/inbounds/7/clients/{raw_id}", "DELETE"),
+        ("/state", "GET"),
+        (f"/inbounds/7/clients/{raw_id}/profile", "GET"),
+        ("/state", "GET"),
+        (f"/inbounds/7/clients/{raw_id}/reset-traffic", "POST"),
     ]
 
 
@@ -210,6 +258,147 @@ def test_controller_client_update_preserves_omitted_limits() -> None:
     assert updated["totalGB"] == 17 * 1024**3
     assert updated["expiryTime"] == 123456789
     assert updated["subId"] == "stable-subscription"
+
+
+def test_controller_monitoring_dto_is_credential_free(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _controller_module("siem_xui_controller_monitoring")
+    raw_id = "86ddcb83-1b80-4f4f-8144-2be5809d054e"
+    monkeypatch.setattr(
+        module,
+        "_controller_state",
+        lambda: {
+            "status": "active",
+            "version": "test",
+            "generated_at": "now",
+            "connectivity": {"controller": "active", "panel": "active"},
+            "protection": {"state": "active"},
+            "traffic": {"up": 1, "down": 2},
+            "online": ["operator"],
+            "inbounds": [{
+                "id": 7,
+                "remark": "production",
+                "enable": True,
+                "protocol": "vless",
+                "port": 443,
+                "settings": {"clients": [{"id": raw_id}]},
+                "stream_settings": {"security": "reality"},
+                "clients": [{"id": raw_id, "subId": "private-sub", "tgId": "42"}],
+            }],
+        },
+    )
+
+    state = module._monitoring_state()  # noqa: SLF001
+
+    assert state["client_count"] == 1
+    assert state["online_count"] == 1
+    assert state["inbounds"][0]["client_count"] == 1
+    serialized = str(state)
+    assert raw_id not in serialized
+    assert "private-sub" not in serialized
+    assert "settings" not in serialized
+    assert "subId" not in serialized
+    assert "tgId" not in serialized
+
+
+def test_controller_log_replaces_client_uuid_with_fingerprint(capsys: pytest.CaptureFixture[str]) -> None:
+    module = _controller_module("siem_xui_controller_log_redaction")
+    module.CONTROLLER_TOKEN = "test-controller-token"
+    raw_id = "86ddcb83-1b80-4f4f-8144-2be5809d054e"
+    handler = SimpleNamespace(command="GET", path=f"/inbounds/7/clients/{raw_id}/profile")
+
+    module.Handler.log_message(handler, '"%s" %s %s', "request", 200, "-")
+
+    output = capsys.readouterr().out
+    assert raw_id not in output
+    assert "client-" in output
+
+
+def test_controller_rejects_oversized_and_incomplete_bodies() -> None:
+    module = _controller_module("siem_xui_controller_body_limits")
+    oversized = SimpleNamespace(
+        headers={"Content-Length": str(module.MAX_BODY_BYTES + 1)},
+        rfile=BytesIO(),
+    )
+    incomplete = SimpleNamespace(headers={"Content-Length": "10"}, rfile=BytesIO(b"{}"))
+
+    with pytest.raises(module.RequestBodyTooLarge):
+        module.Handler._body(oversized)
+    with pytest.raises(ValueError, match="ended before"):
+        module.Handler._body(incomplete)
+
+
+def test_controller_rejects_connections_above_concurrency_limit() -> None:
+    module = _controller_module("siem_xui_controller_concurrency")
+
+    class FakeSocket:
+        def __init__(self) -> None:
+            self.sent = b""
+            self.closed = False
+
+        def sendall(self, value: bytes) -> None:
+            self.sent += value
+
+        def shutdown(self, _how: int) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    server = module.BoundedThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        module.Handler,
+        max_concurrent_requests=1,
+        request_timeout=1,
+    )
+    request = FakeSocket()
+    try:
+        assert server._request_slots.acquire(blocking=False)  # noqa: SLF001
+        server.process_request(request, ("127.0.0.1", 12345))
+        assert b"503 Service Unavailable" in request.sent
+        assert request.closed is True
+    finally:
+        server._request_slots.release()  # noqa: SLF001
+        server.server_close()
+
+
+def test_controller_applies_socket_timeout_before_parsing_headers() -> None:
+    module = _controller_module("siem_xui_controller_socket_timeout")
+    server = module.BoundedThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        module.Handler,
+        max_concurrent_requests=1,
+        request_timeout=1.5,
+    )
+    client = socket.create_connection(server.server_address, timeout=2)
+    accepted = None
+    try:
+        accepted, _ = server.get_request()
+        assert accepted.gettimeout() == 1.5
+    finally:
+        if accepted is not None:
+            accepted.close()
+        client.close()
+        server.server_close()
+
+
+def test_create_client_discards_caller_supplied_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(xui_runtime, "_settings", lambda: ("http://127.0.0.1:18787", "test-controller-token", 3.0))
+
+    def fake_request(path: str, *, method: str = "GET", payload: dict | None = None) -> dict:
+        captured.update(payload or {})
+        return {
+            "success": True,
+            "client": {"id": "86ddcb83-1b80-4f4f-8144-2be5809d054e", "email": "operator"},
+        }
+
+    monkeypatch.setattr(xui_runtime, "_request", fake_request)
+
+    result = xui_runtime.create_client(7, {"id": "caller-selected-id", "email": "operator"})
+
+    assert "id" not in captured
+    assert "id" not in result["client"]
+    assert result["client"]["client_ref"].startswith("client-")
 
 
 def _controller_module(name: str):

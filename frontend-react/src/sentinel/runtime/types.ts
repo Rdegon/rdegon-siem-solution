@@ -3006,7 +3006,7 @@ export type RemoteAccessStateResponse = {
 };
 
 export type XuiClientRecord = RuntimeBlob & {
-  id: string;
+  client_ref: string;
   email: string;
   enable: boolean;
   flow?: string;
@@ -3016,6 +3016,7 @@ export type XuiClientRecord = RuntimeBlob & {
   inbound_id?: number;
   inbound_remark?: string;
   traffic?: RuntimeBlob;
+  tgId?: string;
 };
 
 export type XuiInboundRecord = RuntimeBlob & {
@@ -3031,10 +3032,10 @@ export type XuiInboundRecord = RuntimeBlob & {
   down?: number;
   total?: number;
   expiry_time?: number;
-  settings?: RuntimeBlob;
   stream_settings?: RuntimeBlob;
   sniffing?: RuntimeBlob;
-  clients: XuiClientRecord[];
+  client_count?: number;
+  clients?: XuiClientRecord[];
 };
 
 export type XuiStateResponse = {
@@ -3046,7 +3047,9 @@ export type XuiStateResponse = {
   issue?: string;
   inbounds: XuiInboundRecord[];
   clients: XuiClientRecord[];
+  client_count?: number;
   online?: string[];
+  online_count?: number;
   traffic?: { up?: number; down?: number };
   connectivity?: {
     controller?: string;

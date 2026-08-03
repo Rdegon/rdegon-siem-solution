@@ -23,6 +23,7 @@ from ..remote_access_runtime import (
 )
 from ..xui_runtime import (
     XuiControllerError,
+    audit_fingerprint,
     client_profile,
     create_client,
     create_inbound,
@@ -32,6 +33,7 @@ from ..xui_runtime import (
     reset_inbound_traffic,
     update_client,
     update_inbound,
+    xui_management_state,
     xui_state,
 )
 
@@ -48,26 +50,28 @@ async def _audit_xui(
     summary: str,
     details: dict | None = None,
 ) -> None:
+    sensitive_object = "client" in action or "profile" in action
+    safe_object_id = audit_fingerprint(str(object_id)) if sensitive_object else str(object_id)
     await run_in_threadpool(
         append_audit_event,
         actor=str(getattr(user, "username", "web") or "web"),
         action=f"xui.{action}",
-        object_type="vless_profile" if "client" in action or "profile" in action else "vless_inbound",
-        object_id=str(object_id),
+        object_type="vless_profile" if sensitive_object else "vless_inbound",
+        object_id=safe_object_id,
         summary=summary,
         details=dict(details or {}),
     )
 
 
 @router.get("/api/security-services/vpn/remote-access", response_class=JSONResponse)
-async def remote_access_state_api(user=Depends(require_permissions("health:view"))) -> JSONResponse:
+async def remote_access_state_api(user=Depends(require_permissions("vpn:view"))) -> JSONResponse:
     return JSONResponse(await run_in_threadpool(remote_access_state))
 
 
 @router.post("/api/security-services/vpn/remote-access", response_class=JSONResponse)
 async def create_remote_access_profile_api(
     payload: dict = Body(default={}),
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         return JSONResponse(await run_in_threadpool(create_remote_access_profile, payload, actor=str(getattr(user, "username", "web") or "web")))
@@ -80,7 +84,7 @@ async def create_remote_access_profile_api(
 @router.delete("/api/security-services/vpn/remote-access/{profile_id}", response_class=JSONResponse)
 async def delete_remote_access_profile_api(
     profile_id: str,
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         return JSONResponse(await run_in_threadpool(delete_remote_access_profile, profile_id))
@@ -94,7 +98,7 @@ async def delete_remote_access_profile_api(
 )
 async def download_remote_access_profile_api(
     profile_id: str,
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:profile:issue")),
 ) -> Response:
     try:
         artifact, filename = await run_in_threadpool(remote_access_profile_artifact, profile_id)
@@ -110,8 +114,19 @@ async def download_remote_access_profile_api(
 
 
 @router.get("/api/security-services/vpn/vless", response_class=JSONResponse)
-async def vless_control_state_api(user=Depends(require_permissions("health:view"))) -> JSONResponse:
+async def vless_control_state_api(user=Depends(require_permissions("vpn:view"))) -> JSONResponse:
     return JSONResponse(await run_in_threadpool(xui_state))
+
+
+@router.get("/api/security-services/vpn/vless/management", response_class=JSONResponse)
+async def vless_management_state_api(user=Depends(require_permissions("vpn:manage"))) -> JSONResponse:
+    state = await run_in_threadpool(xui_management_state)
+    permissions = {str(item) for item in (getattr(user, "permissions", []) or [])}
+    if "vpn:profile:issue" not in permissions:
+        state["capabilities"] = [
+            item for item in list(state.get("capabilities") or []) if item != "clients.profile"
+        ]
+    return JSONResponse(state)
 
 
 def _xui_error(exc: Exception) -> JSONResponse:
@@ -125,7 +140,7 @@ def _xui_error(exc: Exception) -> JSONResponse:
 @router.post("/api/security-services/vpn/vless/inbounds", response_class=JSONResponse)
 async def vless_create_inbound_api(
     payload: dict = Body(default={}),
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         result = await run_in_threadpool(create_inbound, payload)
@@ -139,7 +154,7 @@ async def vless_create_inbound_api(
 async def vless_update_inbound_api(
     inbound_id: int,
     payload: dict = Body(default={}),
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         result = await run_in_threadpool(update_inbound, inbound_id, payload)
@@ -152,7 +167,7 @@ async def vless_update_inbound_api(
 @router.delete("/api/security-services/vpn/vless/inbounds/{inbound_id}", response_class=JSONResponse)
 async def vless_delete_inbound_api(
     inbound_id: int,
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         result = await run_in_threadpool(delete_inbound, inbound_id)
@@ -166,7 +181,7 @@ async def vless_delete_inbound_api(
 async def vless_create_client_api(
     inbound_id: int,
     payload: dict = Body(default={}),
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         result = await run_in_threadpool(create_client, inbound_id, payload)
@@ -177,69 +192,69 @@ async def vless_create_client_api(
 
 
 @router.put(
-    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_id}",
+    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_ref}",
     response_class=JSONResponse,
 )
 async def vless_update_client_api(
     inbound_id: int,
-    client_id: str,
+    client_ref: str,
     payload: dict = Body(default={}),
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
-        result = await run_in_threadpool(update_client, inbound_id, client_id, payload)
-        await _audit_xui(user, action="client.updated", object_id=client_id, summary="Updated VLESS profile", details={"inbound_id": inbound_id, "fields": sorted(payload.keys())})
+        result = await run_in_threadpool(update_client, inbound_id, client_ref, payload)
+        await _audit_xui(user, action="client.updated", object_id=client_ref, summary="Updated VLESS profile", details={"inbound_id": inbound_id, "fields": sorted(payload.keys())})
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001
         return _xui_error(exc)
 
 
 @router.delete(
-    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_id}",
+    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_ref}",
     response_class=JSONResponse,
 )
 async def vless_delete_client_api(
     inbound_id: int,
-    client_id: str,
-    user=Depends(require_permissions("response:run")),
+    client_ref: str,
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
-        result = await run_in_threadpool(delete_client, inbound_id, client_id)
-        await _audit_xui(user, action="client.deleted", object_id=client_id, summary="Deleted VLESS profile", details={"inbound_id": inbound_id})
+        result = await run_in_threadpool(delete_client, inbound_id, client_ref)
+        await _audit_xui(user, action="client.deleted", object_id=client_ref, summary="Deleted VLESS profile", details={"inbound_id": inbound_id})
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001
         return _xui_error(exc)
 
 
 @router.get(
-    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_id}/profile",
+    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_ref}/profile",
     response_class=JSONResponse,
 )
 async def vless_client_profile_api(
     inbound_id: int,
-    client_id: str,
-    user=Depends(require_permissions("response:run")),
+    client_ref: str,
+    user=Depends(require_permissions("vpn:profile:issue")),
 ) -> JSONResponse:
     try:
-        result = await run_in_threadpool(client_profile, inbound_id, client_id)
-        await _audit_xui(user, action="profile.read", object_id=client_id, summary="Issued VLESS profile URI", details={"inbound_id": inbound_id})
+        result = await run_in_threadpool(client_profile, inbound_id, client_ref)
+        await _audit_xui(user, action="profile.read", object_id=client_ref, summary="Issued VLESS profile URI", details={"inbound_id": inbound_id})
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001
         return _xui_error(exc)
 
 
 @router.post(
-    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_id}/reset-traffic",
+    "/api/security-services/vpn/vless/inbounds/{inbound_id}/clients/{client_ref}/reset-traffic",
     response_class=JSONResponse,
 )
 async def vless_reset_client_traffic_api(
     inbound_id: int,
-    client_id: str,
-    user=Depends(require_permissions("response:run")),
+    client_ref: str,
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
-        result = await run_in_threadpool(reset_client_traffic, inbound_id, client_id)
-        await _audit_xui(user, action="client.traffic_reset", object_id=client_id, summary="Reset VLESS profile traffic", details={"inbound_id": inbound_id})
+        result = await run_in_threadpool(reset_client_traffic, inbound_id, client_ref)
+        await _audit_xui(user, action="client.traffic_reset", object_id=client_ref, summary="Reset VLESS profile traffic", details={"inbound_id": inbound_id})
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001
         return _xui_error(exc)
@@ -251,7 +266,7 @@ async def vless_reset_client_traffic_api(
 )
 async def vless_reset_inbound_traffic_api(
     inbound_id: int,
-    user=Depends(require_permissions("response:run")),
+    user=Depends(require_permissions("vpn:manage")),
 ) -> JSONResponse:
     try:
         result = await run_in_threadpool(reset_inbound_traffic, inbound_id)
