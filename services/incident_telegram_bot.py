@@ -558,6 +558,10 @@ class IncidentTelegramBot:
         text = _redact_secret(text, self.config.siem_api_token)
         return text[:300]
 
+    def _telegram_message_missing(self, value: Any) -> bool:
+        message = self._redact_error(value).lower()
+        return "message to edit not found" in message or "message to delete not found" in message
+
     def _touch_incident_state(
         self,
         conn: psycopg.Connection[Any],
@@ -710,6 +714,12 @@ class IncidentTelegramBot:
                 "reason": reason,
             }
         except Exception as exc:  # noqa: BLE001
+            if self._telegram_message_missing(exc):
+                return {
+                    "status": "deleted",
+                    "message_id": int(message_id),
+                    "reason": f"{reason}:already_absent",
+                }
             LOG.warning(
                 "unable to delete stale Telegram incident card %s: %s",
                 message_id,
@@ -1018,6 +1028,26 @@ class IncidentTelegramBot:
         except RuntimeError as exc:
             if "message is not modified" in str(exc).lower():
                 return {"status": "unchanged", "message_id": message_id}
+            if self._telegram_message_missing(exc):
+                try:
+                    replacement = self._send_incident(
+                        incident,
+                        incident_key,
+                        chat_id=chat_id,
+                        timezone_name=timezone_name,
+                        callback_ref=callback_ref,
+                    )
+                    return {**replacement, "reason": "stale_message_replaced"}
+                except Exception as replacement_exc:  # noqa: BLE001
+                    LOG.warning(
+                        "incident card replacement failed: %s",
+                        self._redact_error(replacement_exc),
+                    )
+                    return {
+                        "status": "edit_failed",
+                        "message_id": message_id,
+                        "error": self._redact_error(replacement_exc),
+                    }
             LOG.warning("incident card edit failed; existing card retained: %s", self._redact_error(exc))
             return {"status": "edit_failed", "message_id": message_id, "error": self._redact_error(exc)}
 

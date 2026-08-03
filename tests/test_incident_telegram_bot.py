@@ -228,6 +228,46 @@ class IncidentTelegramBotTests(unittest.TestCase):
         self.assertEqual("edit_failed", result["status"])
         self.assertEqual(["editMessageText"], calls)
 
+    def test_missing_edit_target_is_replaced_once(self) -> None:
+        bot = self._bot()
+        calls: list[str] = []
+
+        def telegram(method: str, _payload: dict) -> dict:
+            calls.append(method)
+            if method == "editMessageText":
+                raise RuntimeError(
+                    'Telegram request failed: editMessageText; {"description":"Bad Request: message to edit not found"}'
+                )
+            return {"ok": True, "result": {"message_id": 77}}
+
+        bot._telegram_request = telegram  # type: ignore[method-assign]
+        result = bot._edit_incident(
+            {"record_id": "agg-1", "status": "open", "title": "SSH burst"},
+            "agg-1",
+            chat_id="12345",
+            message_id=42,
+            timezone_name="Europe/Moscow",
+            callback_ref="callback",
+        )
+
+        self.assertEqual("sent", result["status"])
+        self.assertEqual(77, result["message_id"])
+        self.assertEqual("stale_message_replaced", result["reason"])
+        self.assertEqual(["editMessageText", "sendMessage"], calls)
+
+    def test_missing_delete_target_is_already_deleted(self) -> None:
+        bot = self._bot()
+        bot._telegram_request = lambda *_args, **_kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
+            RuntimeError(
+                'Telegram request failed: deleteMessage; {"description":"Bad Request: message to delete not found"}'
+            )
+        )
+
+        result = bot._delete_incident_card(chat_id="12345", message_id=42, reason="expired")
+
+        self.assertEqual("deleted", result["status"])
+        self.assertEqual("expired:already_absent", result["reason"])
+
     def test_delete_incident_card_uses_telegram_delete_message(self) -> None:
         bot = self._bot()
         calls: list[tuple[str, dict]] = []
