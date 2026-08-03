@@ -166,7 +166,7 @@ export function IncidentQueueWorkspace({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(mode === "agg" ? "active" : "all");
   const [severity, setSeverity] = useState("all");
-  const [windowSize, setWindowSize] = useState(mode === "raw" ? "24h" : "30d");
+  const [windowSize, setWindowSize] = useState("24h");
   const [rowLimit, setRowLimit] = useState(mode === "raw" ? 100 : 200);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<Row | null>(null);
@@ -419,7 +419,7 @@ export function IncidentQueueWorkspace({
             onClick={() => {
               setStatus(mode === "agg" ? "active" : "all");
               setSeverity("all");
-              setWindowSize(mode === "raw" ? "24h" : "30d");
+              setWindowSize("24h");
               setRowLimit(mode === "raw" ? 100 : 200);
               setQueryInput("");
             }}

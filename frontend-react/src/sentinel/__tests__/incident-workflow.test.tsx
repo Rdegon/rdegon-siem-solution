@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IncidentDetailContent } from "../incident-details";
+import { IncidentQueueWorkspace } from "../kuma-workspaces";
 import { api } from "../runtime/api";
 import type { IncidentDetailResponse } from "../runtime/types";
 
@@ -70,5 +71,24 @@ describe("incident workflow forms", () => {
       title: "Confirmed chain",
     });
     expect(await screen.findByText("Создан инцидент manual:new")).toBeInTheDocument();
+  });
+
+  it("loads the active incident queue with the Telegram-aligned 24 hour window", async () => {
+    const incidents = vi.spyOn(api, "incidents").mockResolvedValue({
+      view: "agg",
+      items: [],
+      available_count: 0,
+      metrics: {},
+      scope: "main",
+      notification_delivery: {},
+    });
+
+    render(<IncidentQueueWorkspace mode="agg" notify={vi.fn()} />);
+
+    await waitFor(() => expect(incidents).toHaveBeenCalledWith(expect.objectContaining({
+      view: "agg",
+      window: "24h",
+      include_terminal: false,
+    })));
   });
 });
