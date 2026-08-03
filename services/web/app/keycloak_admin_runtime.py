@@ -249,6 +249,17 @@ def _role_summary(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _role_mapping_representation(item: dict[str, Any]) -> dict[str, Any]:
+    """Convert the UI-facing role summary back to Keycloak's wire format."""
+    return {
+        "id": _string(item.get("id")),
+        "name": _string(item.get("name")),
+        "description": _string(item.get("description")),
+        "composite": bool(item.get("composite", False)),
+        "clientRole": bool(item.get("client_role", item.get("clientRole", False))),
+    }
+
+
 def _client_summary(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": _string(item.get("id")),
@@ -608,7 +619,11 @@ def set_user_roles(user_id: str, payload: dict[str, Any], *, actor: str = "syste
             removing_admin=admin_role in current_roles and admin_role not in desired_names,
         )
         token = _auth_token()
-        to_remove = [current_roles[name] for name in sorted(set(current_roles) - desired_names) if name in current_roles]
+        to_remove = [
+            _role_mapping_representation(current_roles[name])
+            for name in sorted(set(current_roles) - desired_names)
+            if name in current_roles
+        ]
         if to_remove:
             status, response_payload, _ = _request(
                 f"/users/{urllib.parse.quote(_string(user_id))}/role-mappings/realm",
@@ -617,7 +632,10 @@ def set_user_roles(user_id: str, payload: dict[str, Any], *, actor: str = "syste
                 token=token,
             )
             _ensure_ok(status, response_payload, allowed={204})
-        to_add = [role_index[name] for name in sorted(desired_names - set(current_roles))]
+        to_add = [
+            _role_mapping_representation(role_index[name])
+            for name in sorted(desired_names - set(current_roles))
+        ]
         if to_add:
             status, response_payload, _ = _request(
                 f"/users/{urllib.parse.quote(_string(user_id))}/role-mappings/realm",

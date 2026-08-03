@@ -119,6 +119,31 @@ class KeycloakAdminRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Unknown Keycloak realm roles"):
                     self.runtime.set_user_roles("user-1", {"roles": ["made-up-role"]}, actor="admin")
 
+    def test_set_user_roles_uses_keycloak_role_representation(self) -> None:
+        current = {
+            "id": "user-1",
+            "username": "alice",
+            "enabled": True,
+            "roles": [{"id": "role-1", "name": "analyst", "client_role": False}],
+        }
+        updated = {**current, "roles": []}
+        calls = []
+
+        def fake_request(path_or_url: str, *, method: str = "GET", payload=None, token: str = "", form=None):
+            calls.append((path_or_url, method, payload, token, form))
+            return 204, {}, {}
+
+        with patch("keycloak_admin_runtime.list_roles", return_value=[{"id": "role-1", "name": "analyst", "client_role": False}]):
+            with patch("keycloak_admin_runtime.get_user", side_effect=[current, updated]):
+                with patch("keycloak_admin_runtime._auth_token", return_value="token"):
+                    with patch("keycloak_admin_runtime._request", side_effect=fake_request):
+                        with patch("keycloak_admin_runtime.append_audit_event"):
+                            self.runtime.set_user_roles("user-1", {"roles": []}, actor="admin")
+
+        role_payload = calls[0][2][0]
+        self.assertIn("clientRole", role_payload)
+        self.assertNotIn("client_role", role_payload)
+
     def test_delete_user_rejects_current_principal(self) -> None:
         detail = {"id": "user-1", "username": "alice", "enabled": True, "roles": []}
         with patch("keycloak_admin_runtime.get_user", return_value=detail):
