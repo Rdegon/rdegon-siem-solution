@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,6 +15,7 @@ TERMINAL_INCIDENT_STATUSES = {
     "expired",
     "false_positive",
     "merged",
+    "resolved",
     "suppressed",
     "suppressed_by_tuning",
 }
@@ -36,6 +39,45 @@ def incident_record_key(row: dict[str, Any], view: str) -> str:
         or row.get("id")
     )
     return _text(value, limit=800)
+
+
+def incident_delivery_key(row: dict[str, Any], view: str) -> str:
+    normalized_view = "raw" if str(view or "").strip().lower() == "raw" else "agg"
+    if normalized_view == "raw":
+        return incident_record_key(row, normalized_view)
+
+    group = row.get("group_key")
+    if not isinstance(group, dict):
+        raw_group = row.get("group_key_json")
+        try:
+            parsed_group = json.loads(raw_group) if isinstance(raw_group, str) and raw_group.strip() else {}
+        except (TypeError, ValueError):
+            parsed_group = {}
+        group = parsed_group if isinstance(parsed_group, dict) else {}
+    value = (
+        group.get("incident_key")
+        or group.get("agg_id")
+        or row.get("aggregation_key")
+        or incident_record_key(row, normalized_view)
+    )
+    return _text(value, limit=800)
+
+
+def _aggregation_fingerprint(delivery_key: str) -> str:
+    if not delivery_key:
+        return ""
+    return hashlib.sha256(f"agg|{delivery_key}".encode("utf-8")).hexdigest()
+
+
+def _delivery_is_active(delivery: dict[str, Any]) -> bool:
+    if "active" in delivery:
+        return bool(delivery.get("active"))
+    delivery_status = _text(delivery.get("delivery_status")).lower()
+    incident_status = _text(delivery.get("incident_status")).lower()
+    return (
+        delivery_status not in {"deleted", "expired", "skipped", "telegram_disabled"}
+        and incident_status not in TERMINAL_INCIDENT_STATUSES
+    )
 
 
 def record_incident_delivery(payload: dict[str, Any], *, actor: str) -> dict[str, Any]:
@@ -191,28 +233,58 @@ def enrich_incidents_with_delivery(
             "synchronized": True,
             "updated_at": "",
         }
-    rows = load_control_plane_rows(COLLECTION_NAME)
-    delivery_by_incident = {
-        _text(row.get("incident_key"), limit=800): dict(row)
-        for row in rows
-        if isinstance(row, dict)
-        and _text(row.get("incident_view")).lower() == normalized_view
-        and _text(row.get("channel")).lower() == "telegram"
-    }
+    rows = sorted(
+        (
+            dict(row)
+            for row in load_control_plane_rows(COLLECTION_NAME)
+            if isinstance(row, dict)
+            and _text(row.get("incident_view")).lower() == normalized_view
+            and _text(row.get("channel")).lower() == "telegram"
+        ),
+        key=lambda row: _text(row.get("updated_at")),
+        reverse=True,
+    )
+    delivery_by_incident: dict[str, dict[str, Any]] = {}
+    delivery_by_scope: dict[str, dict[str, Any]] = {}
+    delivery_by_fingerprint: dict[str, dict[str, Any]] = {}
+    for delivery in rows:
+        incident_key = _text(delivery.get("incident_key"), limit=800)
+        delivery_key = _text(delivery.get("delivery_key") or incident_key, limit=800)
+        aggregation_fingerprint = _text(delivery.get("aggregation_fingerprint"), limit=160)
+        if incident_key:
+            delivery_by_incident.setdefault(incident_key, delivery)
+        if delivery_key:
+            delivery_by_scope.setdefault(delivery_key, delivery)
+        if aggregation_fingerprint:
+            delivery_by_fingerprint.setdefault(aggregation_fingerprint, delivery)
     enriched: list[dict[str, Any]] = []
     delivered = 0
     pending = 0
     failed = 0
+    untracked = 0
+    queue_count = 0
     active_message_ids: set[int] = set()
     retracted = 0
+    matched_updates: list[str] = []
     for source in items:
         row = dict(source)
         incident_key = incident_record_key(row, normalized_view)
-        delivery = delivery_by_incident.get(incident_key)
+        delivery_key = incident_delivery_key(row, normalized_view)
+        aggregation_fingerprint = _aggregation_fingerprint(delivery_key)
+        delivery = (
+            delivery_by_incident.get(incident_key)
+            or delivery_by_scope.get(delivery_key)
+            or delivery_by_fingerprint.get(aggregation_fingerprint)
+        )
+        incident_status = _text(row.get("status") or "new").lower()
+        is_terminal_incident = incident_status in TERMINAL_INCIDENT_STATUSES
+        if not is_terminal_incident:
+            queue_count += 1
         if delivery:
             row["notification_delivery"] = delivery
             status = _text(delivery.get("delivery_status")).lower()
-            is_active = bool(delivery.get("active", True))
+            is_active = _delivery_is_active(delivery)
+            matched_updates.append(_text(delivery.get("updated_at")))
             if is_active and int(delivery.get("message_id") or 0) > 0:
                 active_message_ids.add(int(delivery.get("message_id") or 0))
             if status in {"sent", "edited", "unchanged"} and is_active:
@@ -223,25 +295,34 @@ def enrich_incidents_with_delivery(
                 retracted += 1
             else:
                 pending += 1
+        elif is_terminal_incident:
+            row["notification_delivery"] = {
+                "channel": "telegram",
+                "delivery_status": "not_recorded",
+                "incident_key": incident_key,
+                "delivery_key": delivery_key,
+                "reason": "terminal_incident_has_no_recorded_delivery",
+            }
+            untracked += 1
         else:
             row["notification_delivery"] = {
                 "channel": "telegram",
                 "delivery_status": "pending",
                 "incident_key": incident_key,
+                "delivery_key": delivery_key,
             }
             pending += 1
         enriched.append(row)
     return enriched, {
         "channel": "telegram",
-        "queue_count": len(enriched),
+        "queue_count": queue_count,
+        "record_count": len(enriched),
         "delivered": delivered,
         "pending": pending,
         "failed": failed,
+        "untracked": untracked,
         "active_cards": len(active_message_ids),
         "retracted": retracted,
         "synchronized": pending == 0 and failed == 0,
-        "updated_at": max(
-            (_text(item.get("updated_at")) for item in delivery_by_incident.values()),
-            default="",
-        ),
+        "updated_at": max(matched_updates, default=""),
     }

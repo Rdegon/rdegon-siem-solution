@@ -164,6 +164,8 @@ export function RecordDetails({ value, kind }: { value: Row; kind: DetailKind })
 export function RuntimeOverviewCards({ ingest, health, certification }: { ingest: Row; health: Row; certification: Row }) {
   const ingestMetrics = asRow(ingest.metrics) ?? {};
   const platform = asRow(health.platform) ?? {};
+  const contentStore = asRow(platform.content_store_status) ?? {};
+  const contentStoreCollections = asRow(contentStore.collection_counts) ?? {};
   const transport = asRow(ingest.transport) ?? {};
   const streams = asRow(ingest.streams) ?? {};
   const rawStream = asRow(streams.raw) ?? {};
@@ -195,9 +197,16 @@ export function RuntimeOverviewCards({ ingest, health, certification }: { ingest
         <div><dt>Consumer lag</dt><dd>{number(benchmark.max_observed_consumer_lag).toLocaleString("ru-RU")}</dd></div>
         <div><dt>Обновлено</dt><dd>{formatTime(certification.last_updated_ts)}</dd></div>
       </dl></section>
-      <section className="record-detail-card"><header><h3>Storage и control plane</h3><StatusCell value={platform.clickhouse_ok ? "Healthy" : "Degraded"} /></header><dl>
+      <section className="record-detail-card"><header><h3>Storage и control plane</h3><StatusCell value={platform.clickhouse_ok && contentStore.healthy !== false ? "Healthy" : "Degraded"} /></header><dl>
         <div><dt>ClickHouse</dt><dd>{platform.clickhouse_ok ? "Доступен" : "Недоступен"}</dd></div>
-        <div><dt>Content store</dt><dd>{text(platform.content_store_status ?? platform.content_store_backend)}</dd></div>
+        <div><dt>Content store</dt><dd><StatusCell value={contentStore.healthy === false ? "Degraded" : "Healthy"} /></dd></div>
+        <div><dt>Backend</dt><dd>{text(contentStore.backend ?? platform.content_store_backend)}</dd></div>
+        <div><dt>Requested backend</dt><dd>{text(contentStore.requested_backend)}</dd></div>
+        <div><dt>MongoDB</dt><dd><StatusCell value={contentStore.mongo_healthy === false ? "Degraded" : "Healthy"} /></dd></div>
+        <div><dt>Database</dt><dd>{text(contentStore.mongo_db)}</dd></div>
+        <div><dt>Migration</dt><dd><StatusCell value={text(contentStore.migration_status, "Unknown")} /></dd></div>
+        <div className="record-detail-wide"><dt>Collections</dt><dd><ValueView field="collection_counts" value={contentStoreCollections} /></dd></div>
+        {!empty(contentStore.fallback_reason) ? <div className="record-detail-wide"><dt>Fallback reason</dt><dd>{text(contentStore.fallback_reason)}</dd></div> : null}
         <div><dt>Stream correlation</dt><dd><ValueView field="stream_correlation" value={platform.stream_correlation} /></dd></div>
         <div><dt>События 5 мин</dt><dd>{number(platform.events_5m).toLocaleString("ru-RU")}</dd></div>
         <div><dt>Алерты 24 ч</dt><dd>{number(platform.alerts_24h).toLocaleString("ru-RU")}</dd></div>

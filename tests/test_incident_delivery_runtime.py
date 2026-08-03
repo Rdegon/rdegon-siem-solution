@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import patch
 
 from services.web.app.incident_delivery_runtime import (
     enrich_incidents_with_delivery,
     record_incident_delivery,
 )
+
+
+def _fingerprint(delivery_key: str) -> str:
+    return hashlib.sha256(f"agg|{delivery_key}".encode("utf-8")).hexdigest()
 
 
 def test_record_delivery_persists_and_deduplicates_unchanged_state() -> None:
@@ -111,9 +116,11 @@ def test_enrich_incidents_reports_telegram_queue_state() -> None:
     assert summary == {
         "channel": "telegram",
         "queue_count": 3,
+        "record_count": 3,
         "delivered": 1,
         "pending": 1,
         "failed": 1,
+        "untracked": 0,
         "active_cards": 1,
         "retracted": 0,
         "synchronized": False,
@@ -186,6 +193,89 @@ def test_terminal_delivery_is_not_counted_as_an_active_card() -> None:
 
     assert summary["active_cards"] == 0
     assert summary["retracted"] == 1
+
+
+def test_delivery_scope_matches_raw_scan_alias_used_by_terminal_view() -> None:
+    delivery = {
+        "incident_key": "agg:materialized-alias",
+        "delivery_key": "asset:web-01|campaign:authentication",
+        "aggregation_fingerprint": _fingerprint("asset:web-01|campaign:authentication"),
+        "incident_view": "agg",
+        "channel": "telegram",
+        "delivery_status": "deleted",
+        "incident_status": "closed",
+        "message_id": 0,
+        "active": False,
+        "updated_at": "2026-07-29T12:03:00Z",
+    }
+    raw_scan_row = {
+        "agg_id": "asset:web-01|campaign:authentication",
+        "record_id": "asset:web-01|campaign:authentication",
+        "group_key": {"incident_key": "asset:web-01|campaign:authentication"},
+        "status": "closed",
+    }
+
+    with patch(
+        "services.web.app.incident_delivery_runtime.load_control_plane_rows",
+        return_value=[delivery],
+    ):
+        items, summary = enrich_incidents_with_delivery([raw_scan_row], view="agg")
+
+    assert items[0]["notification_delivery"]["delivery_status"] == "deleted"
+    assert summary["queue_count"] == 0
+    assert summary["pending"] == 0
+    assert summary["retracted"] == 1
+    assert summary["updated_at"] == "2026-07-29T12:03:00Z"
+
+
+def test_delivery_fingerprint_matches_when_both_incident_aliases_changed() -> None:
+    stable_scope = "asset:web-01|campaign:authentication"
+    delivery = {
+        "incident_key": "old-runtime-id",
+        "delivery_key": "old-delivery-alias",
+        "aggregation_fingerprint": _fingerprint(stable_scope),
+        "incident_view": "agg",
+        "channel": "telegram",
+        "delivery_status": "edited",
+        "incident_status": "open",
+        "message_id": 99,
+        "active": True,
+        "updated_at": "2026-07-29T12:04:00Z",
+    }
+    current_row = {
+        "record_id": "new-runtime-id",
+        "group_key_json": '{"incident_key":"asset:web-01|campaign:authentication"}',
+        "status": "open",
+    }
+
+    with patch(
+        "services.web.app.incident_delivery_runtime.load_control_plane_rows",
+        return_value=[delivery],
+    ):
+        items, summary = enrich_incidents_with_delivery([current_row], view="agg")
+
+    assert items[0]["notification_delivery"]["delivery_status"] == "edited"
+    assert summary["delivered"] == 1
+    assert summary["pending"] == 0
+    assert summary["active_cards"] == 1
+
+
+def test_terminal_incident_without_delivery_is_untracked_not_pending() -> None:
+    with patch(
+        "services.web.app.incident_delivery_runtime.load_control_plane_rows",
+        return_value=[],
+    ):
+        items, summary = enrich_incidents_with_delivery(
+            [{"agg_id": "INC-old", "status": "false_positive"}],
+            view="agg",
+        )
+
+    assert items[0]["notification_delivery"]["delivery_status"] == "not_recorded"
+    assert summary["queue_count"] == 0
+    assert summary["record_count"] == 1
+    assert summary["pending"] == 0
+    assert summary["untracked"] == 1
+    assert summary["synchronized"] is True
 
 
 def test_raw_alert_view_never_reports_independent_notification_fanout() -> None:
